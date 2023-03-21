@@ -136,10 +136,11 @@ class uorfNoGanModel(BaseModel):
 
         # Encoding images
         feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-        feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
+        feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+        # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
         # Slot Attention
-        z_slots, attn = self.netSlotAttention(feat)  # 1xKxC, 1xKxN
+        z_slots, attn = self.netSlotAttention(feat)  # 1xKxC, 1xKxN (N=HxW)
         z_slots, attn = z_slots.squeeze(0), attn.squeeze(0)  # KxC, KxN
         K = attn.shape[0]
 
