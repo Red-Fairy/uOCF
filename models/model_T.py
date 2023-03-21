@@ -167,7 +167,7 @@ class Decoder(nn.Module):
         self.b_before = nn.Sequential(*before_skip)
         self.b_after = nn.Sequential(*after_skip)
 
-    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, dens_noise=0.):
+    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0.):
         """
         1. pos emb by Fourier
         2. for each slot, decode all points from coord and slot feature
@@ -176,6 +176,7 @@ class Decoder(nn.Module):
             sampling_coor_fg: (K-1)xPx3
             z_slots: KxC, K: #slots, C: #feat_dim
             fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
+            fg_slot_position: (K-1)x3 in nss space
             dens_noise: Noise added to density
         """
         K, C = z_slots.shape
@@ -190,6 +191,9 @@ class Decoder(nn.Module):
             sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
             sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
             outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+            
+        # relative position with fg slot position
+        sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :, None] # (K-1)xPx3x1
 
         z_bg = z_slots[0:1, :]  # 1xC
         z_fg = z_slots[1:, :]  # (K-1)xC
@@ -359,7 +363,7 @@ class SlotAttention(nn.Module):
 
                 slots = torch.cat([slot_bg, slot_fg], dim=1)
                 
-        return slots, attn
+        return slots, attn, fg_position
 
 
 def sin_emb(x, n_freq=5, keep_ori=True):

@@ -2,6 +2,43 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 
+def pixel2world(slot_pixel_coord, cam2world, H, W):
+    '''
+    slot_pixel_coord: (K-1) * 2 on the image plane, x and y coord are in range [-1, 1]
+    cam2world: 4 * 4
+    H, w: image height and width
+    output: convert the slot pixel coord to world coord, then project to the XY plane in the world coord, 
+            finally convert to NSS coord
+    '''
+    device = slot_pixel_coord.device
+    focal_ratio = (350. / 320., 350. / 240.)
+    focal_x, focal_y = focal_ratio[0] * W, focal_ratio[1] * H
+    bias_x, bias_y = (W - 1.) / 2., (H - 1.) / 2.
+    intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
+                              [0, focal_y, bias_y, 0],
+                              [0, 0, 1, 0],
+                              [0, 0, 0, 1]]).to(device)
+    spixel2cam = intrinsic.inverse()
+    nss_scale = 7
+    world2nss = torch.tensor([[1/nss_scale, 0, 0, 0],
+                                [0, 1/nss_scale, 0, 0],
+                                [0, 0, 1/nss_scale, 0],
+                                [0, 0, 0, 1]]).unsqueeze(0).to(device)
+    
+    # convert to pixel coord [0, W-1] and [0, H-1]
+    slot_pixel_coord = (slot_pixel_coord + 1) / 2 * torch.tensor([W, H]).to(device) # (K-1) * 2
+    # append 1 to the end
+    slot_pixel_coord = torch.cat([slot_pixel_coord, torch.ones_like(slot_pixel_coord[:, :1])], dim=1) # (K-1) * 3
+    # convert to cam coord
+    slot_cam_coord = torch.matmul(spixel2cam[:3, :3], slot_pixel_coord.t()).t() # (K-1) * 3
+    # append 1 to the end, and covert to world coord
+    slot_world_coord = torch.matmul(cam2world, torch.cat([slot_cam_coord, torch.ones_like(slot_cam_coord[:, :1])], dim=1).t()).t() # (K-1) * 4
+    # normalize
+    slot_world_coord = slot_world_coord / slot_world_coord[:, 3:]
+    # project to the XY plane
+    ray = slot_world_coord[:, :3] - cam2world[:3, 3:] # (K-1) * 3
+    XY_pos = cam2world[:3, 3:] + ray * (-cam2world[2, 3] / ray[:, 2:]) # (K-1) * 3
+    return torch.matmul(world2nss, XY_pos.t()).t() # (K-1) * 3
 
 class Projection(object):
     def __init__(self, focal_ratio=(350. / 320., 350. / 240.),
@@ -29,6 +66,30 @@ class Projection(object):
                                       [0, 0, 0, 1]])
         self.cam2spixel = intrinsic_mat.to(self.device)
         self.spixel2cam = intrinsic_mat.inverse().to(self.device)
+        
+    # def pixel2world(self, slot_pixel_coord, cam2world, H, W):
+    #     '''
+    #     slot_pixel_coord: (K-1) * 2 on the image plane, x and y coord are in range [-1, 1]
+    #     cam2world: 4 * 4
+    #     H, w: image height and width
+    #     output: convert the slot pixel coord to world coord, then project to the XY plane in the world coord, 
+    #             finally convert to NSS coord
+    #     '''
+    #     # convert to pixel coord [0, W-1] and [0, H-1]
+    #     slot_pixel_coord = (slot_pixel_coord + 1) / 2 * torch.tensor([W, H]).to(self.device) # (K-1) * 2
+    #     # append 1 to the end
+    #     slot_pixel_coord = torch.cat([slot_pixel_coord, torch.ones_like(slot_pixel_coord[:, :1])], dim=1) # (K-1) * 3
+    #     # convert to cam coord
+    #     slot_cam_coord = torch.matmul(self.spixel2cam[:3, :3], slot_pixel_coord.t()).t() # (K-1) * 3
+    #     # append 1 to the end, and covert to world coord
+    #     slot_world_coord = torch.matmul(cam2world, torch.cat([slot_cam_coord, torch.ones_like(slot_cam_coord[:, :1])], dim=1).t()).t() # (K-1) * 4
+    #     # normalize
+    #     slot_world_coord = slot_world_coord / slot_world_coord[:, 3:]
+    #     # project to the XY plane
+    #     ray = slot_world_coord[:, :3] - cam2world[:3, 3:] # (K-1) * 3
+    #     XY_pos = cam2world[:3, 3:] + ray * (-cam2world[2, 3] / ray[:, 2:]) # (K-1) * 3
+    #     return torch.matmul(self.world2nss, XY_pos.t()).t() # (K-1) * 3
+        
 
     def construct_frus_coor(self):
         x = torch.arange(self.frustum_size[0])

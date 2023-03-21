@@ -10,6 +10,7 @@ import time
 from .projection import Projection
 from torchvision.transforms import Normalize
 from .model import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs
+from .projection import pixel2world
 
 
 class uorfNoGanModel(BaseModel):
@@ -132,16 +133,20 @@ class uorfNoGanModel(BaseModel):
         self.loss_recon = 0
         self.loss_perc = 0
         dev = self.x[0:1].device
+        cam2world = self.cam2world[0:1]
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
         feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+        H, W = feat.shape[1:3]
         # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
         # Slot Attention
-        z_slots, attn = self.netSlotAttention(feat)  # 1xKxC, 1xKxN (N=HxW)
-        z_slots, attn = z_slots.squeeze(0), attn.squeeze(0)  # KxC, KxN
+        z_slots, attn, fg_slot_position = self.netSlotAttention(feat)  # 1xKxC, 1xKxN (N=HxW)
+        z_slots, attn, fg_slot_position = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0)  # KxC, KxN, K-1x2
+        fg_slot_nss_position = pixel2world(fg_slot_position, cam2world, H, W)  # (K-1)x3
+        
         K = attn.shape[0]
 
         cam2world = self.cam2world
