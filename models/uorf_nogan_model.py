@@ -9,7 +9,7 @@ import os
 import time
 from .projection import Projection
 from torchvision.transforms import Normalize
-from .model import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs
+from .model_T import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs
 from .projection import pixel2world
 
 
