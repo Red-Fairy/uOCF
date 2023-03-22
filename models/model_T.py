@@ -191,9 +191,9 @@ class Decoder(nn.Module):
             sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
             sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
             outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
-            
+        
         # relative position with fg slot position
-        sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :, None] # (K-1)xPx3x1
+        sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # (K-1)xPx3
 
         z_bg = z_slots[0:1, :]  # 1xC
         z_fg = z_slots[1:, :]  # (K-1)xC
@@ -213,6 +213,7 @@ class Decoder(nn.Module):
         fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
         fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
         if self.locality:
+            # print(outsider_idx.shape, outsider_idx.min(), outsider_idx.max(), fg_raw_shape.shape)
             fg_raw_shape[outsider_idx] *= 0
         fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
 
@@ -296,7 +297,7 @@ class SlotAttention(nn.Module):
         slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
 
         feat = self.norm_feat(feat)
-        k_bg, v_bg = self.to_kv(feat, None) # (B,1,N,C)
+        k_bg, v_bg = self.to_kv(feat, H, W, None) # (B,1,N,C)
 
         # attn = None
         for it in range(self.iters):
@@ -305,9 +306,9 @@ class SlotAttention(nn.Module):
             q_fg = self.to_q(slot_fg)
             q_bg = self.to_q_bg(slot_bg) # (B,1,C)
             
-            attn = torch.empty(B, K, N, device=k.device)
+            attn = torch.empty(B, K, N, device=feat.device)
             
-            k, v = self.to_kv(feat, fg_position, H, W) # (B,K-1,N,C)
+            k, v = self.to_kv(feat, H, W, fg_position) # (B,K-1,N,C)
             # k, v = torch.stack([k, k_bg], dim=1), torch.stack([v, v_bg], dim=1) # (B,K,N,C)
             
             for i in range(K):

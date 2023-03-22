@@ -9,8 +9,7 @@ import os
 import time
 from .projection import Projection
 from torchvision.transforms import Normalize
-from .model_T import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs
-from .projection import pixel2world
+from .model import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs
 
 
 class uorfNoGanModel(BaseModel):
@@ -18,11 +17,9 @@ class uorfNoGanModel(BaseModel):
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
         """Add new model-specific options and rewrite default values for existing options.
-
         Parameters:
             parser -- the option parser
             is_train -- if it is training phase or test phase. You can use this flag to add training-specific or test-specific options.
-
         Returns:
             the modified parser.
         """
@@ -60,10 +57,8 @@ class uorfNoGanModel(BaseModel):
 
     def __init__(self, opt):
         """Initialize this model class.
-
         Parameters:
             opt -- training/test options
-
         A few things can be done here.
         - (required) call the initialization function of BaseModel
         - define loss function, visualization images, model names, and optimizers
@@ -117,7 +112,6 @@ class uorfNoGanModel(BaseModel):
 
     def set_input(self, input):
         """Unpack input data from the dataloader and perform necessary pre-processing steps.
-
         Parameters:
             input: a dictionary that contains the data itself and its metadata information.
         """
@@ -133,20 +127,15 @@ class uorfNoGanModel(BaseModel):
         self.loss_recon = 0
         self.loss_perc = 0
         dev = self.x[0:1].device
-        cam2world = self.cam2world[0:1]
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
         feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-        feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-        H, W = feat.shape[1:3]
-        # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
+        feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
         # Slot Attention
-        z_slots, attn, fg_slot_position = self.netSlotAttention(feat)  # 1xKxC, 1xKxN (N=HxW)
-        z_slots, attn, fg_slot_position = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0)  # KxC, KxN, K-1x2
-        fg_slot_nss_position = pixel2world(fg_slot_position, cam2world, H, W)  # (K-1)x3
-        
+        z_slots, attn = self.netSlotAttention(feat)  # 1xKxC, 1xKxN
+        z_slots, attn = z_slots.squeeze(0), attn.squeeze(0)  # KxC, KxN
         K = attn.shape[0]
 
         cam2world = self.cam2world
@@ -252,7 +241,6 @@ class uorfNoGanModel(BaseModel):
 
     def save_networks(self, surfix):
         """Save all the networks to the disk.
-
         Parameters:
             surfix (int or str) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
@@ -269,7 +257,6 @@ class uorfNoGanModel(BaseModel):
 
     def load_networks(self, surfix):
         """Load all the networks from the disk.
-
         Parameters:
             surfix (int or str) -- current epoch; used in he file name '%s_net_%s.pth' % (epoch, name)
         """

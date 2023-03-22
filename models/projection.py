@@ -20,10 +20,9 @@ def pixel2world(slot_pixel_coord, cam2world, H, W):
                               [0, 0, 0, 1]]).to(device)
     spixel2cam = intrinsic.inverse()
     nss_scale = 7
-    world2nss = torch.tensor([[1/nss_scale, 0, 0, 0],
-                                [0, 1/nss_scale, 0, 0],
-                                [0, 0, 1/nss_scale, 0],
-                                [0, 0, 0, 1]]).unsqueeze(0).to(device)
+    world2nss = torch.tensor([[1/nss_scale, 0, 0],
+                                [0, 1/nss_scale, 0],
+                                [0, 0, 1/nss_scale]]).to(device)
     
     # convert to pixel coord [0, W-1] and [0, H-1]
     slot_pixel_coord = (slot_pixel_coord + 1) / 2 * torch.tensor([W, H]).to(device) # (K-1) * 2
@@ -36,8 +35,8 @@ def pixel2world(slot_pixel_coord, cam2world, H, W):
     # normalize
     slot_world_coord = slot_world_coord / slot_world_coord[:, 3:]
     # project to the XY plane
-    ray = slot_world_coord[:, :3] - cam2world[:3, 3:] # (K-1) * 3
-    XY_pos = cam2world[:3, 3:] + ray * (-cam2world[2, 3] / ray[:, 2:]) # (K-1) * 3
+    ray = slot_world_coord[:, :3] - cam2world[:3, 3:].view(1, 3) # (K-1) * 3
+    XY_pos = slot_world_coord[:, :3] - ray * (slot_world_coord[:, 2:3] / ray[:, 2:]) # (K-1) * 3
     return torch.matmul(world2nss, XY_pos.t()).t() # (K-1) * 3
 
 class Projection(object):
