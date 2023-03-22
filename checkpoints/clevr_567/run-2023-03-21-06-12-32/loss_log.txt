@@ -993,3 +993,7 @@
 (epoch: 198, iters: 400, time: 2.465, data: 0.023) recon: 0.0067 perc: 1.2699 
 (epoch: 198, iters: 600, time: 2.284, data: 0.081) recon: 0.0067 perc: 1.2566 
 (epoch: 198, iters: 800, time: 2.257, data: 0.022) recon: 0.0067 perc: 1.2478 
+(epoch: 198, iters: 1000, time: 2.274, data: 0.129) recon: 0.0067 perc: 1.2451 
+(epoch: 199, iters: 200, time: 2.299, data: 0.023) recon: 0.0069 perc: 1.2712 
+(epoch: 199, iters: 400, time: 2.428, data: 0.023) recon: 0.0069 perc: 1.2831 
+(epoch: 199, iters: 600, time: 2.281, data: 0.024) recon: 0.0072 perc: 1.3189 
