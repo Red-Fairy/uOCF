@@ -45,4 +45,8 @@ if __name__ == '__main__':
             losses[loss_name] = meters_tst[loss_name].avg
         visualizer.print_test_losses('average', losses)
 
+        print(model.fg_slot_position)
+
+        break
+
     webpage.save()

@@ -25,7 +25,7 @@ def pixel2world(slot_pixel_coord, cam2world, H, W):
                                 [0, 0, 1/nss_scale]]).to(device)
     
     # convert to pixel coord [0, W-1] and [0, H-1]
-    slot_pixel_coord = (slot_pixel_coord + 1) / 2 * torch.tensor([W, H]).to(device) # (K-1) * 2
+    slot_pixel_coord = (slot_pixel_coord + 1) / 2 * torch.tensor([W-1, H-1]).to(device) # (K-1) * 2
     # append 1 to the end
     slot_pixel_coord = torch.cat([slot_pixel_coord, torch.ones_like(slot_pixel_coord[:, :1])], dim=1) # (K-1) * 3
     # convert to cam coord

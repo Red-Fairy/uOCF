@@ -52,6 +52,8 @@ class BaseOptions():
         parser.add_argument('--display_env', type=str, default='main',
                             help='visdom display environment name (default is "main")')
         parser.add_argument('--display_port', type=int, default=8097, help='visdom port of the web display')
+        # model settings
+        parser.add_argument('--project', action='store_true', help='project the slot coord and add to slot latent')
 
         self.initialized = True
         return parser

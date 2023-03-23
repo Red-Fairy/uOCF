@@ -194,10 +194,12 @@ class BaseModel(ABC):
                     state_dict = torch.load(load_path, map_location=self.device)
                     if hasattr(state_dict, '_metadata'):
                         del state_dict._metadata
-                    net.load_state_dict(state_dict, strict=False)
+                    net.load_state_dict(state_dict, strict=True)
                 except FileNotFoundError:
+                    assert False
                     print('not found: {} not found, skip {}'.format(load_path, name))
                 except RuntimeError:
+                    assert False
                     print('Size mismatch for {}, skip {}'.format(name, name))
 
     def print_networks(self, verbose):

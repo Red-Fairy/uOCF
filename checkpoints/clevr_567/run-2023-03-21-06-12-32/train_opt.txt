@@ -6,7 +6,7 @@
                    bottom: False                         
           checkpoints_dir: checkpoints                   	[default: ./checkpoints]
              coarse_epoch: 600                           
-           continue_train: False                         
+           continue_train: True                          	[default: False]
                 custom_lr: True                          
                  dataroot: /viscam/u/redfairy/datasets/clevr567/train	[default: None]
              dataset_mode: multiscenes                   
@@ -19,8 +19,8 @@
              display_port: 12783                         	[default: 8097]
            display_server: http://localhost              
                     epoch: latest                        
-              epoch_count: 0                             
-                   exp_id: run-2023-03-21-06-12-32       
+              epoch_count: 249                           	[default: 0]
+                   exp_id: run-2023-03-21-06-12-32       	[default: run-2023-03-22-09-30-35]
                 far_plane: 20                            
            fixed_locality: False                         
              frustum_size: 64                            
@@ -57,6 +57,7 @@
                percept_in: 100                           
                     phase: train                         
                print_freq: 200                           	[default: 100]
+                  project: False                         
               render_size: 64                            
              save_by_iter: False                         
           save_epoch_freq: 5                             
