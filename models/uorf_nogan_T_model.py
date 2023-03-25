@@ -28,7 +28,7 @@ class uorfNoGanTModel(BaseModel):
 		"""
 		parser.add_argument('--num_slots', metavar='K', type=int, default=8, help='Number of supported slots')
 		parser.add_argument('--z_dim', type=int, default=64, help='Dimension of individual z latent per slot')
-		parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
+		parser.add_argument('--attn_iter', type=int, default=4, help='Number of refine iteration in slot attention')
 		parser.add_argument('--warmup_steps', type=int, default=1000, help='Warmup steps')
 		parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
 		parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
@@ -146,7 +146,7 @@ class uorfNoGanTModel(BaseModel):
 		# Slot Attention
 		z_slots, attn, fg_slot_position = self.netSlotAttention(feat)  # 1xKxC, 1xKxN (N=HxW)
 		z_slots, attn, fg_slot_position = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0)  # KxC, KxN, K-1x2
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, feat.shape[1], feat.shape[2])  # K-1x3
+		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # K-1x3
 		
 		K = attn.shape[0]
 
@@ -201,7 +201,7 @@ class uorfNoGanTModel(BaseModel):
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 			setattr(self, 'attn', attn)
-			setattr(self, 'fg_slot_position', fg_slot_position)
+			setattr(self, 'fg_slot_image_position', fg_slot_position)
 
 	def compute_visuals(self):
 		with torch.no_grad():

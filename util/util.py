@@ -18,7 +18,12 @@ import colorsys
 import torch.nn.functional as F
 from matplotlib import patches,  lines
 
-
+def write_location(f, location, i, description=''):
+    f.write(f"Test image {i}: {description}\n")
+    location = location.cpu().numpy()
+    for i in range(location.shape[0]):
+        f.write(f"Slot {i}:, ({location[i][0]:.4f}, {location[i][1]:.4f})\n")
+    f.flush()
 
 def resize_masks(masks, image_size):
     """

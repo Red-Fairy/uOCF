@@ -54,6 +54,8 @@ class BaseOptions():
         parser.add_argument('--display_port', type=int, default=8097, help='visdom port of the web display')
         # model settings
         parser.add_argument('--project', action='store_true', help='project the slot coord and add to slot latent')
+        # additional dummy info, save into the log file
+        parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
 
         self.initialized = True
         return parser

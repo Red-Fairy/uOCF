@@ -1,28 +1,24 @@
 ----------------- Options ---------------
              aspect_ratio: 1.0                           
-         attn_decay_steps: 200000.0                      
                 attn_iter: 3                             
                batch_size: 1                             
                    bottom: False                         
           checkpoints_dir: checkpoints                   	[default: ./checkpoints]
-             coarse_epoch: 600                           
                 custom_lr: True                          
                  dataroot: /viscam/u/redfairy/datasets/clevr567/test	[default: None]
              dataset_mode: multiscenes                   
-               dens_noise: 1.0                           
               display_env: main                          
-             display_freq: 50                            	[default: 400]
+             display_freq: 400                           
                display_id: 1                             
             display_ncols: 4                             
              display_port: 12783                         	[default: 8097]
            display_server: http://localhost              
                     epoch: latest                        
                      eval: False                         
-                   exp_id: run-2023-03-21-06-12-32       	[default: run-2023-03-22-07-38-47]
+                   exp_id: run-2023-03-21-06-12-32       	[default: run-2023-03-23-23-43-56]
                 far_plane: 20                            
            fixed_locality: False                         
-             frustum_size: 64                            
-        frustum_size_fine: 128                           
+             frustum_size: 128                           
                   gpu_ids: 0                             
                  input_nc: 3                             
                input_size: 64                            
@@ -33,36 +29,31 @@
                 lr_policy: warmup                        
                 mask_size: 128                           
          max_dataset_size: inf                           
-                    model: uorf_nogan_T                  	[default: uorf]
+                    model: uorf_eval_T                   	[default: uorf]
                    n_freq: 5                             
          n_img_each_scene: 4                             	[default: 10]
                   n_layer: 3                             
-                   n_samp: 64                            
-                 n_scenes: 1000                          
+                   n_samp: 256                           	[default: 64]
+                 n_scenes: 500                           	[default: 1000]
                      name: clevr_567                     	[default: experiment_name]
                near_plane: 6                             
                     niter: 1200                          
               niter_decay: 0                             
-        no_locality_epoch: 300                           
                no_shuffle: False                         
                 nss_scale: 7                             
                 num_slots: 8                             
               num_threads: 0                             
                 obj_scale: 4.5                           
                 output_nc: 3                             
-               percept_in: 100                           
                     phase: test                          
                   project: False                         
-              render_size: 64                            
-              results_dir: ./results/                    
+              render_size: 8                             	[default: 64]
+              results_dir: results                       	[default: ./results/]
                      seed: 2021                          
            serial_batches: False                         
                     stage: fine                          
                    suffix:                               
-         supervision_size: 128                           	[default: 64]
              testset_name: testset                       
                   verbose: False                         
-             warmup_steps: 1000                          
-           weight_percept: 0.006                         
                     z_dim: 32                            	[default: 64]
 ----------------- End -------------------

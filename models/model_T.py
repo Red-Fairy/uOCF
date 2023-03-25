@@ -223,7 +223,6 @@ class Decoder(nn.Module):
 		fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
 		fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
 		if self.locality:
-			# print(outsider_idx.shape, outsider_idx.min(), outsider_idx.max(), fg_raw_shape.shape)
 			fg_raw_shape[outsider_idx] *= 0
 		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
 
@@ -258,6 +257,7 @@ class SlotAttention(nn.Module):
 		self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 2 - 1)
 		
 		self.to_kv = EncoderPosEmbedding(in_dim, slot_dim)
+		# self.to_kv_bg = EncoderPosEmbedding(in_dim, slot_dim)
 
 		# self.to_k = nn.Linear(in_dim, slot_dim, bias=False)
 		# self.to_v = nn.Linear(in_dim, slot_dim, bias=False)
@@ -311,6 +311,7 @@ class SlotAttention(nn.Module):
 
 		# attn = None
 		for it in range(self.iters):
+			# layer norm 包含在 to_q 中
 			slot_prev_bg = slot_bg
 			slot_prev_fg = slot_fg
 			q_fg = self.to_q(slot_fg)

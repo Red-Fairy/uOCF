@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 
-def pixel2world(slot_pixel_coord, cam2world, H, W):
+def pixel2world(slot_pixel_coord, cam2world):
     '''
     slot_pixel_coord: (K-1) * 2 on the image plane, x and y coord are in range [-1, 1]
     cam2world: 4 * 4
@@ -12,8 +12,8 @@ def pixel2world(slot_pixel_coord, cam2world, H, W):
     '''
     device = slot_pixel_coord.device
     focal_ratio = (350. / 320., 350. / 240.)
-    focal_x, focal_y = focal_ratio[0] * W, focal_ratio[1] * H
-    bias_x, bias_y = (W - 1.) / 2., (H - 1.) / 2.
+    focal_x, focal_y = focal_ratio[0], focal_ratio[1]
+    bias_x, bias_y = .5 , .5
     intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
                               [0, focal_y, bias_y, 0],
                               [0, 0, 1, 0],
@@ -24,8 +24,8 @@ def pixel2world(slot_pixel_coord, cam2world, H, W):
                                 [0, 1/nss_scale, 0],
                                 [0, 0, 1/nss_scale]]).to(device)
     
-    # convert to pixel coord [0, W-1] and [0, H-1]
-    slot_pixel_coord = (slot_pixel_coord + 1) / 2 * torch.tensor([W-1, H-1]).to(device) # (K-1) * 2
+    # convert to pixel coord [0, 1] and [0, 1]
+    slot_pixel_coord = ((slot_pixel_coord + 1) / 2).to(device) # (K-1) * 2
     # append 1 to the end
     slot_pixel_coord = torch.cat([slot_pixel_coord, torch.ones_like(slot_pixel_coord[:, :1])], dim=1) # (K-1) * 3
     # convert to cam coord

@@ -4,7 +4,7 @@ from models import create_model
 from util.visualizer import Visualizer, save_images
 from util.html import HTML
 import os
-from util.util import AverageMeter, set_seed
+from util.util import AverageMeter, set_seed, write_location
 
 if __name__ == '__main__':
 
@@ -21,10 +21,12 @@ if __name__ == '__main__':
 
     set_seed(opt.seed)
 
-    web_dir = os.path.join(opt.results_dir, opt.name,
+    web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
                            '{}_{}'.format(opt.testset_name, opt.epoch))  # define the website directory
     print('creating web directory', web_dir)
     webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
+
+    file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w')
 
     for i, data in enumerate(dataset):
         visualizer.reset()
@@ -45,8 +47,10 @@ if __name__ == '__main__':
             losses[loss_name] = meters_tst[loss_name].avg
         visualizer.print_test_losses('average', losses)
 
-        print(model.fg_slot_position)
+        write_location(file, model.fg_slot_image_position, i, description='(image position)')
 
-        break
+        write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
 
     webpage.save()
+    file.close()
+
