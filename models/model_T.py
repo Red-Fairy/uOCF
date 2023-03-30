@@ -334,7 +334,7 @@ class SlotAttention(nn.Module):
         self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
         init.xavier_uniform_(self.slots_logsigma_bg)
 
-        if self.learnable_pos:
+        if learnable_pos:
             self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 2 - 1)
         else:
             self.fg_position = None
@@ -383,7 +383,7 @@ class SlotAttention(nn.Module):
         slot_fg = mu + sigma * torch.randn_like(mu)
         
         fg_position = self.fg_position if self.fg_position is not None else torch.rand(1, K-1, 2) * 2 - 1
-        fg_position = fg_position.expand(B, -1, -1) # Bx(K-1)x2
+        fg_position = fg_position.expand(B, -1, -1).to(feat.device) # Bx(K-1)x2
         
         mu_bg = self.slots_mu_bg.expand(B, 1, -1)
         sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
