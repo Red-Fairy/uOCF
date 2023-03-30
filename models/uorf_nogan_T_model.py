@@ -51,6 +51,7 @@ class uorfNoGanTModel(BaseModel):
         parser.add_argument('--position_loss',action='store_true', help='whether to use position loss')
         parser.add_argument('--position_loss_weight', type=float, default=0.5, help='weight of position loss')
         parser.add_argument('--position_loss_threshold', type=float, default=0.5, help='weight of position loss')
+        parser.add_argument('--lr_encoder', type=float, default=3e-5, help='learning rate for encoder')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -103,7 +104,7 @@ class uorfNoGanTModel(BaseModel):
         if self.isTrain:  # only defined during training time
             # if opt.pos_emb, apply lower LR on encoder
             if opt.pos_emb and opt.emb_path != '':
-                self.optimizer = optim.Adam([{'params': self.netEncoder.parameters(), 'lr': opt.lr * 0.1},
+                self.optimizer = optim.Adam([{'params': self.netEncoder.parameters(), 'lr': opt.lr_encoder},
                                                 {'params': self.netSlotAttention.parameters()},
                                                 {'params': self.netDecoder.parameters()}], lr=opt.lr)
                 print('Loading pretrained encoder from {}'.format(opt.emb_path))
