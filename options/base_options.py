@@ -58,6 +58,7 @@ class BaseOptions():
         parser.add_argument('--pos_emb', action='store_true', help='apply position embedding on encoder')
         parser.add_argument('--emb_path', type=str, default='', help='path to pretrained embedding')
         parser.add_argument('--imagenet_encoder', action='store_true', help='use imagenet pretrained encoder, resnet34')
+        parser.add_argument('--learnable_pos', action='store_false', help='disable learnable position embedding')
         # additional dummy info, save into the log file
         parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
 

@@ -96,19 +96,18 @@ class uorfNoGanTModel(BaseModel):
             self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
         self.netSlotAttention = networks.init_net(
-            SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+            SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter, learnable_pos=opt.learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer,
                                                     locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, project=opt.project, rel_pos=opt.relative_position), gpu_ids=self.gpu_ids, init_type='xavier')
 
         if self.isTrain:  # only defined during training time
             # if opt.pos_emb, apply lower LR on encoder
-            if opt.pos_emb:
-                self.optimizer = optim.Adam([{'params': self.netEncoder.parameters(), 'lr': opt.lr * 0.2},
+            if opt.pos_emb and opt.emb_path != '':
+                self.optimizer = optim.Adam([{'params': self.netEncoder.parameters(), 'lr': opt.lr * 0.1},
                                                 {'params': self.netSlotAttention.parameters()},
                                                 {'params': self.netDecoder.parameters()}], lr=opt.lr)
-                if opt.emb_path != '':
-                    print('Loading pretrained encoder from {}'.format(opt.emb_path))
-                    self.netEncoder.load_state_dict(torch.load(opt.emb_path))
+                print('Loading pretrained encoder from {}'.format(opt.emb_path))
+                self.netEncoder.load_state_dict(torch.load(opt.emb_path))
             else:
                 self.optimizer = optim.Adam(chain(
                     self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters()

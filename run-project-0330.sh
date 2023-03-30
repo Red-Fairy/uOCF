@@ -34,7 +34,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --project \
     --pos_emb --emb_path /viscam/u/redfairy/I-uORF/checkpoints/clevr_567/uORF-pretrained/latest_net_Encoder.pth \
     --niter 800 --coarse_epoch 400 \
-    --dummy_info 'share grid embed projection, correct deduct operation (before azi transform), move deduction after locality, add decoder MLP to z-slots projection (w/o residual), 4 round attn, lr 3e-4, pos embedding on encoder (+4), load pretrained encoder with lr /=5' \
+    --dummy_info 'share grid embed projection, correct deduct operation (before azi transform), move deduction after locality, add decoder MLP to z-slots projection (w/o residual), 4 round attn, pos embedding on encoder (+4), load pretrained encoder with lr *= 0.1' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery
