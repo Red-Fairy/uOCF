@@ -13,7 +13,7 @@ def pixel2world(slot_pixel_coord, cam2world):
     device = slot_pixel_coord.device
     focal_ratio = (350. / 320., 350. / 240.)
     focal_x, focal_y = focal_ratio[0], focal_ratio[1]
-    bias_x, bias_y = 1 / 2., 1 / 2.
+    bias_x, bias_y = .5 , .5
     intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
                               [0, focal_y, bias_y, 0],
                               [0, 0, 1, 0],

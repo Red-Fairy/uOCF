@@ -6,8 +6,8 @@ from .base_model import BaseModel
 from . import networks
 import os
 import time
-from .projection import Projection
-from .model import Encoder, Decoder, SlotAttention, raw2outputs
+from .projection import Projection, pixel2world
+from .model_T import Encoder, Decoder, SlotAttention, raw2outputs
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
 import lpips
@@ -15,7 +15,7 @@ from piq import ssim as compute_ssim
 from piq import psnr as compute_psnr
 
 
-class uorfEvalModel(BaseModel):
+class uorfEvalTModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -66,9 +66,10 @@ class uorfEvalModel(BaseModel):
 		n = opt.n_img_each_scene
 		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
-							['gt_mask{}'.format(i) for i in range(n)] + \
-							['render_mask{}'.format(i) for i in range(n)] + \
 							['slot{}_attn'.format(k) for k in range(opt.num_slots)]
+							# ['gt_mask{}'.format(i) for i in range(n)] + 
+							# ['render_mask{}'.format(i) for i in range(n)] + 
+							# ['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)] + 
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
@@ -76,12 +77,12 @@ class uorfEvalModel(BaseModel):
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 		z_dim = opt.z_dim
 		self.num_slots = opt.num_slots
-		self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom),
+		self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
 											gpu_ids=self.gpu_ids, init_type='normal')
 		self.netSlotAttention = networks.init_net(
 			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=False,
-													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
+													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, project=opt.project), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
@@ -117,15 +118,19 @@ class uorfEvalModel(BaseModel):
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
 		dev = self.x[0:1].device
+		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
 		# Encoding images
 		feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-		feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
+		# feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
+		feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 
 		# Slot Attention
-		z_slots, attn = self.netSlotAttention(feat)  # 1xKxC, 1xKxN
-		z_slots, attn = z_slots.squeeze(0), attn.squeeze(0)  # KxC, KxN
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat)  # 1xKxC, 1xKxN (N=HxW)
+		z_slots, attn, fg_slot_position = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0)  # KxC, KxN, K-1x2
+		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # K-1x3
+
 		K = attn.shape[0]
 
 		cam2world = self.cam2world
@@ -144,7 +149,7 @@ class uorfEvalModel(BaseModel):
 			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
 			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
@@ -167,6 +172,8 @@ class uorfEvalModel(BaseModel):
 			attn = attn.detach().cpu()  # KxN
 			H_, W_ = feature_map.shape[2], feature_map.shape[3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
+			if H_ != H:
+				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 				if i == 0:
@@ -176,6 +183,8 @@ class uorfEvalModel(BaseModel):
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 			setattr(self, 'attn', attn)
+			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
+			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 
 	def compute_visuals(self):
 		with torch.no_grad():
@@ -193,7 +202,7 @@ class uorfEvalModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(self.opt.n_img_each_scene):
 					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-				
+
 				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
 			mask_maps = torch.stack(mask_maps)  # KxNxHxW

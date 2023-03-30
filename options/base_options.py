@@ -54,6 +54,10 @@ class BaseOptions():
         parser.add_argument('--display_port', type=int, default=8097, help='visdom port of the web display')
         # model settings
         parser.add_argument('--project', action='store_true', help='project the slot coord and add to slot latent')
+        parser.add_argument('--relative_position', action='store_false', help='disable relative position with slot position')
+        parser.add_argument('--pos_emb', action='store_true', help='apply position embedding on encoder')
+        parser.add_argument('--emb_path', type=str, default='', help='path to pretrained embedding')
+        parser.add_argument('--imagenet_encoder', action='store_true', help='use imagenet pretrained encoder, resnet34')
         # additional dummy info, save into the log file
         parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
 

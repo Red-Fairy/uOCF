@@ -13,9 +13,10 @@
             display_ncols: 4                             
              display_port: 12783                         	[default: 8097]
            display_server: http://localhost              
+               dummy_info:                               
                     epoch: latest                        
                      eval: False                         
-                   exp_id: run-2023-03-21-06-12-32       	[default: run-2023-03-23-23-43-56]
+                   exp_id: run-2023-03-21-06-12-32       	[default: run-2023-03-26-00-06-34]
                 far_plane: 20                            
            fixed_locality: False                         
              frustum_size: 128                           

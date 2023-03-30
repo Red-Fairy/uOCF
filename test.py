@@ -47,9 +47,11 @@ if __name__ == '__main__':
             losses[loss_name] = meters_tst[loss_name].avg
         visualizer.print_test_losses('average', losses)
 
-        write_location(file, model.fg_slot_image_position, i, description='(image position)')
-
-        write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
+        try:
+            write_location(file, model.fg_slot_image_position, i, description='(image position)')
+            write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
+        except:
+            pass
 
     webpage.save()
     file.close()
