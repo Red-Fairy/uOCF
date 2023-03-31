@@ -66,8 +66,8 @@ class uorfEvalTModel(BaseModel):
 		n = opt.n_img_each_scene
 		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
-							['slot{}_attn'.format(k) for k in range(opt.num_slots)] + \
-							['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
+							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
+							# ['slot{}_attn'.format(k) for k in range(opt.num_slots)] + \
 							# ['gt_mask{}'.format(i) for i in range(n)] + 
 							# ['render_mask{}'.format(i) for i in range(n)] + 
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
@@ -242,9 +242,23 @@ class uorfEvalTModel(BaseModel):
 			cam2world = self.cam2world[:self.opt.n_img_each_scene]
 			_, N, D, H, W, _ = self.masked_raws.shape
 			masked_raws = self.masked_raws  # KxNxDxHxWx4
+			unmasked_raws = self.unmasked_raws  # KxNxDxHxWx4
 			mask_maps = []
+			# for k in range(self.num_slots):
+			# 	raws = masked_raws[k]  # NxDxHxWx4
+			# 	_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
+			# 	raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			# 	rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
+			# 	mask_maps.append(mask_map.view(N, H, W))
+			# 	rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+			# 	x_recon = rendered * 2 - 1
+			# 	for i in range(self.opt.n_img_each_scene):
+			# 		setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
+
+			# 	setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+
 			for k in range(self.num_slots):
-				raws = masked_raws[k]  # NxDxHxWx4
+				raws = unmasked_raws[k]  # NxDxHxWx4
 				_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
 				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
@@ -252,9 +266,7 @@ class uorfEvalTModel(BaseModel):
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 				x_recon = rendered * 2 - 1
 				for i in range(self.opt.n_img_each_scene):
-					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-
-				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
 
 			mask_maps = torch.stack(mask_maps)  # KxNxHxW
 			mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW

@@ -283,7 +283,7 @@ class Decoder(nn.Module):
 
         if self.position_project is not None:
             # w/ and w/o residual connection
-            z_fg = self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) 
+            z_fg = z_fg + self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) 
             # slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2
             # z_slots = self.position_project(slot_position) + z_slots # KxC
 

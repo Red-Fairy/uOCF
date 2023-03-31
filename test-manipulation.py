@@ -42,19 +42,20 @@ for i, data in enumerate(dataset):
         model.forward_position(fg_slot_image_position=fg_slot_position)
         model.compute_visuals()
 
-    losses = model.get_current_losses()
-    visualizer.print_test_losses(i, losses)
-    for loss_name in model.loss_names:
-        meters_tst[loss_name].update(float(losses[loss_name]))
+    # losses = model.get_current_losses()
+    # visualizer.print_test_losses(i, losses)
+    # for loss_name in model.loss_names:
+    #     meters_tst[loss_name].update(float(losses[loss_name]))
 
     visuals = model.get_current_visuals()
     visualizer.display_current_results(visuals, epoch=None, save_result=False)
     img_path = model.get_image_paths()
     save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
-    losses = {}
-    for loss_name in model.loss_names:
-        losses[loss_name] = meters_tst[loss_name].avg
-    visualizer.print_test_losses('average', losses)
+    print('process image... %s' % img_path)
+    # losses = {}
+    # for loss_name in model.loss_names:
+    #     losses[loss_name] = meters_tst[loss_name].avg
+    # visualizer.print_test_losses('average', losses)
 
     # try:
     #     write_location(file, model.fg_slot_image_position, i, description='(image position)')
