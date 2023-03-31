@@ -27,7 +27,7 @@ web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
 print('creating web directory', web_dir)
 webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
-file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w')
+file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w+')
 
 for i, data in enumerate(dataset):
     visualizer.reset()
@@ -56,10 +56,8 @@ for i, data in enumerate(dataset):
         losses[loss_name] = meters_tst[loss_name].avg
     visualizer.print_test_losses('average', losses)
 
-    try:
-        write_location(file, model.fg_slot_image_position, i, description='(image position)')
-        write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
-    except:
-        pass
-
-    break
+    # try:
+    #     write_location(file, model.fg_slot_image_position, i, description='(image position)')
+    #     write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
+    # except:
+    #     pass

@@ -233,7 +233,8 @@ class uorfEvalTModel(BaseModel):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
-			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
+			if fg_slot_image_position is not None:
+				setattr(self, 'fg_slot_image_position', fg_slot_image_position.detach())
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 
 	def compute_visuals(self):
