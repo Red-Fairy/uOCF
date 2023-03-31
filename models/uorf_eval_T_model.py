@@ -187,7 +187,7 @@ class uorfEvalTModel(BaseModel):
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 			setattr(self, 'z_slots', z_slots.detach())
    
-	def forward_set_position(self, fg_slot_image_position=None, fg_slot_nss_position=None):
+	def forward_position(self, fg_slot_image_position=None, fg_slot_nss_position=None):
 		assert fg_slot_image_position is None or fg_slot_nss_position is None
 		x = self.x
 		dev = x.device
@@ -227,6 +227,14 @@ class uorfEvalTModel(BaseModel):
 			rendered[..., h::scale, w::scale] = rendered_
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
+
+		with torch.no_grad():
+			for i in range(self.opt.n_img_each_scene):
+				setattr(self, 'x_rec{}'.format(i), x_recon[i])
+			setattr(self, 'masked_raws', masked_raws.detach())
+			setattr(self, 'unmasked_raws', unmasked_raws.detach())
+			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
+			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 
 	def compute_visuals(self):
 		with torch.no_grad():
