@@ -66,10 +66,10 @@ class uorfEvalTModel(BaseModel):
 		n = opt.n_img_each_scene
 		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
-							['slot{}_attn'.format(k) for k in range(opt.num_slots)]
+							['slot{}_attn'.format(k) for k in range(opt.num_slots)] + \
+							['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
 							# ['gt_mask{}'.format(i) for i in range(n)] + 
 							# ['render_mask{}'.format(i) for i in range(n)] + 
-							# ['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)] + 
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
