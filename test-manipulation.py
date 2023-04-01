@@ -39,6 +39,13 @@ for i, data in enumerate(dataset):
     with torch.no_grad():
         model.forward()
         fg_slot_position = torch.zeros((opt.num_slots-1, 2))
+        fg_slot_position[0] = torch.tensor([1, 1])
+        fg_slot_position[1] = torch.tensor([-1, 1])
+        fg_slot_position[2] = torch.tensor([-1, -1])
+        fg_slot_position[3] = torch.tensor([1, -1])
+        fg_slot_position[4] = torch.tensor([0, 1])
+        fg_slot_position[5] = torch.tensor([0, -1])
+        fg_slot_position[6] = torch.tensor([0, 0])
         model.forward_position(fg_slot_image_position=fg_slot_position)
         model.compute_visuals()
 

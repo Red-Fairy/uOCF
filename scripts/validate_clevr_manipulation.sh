@@ -9,6 +9,6 @@ python test-manipulation.py --dataroot $DATAROOT --n_scenes 500 --n_img_each_sce
     --n_samp 256 --z_dim 40 --num_slots 8 \
     --model 'uorf_eval_T' \
     --exp_id '0328-project-loadEncoder' --pos_emb \
-    --project --attn_iter 4 --testset_name manipulation \
+    --project --attn_iter 4 --testset_name manipulation_edge \
 # done
 echo "Done"
