@@ -46,7 +46,7 @@ for i, data in enumerate(dataset):
         fg_slot_position[4] = torch.tensor([0, 1])
         fg_slot_position[5] = torch.tensor([0, -1])
         fg_slot_position[6] = torch.tensor([0, 0])
-        model.forward_position(fg_slot_image_position=fg_slot_position)
+        model.forward_position(fg_slot_nss_position=fg_slot_position)
         model.compute_visuals()
 
     # losses = model.get_current_losses()

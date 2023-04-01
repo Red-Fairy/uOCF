@@ -199,6 +199,8 @@ class uorfEvalTModel(BaseModel):
 		if fg_slot_image_position is not None:
 			fg_slot_nss_position = pixel2world(fg_slot_image_position.to(dev), self.cam2world[0])
 		elif fg_slot_nss_position is not None:
+			if fg_slot_nss_position.shape[1] == 2:
+				fg_slot_nss_position = torch.cat([fg_slot_nss_position, torch.zeros_like(fg_slot_nss_position[:, :1])], dim=1)
 			fg_slot_nss_position = fg_slot_nss_position.to(dev)
 		else:
 			fg_slot_nss_position = self.fg_slot_nss_position.to(dev)
