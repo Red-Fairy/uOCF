@@ -117,7 +117,7 @@ class Encoder_resnet(nn.Module):
     def forward(self, x):
         # input is ImageNet style normalized
 
-        x1, x2, x3, x4 = self.resnet(x, proj=True)
+        x4, x3, x2, x1 = self.resnet(x, proj=True)
         x1 = self.up_1(x1)
         x2 = self.up_2(torch.cat([x2, x1], dim=1))
         x3 = self.up_3(torch.cat([x3, x2], dim=1))
