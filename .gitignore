@@ -3,3 +3,4 @@ checkpoints/*
 logs/*
 results/*
 models/__pycache__/*
+scripts-sbatch/*
