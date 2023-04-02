@@ -7,7 +7,7 @@ from torch.nn import init
 from torchvision.models import vgg16
 from torch import autograd
 
-from models.resnet import resnet34
+from models.resnet import resnet34, resnet18
 
 def build_grid(H, W, device):
     """
@@ -95,35 +95,35 @@ class Encoder(nn.Module):
 class Encoder_resnet(nn.Module):
     def __init__(self, z_dim, pretrained=True):
         super(Encoder_resnet, self).__init__()
-        self.resnet = resnet34(pretrained=pretrained).eval()
+        self.resnet = resnet18(pretrained=pretrained).eval()
         self.resnet.requires_grad_(False)
         
         # upsample four feature maps to the same size
-        self.upsample1 = nn.Upsample(scale_factor=8, mode='bilinear', align_corners=True)
-        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)
-        self.upsample3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.up_1 = nn.Sequential(nn.Conv2d(512, 256, 3, 1, 1),
+                                    nn.ReLU(True),
+                                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
         
-        # conv layers, each feature map is convolved with 3x3 kernel to 16 channels
-        dim_each = z_dim // 4
-        self.conv1 = nn.Conv2d(512, dim_each, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(256, dim_each, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(128, dim_each, kernel_size=3, stride=1, padding=1)
-        self.conv4 = nn.Conv2d(64, dim_each, kernel_size=3, stride=1, padding=1)
+        self.up_2 = nn.Sequential(nn.Conv2d(512, 128, 3, 1, 1),
+                                    nn.ReLU(True),
+                                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+        
+        self.up_3 = nn.Sequential(nn.Conv2d(256, 64, 3, 1, 1),
+                                    nn.ReLU(True),
+                                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
 
-        self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(1,3,1,1)
-        self.std = torch.Tensor([0.229, 0.224, 0.225]).view(1,3,1,1)
+        self.up_4 = nn.Sequential(nn.Conv2d(128, z_dim, 3, 1, 1),
+                                    nn.ReLU(True))
     
     def forward(self, x):
         # input is ImageNet style normalized
 
-        x4, x3, x2, x1 = self.resnet(x, proj=True)
-        x1, x2, x3, x4 = self.conv1(x1), self.conv2(x2), self.conv3(x3), self.conv4(x4)
-        # upsample to the same size
-        x1, x2, x3, x4 = self.upsample1(x1), self.upsample2(x2), self.upsample3(x3), x4
+        x1, x2, x3, x4 = self.resnet(x, proj=True)
+        x1 = self.up_1(x1)
+        x2 = self.up_2(torch.cat([x2, x1], dim=1))
+        x3 = self.up_3(torch.cat([x3, x2], dim=1))
+        x4 = self.up_4(torch.cat([x4, x3], dim=1))
         
-        x = torch.cat([x1, x2, x3, x4], dim=1) # (B, z_dim, H, W)
-        
-        return x
+        return x4
     
 class EncoderPosEmbedding(nn.Module):
     def __init__(self, dim, slot_dim, hidden_dim=128):
