@@ -769,3 +769,29 @@ class position_loss(nn.Module):
         loss = x.sum() / (x.shape[0] * x.shape[1])
 
         return loss * self.loss_weight
+
+class set_loss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, loc1, loc2):
+        """
+        loc1: N * 2, position of N points on the XY plane in the first set
+        loc2: N * 2, position of N points on the XY plane in the second set
+        return the set-wise loss:
+        for each point in the first set, find the closest point in the second set
+        compute the distance between the two points
+        aggregate the distances
+        """
+        N = loc1.size(0)
+        assert N == loc2.size(0)
+        # compute the distance matrix
+        # dist_mat: N * N
+        dist_mat = torch.pow(loc1, 2).sum(dim=1, keepdim=True).expand(N, N) + \
+                torch.pow(loc2, 2).sum(dim=1, keepdim=True).expand(N, N).t()
+        dist_mat.addmm_(1, -2, loc1, loc2.t())
+        # find the closest point in the second set for each point in the first set
+        # dist: N * 1
+        dist, _ = torch.min(dist_mat, dim=1, keepdim=True)
+        loss = dist.mean()
+        return loss
