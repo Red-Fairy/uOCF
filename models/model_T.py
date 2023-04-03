@@ -201,7 +201,7 @@ class EncoderPosEmbedding(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, project=False, rel_pos=True):
+    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, project=False, rel_pos=True, fg_in_world=False):
         """
         freq: raised frequency
         input_dim: pos emb dim + slot dim
@@ -252,6 +252,7 @@ class Decoder(nn.Module):
         else:
             self.position_project = None
         self.rel_pos = rel_pos
+        self.fg_in_world = fg_in_world
 
     def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0.):
         """
@@ -271,7 +272,8 @@ class Decoder(nn.Module):
         if self.fixed_locality:
             outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
             sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # (K-1)xPx4
-            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx4x1
+            if not self.fg_in_world:
+                sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx4x1
             sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # (K-1)xPx3
         else:
             sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1

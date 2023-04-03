@@ -47,6 +47,7 @@ class uorfNoGanTModel(BaseModel):
         parser.add_argument('--near_plane', type=float, default=6)
         parser.add_argument('--far_plane', type=float, default=20)
         parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
+        parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
         parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
         parser.add_argument('--position_loss',action='store_true', help='whether to use position loss')
         parser.add_argument('--position_loss_weight', type=float, default=0.5, help='weight of position loss')
