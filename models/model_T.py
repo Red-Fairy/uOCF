@@ -57,7 +57,6 @@ class Encoder(nn.Module):
         self.enc_up_1 = nn.Sequential(nn.Conv2d(z_dim * 2, z_dim, 3, stride=1, padding=1),
                                       nn.ReLU(True))
         
-        # self.position_projection = nn.Linear(4, z_dim)
 
     def forward(self, x):
         """
@@ -113,9 +112,14 @@ class Encoder_resnet(nn.Module):
 
         self.up_4 = nn.Sequential(nn.Conv2d(128, z_dim, 3, 1, 1),
                                     nn.ReLU(True))
+
+        self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        self.std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
     
     def forward(self, x):
-        # input is ImageNet style normalized
+        # input is [-1, 1]
+        x = (x + 1) / 2
+        x = (x - self.mean.to(x.device)) / self.std.to(x.device)
 
         x4, x3, x2, x1 = self.resnet(x, proj=True)
         x1 = self.up_1(x1)

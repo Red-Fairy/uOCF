@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
-
+import math
 
 ###############################################################################
 # Helper Functions
@@ -49,7 +49,20 @@ def get_scheduler(optimizer, opt):
     For other schedulers (step, plateau, and cosine), we use the default PyTorch schedulers.
     See https://pytorch.org/docs/stable/optim.html for more details.
     """
-    if opt.lr_policy == 'linear':
+    if opt.lr_policy == 'coarse_to_fine':
+        # apply to cosine scheduler to coarse epoch, then restart
+        def lambda_rule(step):
+            coarse_step = opt.coarse_epoch * opt.n_scenes - opt.warmup_steps
+            fine_step = (opt.niter - opt.coarse_epoch) * opt.n_scenes
+            if step < opt.warmup_steps:
+                lr_l = opt.lr * (step / opt.warmup_steps)
+            if step < coarse_step:
+                lr_l = 0.5 * (1 + math.cos(math.pi * (step - opt.warmup_steps) / coarse_step))
+            else:
+                lr_l = 0.5 * (1 + math.cos(math.pi * (step - coarse_step) / fine_step))
+            return lr_l
+        scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
+    elif opt.lr_policy == 'linear':
         def lambda_rule(epoch):
             lr_l = 1.0 - max(0, epoch + opt.epoch_count - opt.niter) / float(opt.niter_decay + 1)
             return lr_l

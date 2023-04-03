@@ -44,7 +44,7 @@ class Encoder(nn.Module):
         X = torch.linspace(-1, 1, W)
         Y = torch.linspace(-1, 1, H)
         y1_m, x1_m = torch.meshgrid([Y, X])
-        x2_m, y2_m = -x1_m, -y1_m  # Normalized distance in the four direction
+        x2_m, y2_m = 2 - x1_m, 2 - y1_m  # Normalized distance in the four direction
         pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
         x_ = torch.cat([x, pixel_emb], dim=1)
 

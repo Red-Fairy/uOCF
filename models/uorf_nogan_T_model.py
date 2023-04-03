@@ -110,9 +110,9 @@ class uorfNoGanTModel(BaseModel):
                 print('Loading pretrained encoder from {}'.format(opt.emb_path))
                 self.netEncoder.load_state_dict(torch.load(opt.emb_path))
             else:
-                self.optimizer = optim.Adam(chain(
-                    self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters()
-                ), lr=opt.lr)
+                requires_grad = lambda x: x.requires_grad
+                params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())
+                self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
             self.optimizers = [self.optimizer]
 
         self.L2_loss = nn.MSELoss()
@@ -139,7 +139,7 @@ class uorfNoGanTModel(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['img_data'].to(self.device)
-        self.x_imagenet = None if not self.imagenet_encoder else input['img_data_imagenet'].to(self.device)
+        # self.x_imagenet = None if not self.imagenet_encoder else input['img_data_imagenet'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
