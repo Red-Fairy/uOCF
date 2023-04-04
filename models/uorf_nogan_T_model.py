@@ -1,4 +1,5 @@
 from itertools import chain
+from math import e
 
 import torch
 from torch import nn, optim
@@ -52,7 +53,7 @@ class uorfNoGanTModel(BaseModel):
         parser.add_argument('--position_loss',action='store_true', help='whether to use position loss')
         parser.add_argument('--position_loss_weight', type=float, default=0.5, help='weight of position loss')
         parser.add_argument('--position_loss_threshold', type=float, default=0.5, help='weight of position loss')
-        parser.add_argument('--lr_encoder', type=float, default=3e-5, help='learning rate for encoder')
+        parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -110,6 +111,12 @@ class uorfNoGanTModel(BaseModel):
                                                 {'params': self.netDecoder.parameters()}], lr=opt.lr)
                 print('Loading pretrained encoder from {}'.format(opt.emb_path))
                 self.netEncoder.load_state_dict(torch.load(opt.emb_path))
+            elif opt.imagenet_encoder:
+                imagenet_param = self.netEncoder.resnet.parameters()
+                encoder_other_param = chain(self.netEncoder.up_1.parameters(), self.netEncoder.up_2.parameters(), self.netEncoder.up_3.parameters(), self.netEncoder.up_4.parameters())
+                other_param = chain(encoder_other_param, self.netSlotAttention.parameters(), self.netDecoder.parameters())
+                self.optimizer = optim.Adam([{'params': imagenet_param, 'lr': opt.lr_encoder},
+                                                {'params': other_param}], lr=opt.lr)
             else:
                 requires_grad = lambda x: x.requires_grad
                 params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())
@@ -140,7 +147,7 @@ class uorfNoGanTModel(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['img_data'].to(self.device)
-        # self.x_imagenet = None if not self.imagenet_encoder else input['img_data_imagenet'].to(self.device)
+        self.x_imagenet = None if not self.imagenet_encoder else input['img_data_imagenet'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
@@ -158,7 +165,10 @@ class uorfNoGanTModel(BaseModel):
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
-        feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+        if not self.imagenet_encoder:
+            feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+        else:
+            feature_map = self.netEncoder(self.x_imagenet[0:1])
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         # H, W = feat.shape[1:3]
         # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC

@@ -94,8 +94,9 @@ class Encoder(nn.Module):
 class Encoder_resnet(nn.Module):
     def __init__(self, z_dim, pretrained=True):
         super(Encoder_resnet, self).__init__()
-        self.resnet = resnet18(pretrained=pretrained).eval()
-        self.resnet.requires_grad_(False)
+        self.resnet = resnet18(pretrained=pretrained)
+        # self.resnet = self.resnet.eval()
+        # self.resnet.requires_grad_(False)
         
         # upsample four feature maps to the same size
         self.up_1 = nn.Sequential(nn.Conv2d(512, 256, 3, 1, 1),
@@ -113,13 +114,22 @@ class Encoder_resnet(nn.Module):
         self.up_4 = nn.Sequential(nn.Conv2d(128, z_dim, 3, 1, 1),
                                     nn.ReLU(True))
 
+        # init network params
+        for m in [self.up_1[0].weight, self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
+            nn.init.normal_(m.data, 0, 0.02)
+        for m in [self.up_1[0].bias, self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
+            try:
+                nn.init.constant_(m.data, 0)
+            except:
+                pass
+            
         self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
         self.std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
     
     def forward(self, x):
         # input is [-1, 1]
-        x = (x + 1) / 2
-        x = (x - self.mean.to(x.device)) / self.std.to(x.device)
+        # x = (x + 1) / 2
+        # x = (x - self.mean.to(x.device)) / self.std.to(x.device)
 
         x4, x3, x2, x1 = self.resnet(x, proj=True)
         x1 = self.up_1(x1)
