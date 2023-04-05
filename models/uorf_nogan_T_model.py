@@ -101,7 +101,7 @@ class uorfNoGanTModel(BaseModel):
         self.netSlotAttention = networks.init_net(
             SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter, learnable_pos=opt.learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, project=opt.project, rel_pos=opt.relative_position), gpu_ids=self.gpu_ids, init_type='xavier')
+                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world), gpu_ids=self.gpu_ids, init_type='xavier')
 
         if self.isTrain:  # only defined during training time
             # if opt.pos_emb, apply lower LR on encoder
@@ -111,12 +111,12 @@ class uorfNoGanTModel(BaseModel):
                                                 {'params': self.netDecoder.parameters()}], lr=opt.lr)
                 print('Loading pretrained encoder from {}'.format(opt.emb_path))
                 self.netEncoder.load_state_dict(torch.load(opt.emb_path))
-            elif opt.imagenet_encoder:
-                imagenet_param = self.netEncoder.resnet.parameters()
-                encoder_other_param = chain(self.netEncoder.up_1.parameters(), self.netEncoder.up_2.parameters(), self.netEncoder.up_3.parameters(), self.netEncoder.up_4.parameters())
-                other_param = chain(encoder_other_param, self.netSlotAttention.parameters(), self.netDecoder.parameters())
-                self.optimizer = optim.Adam([{'params': imagenet_param, 'lr': opt.lr_encoder},
-                                                {'params': other_param}], lr=opt.lr)
+            # elif opt.imagenet_encoder:
+            #     imagenet_param = self.netEncoder.resnet.parameters()
+            #     encoder_other_param = chain(self.netEncoder.up_1.parameters(), self.netEncoder.up_2.parameters(), self.netEncoder.up_3.parameters(), self.netEncoder.up_4.parameters())
+            #     other_param = chain(encoder_other_param, self.netSlotAttention.parameters(), self.netDecoder.parameters())
+            #     self.optimizer = optim.Adam([{'params': imagenet_param, 'lr': opt.lr_encoder},
+            #                                     {'params': other_param}], lr=opt.lr)
             else:
                 requires_grad = lambda x: x.requires_grad
                 params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())

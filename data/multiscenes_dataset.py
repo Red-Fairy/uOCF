@@ -141,7 +141,6 @@ def collate_fn(batch):
     # "batch" is a list (len=batch_size) of list (len=n_img_each_scene) of dict
     flat_batch = [item for sublist in batch for item in sublist]
     img_data = torch.stack([x['img_data'] for x in flat_batch])
-    print(img_data.shape)
     paths = [x['path'] for x in flat_batch]
     cam2world = torch.stack([x['cam2world'] for x in flat_batch])
     azi_rot = torch.stack([x['azi_rot'] for x in flat_batch])
@@ -151,7 +150,6 @@ def collate_fn(batch):
         depths = None
     if 'img_data_imagenet' in flat_batch[0]:
         img_data_imagenet = torch.stack([x['img_data_imagenet'] for x in flat_batch]) # Bx3xHxW
-        print(img_data_imagenet.shape)
     else:
         img_data_imagenet = None
     ret = {

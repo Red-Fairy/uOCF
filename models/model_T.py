@@ -9,14 +9,17 @@ from torch import autograd
 
 from models.resnet import resnet34, resnet18
 
-def build_grid(H, W, device):
+def build_grid(H, W, device, reverse=False):
     """
     Build a sampling grid for bilinear sampling
     """
     x = torch.linspace(-1+1/W, 1-1/W, W)
     y = torch.linspace(-1+1/H, 1-1/H, H)
     y, x = torch.meshgrid([y, x])
-    grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
+    if not reverse:
+        grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
+    else:
+        grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0)
     return grid
 
 def build_grid_legacy(H, W, device):
@@ -71,7 +74,7 @@ class Encoder(nn.Module):
             X = torch.linspace(-1, 1, W)
             Y = torch.linspace(-1, 1, H)
             y1_m, x1_m = torch.meshgrid([Y, X])
-            x2_m, y2_m = 2 - x1_m, 2 - y1_m  # Normalized distance in the four direction
+            x2_m, y2_m = 2-x1_m, 2-y1_m  # Normalized distance in the four direction
             pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
             x_ = torch.cat([x, pixel_emb], dim=1)
         else:
@@ -99,25 +102,28 @@ class Encoder_resnet(nn.Module):
         # self.resnet.requires_grad_(False)
         
         # upsample four feature maps to the same size
-        self.up_1 = nn.Sequential(nn.Conv2d(512, 256, 3, 1, 1),
+        embed_nc = 4
+        self.up_1 = nn.Sequential(nn.Conv2d(512+embed_nc, 256, 3, 1, 1),
                                     nn.ReLU(True),
                                     nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
         
-        self.up_2 = nn.Sequential(nn.Conv2d(512, 128, 3, 1, 1),
+        self.up_2 = nn.Sequential(nn.Conv2d(512+embed_nc, 128, 3, 1, 1),
                                     nn.ReLU(True),
                                     nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
         
-        self.up_3 = nn.Sequential(nn.Conv2d(256, 64, 3, 1, 1),
+        self.up_3 = nn.Sequential(nn.Conv2d(256+embed_nc, 64, 3, 1, 1),
                                     nn.ReLU(True),
                                     nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
 
-        self.up_4 = nn.Sequential(nn.Conv2d(128, z_dim, 3, 1, 1),
+        self.up_4 = nn.Sequential(nn.Conv2d(128+embed_nc, z_dim, 3, 1, 1),
                                     nn.ReLU(True))
 
         # init network params
-        for m in [self.up_1[0].weight, self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
+        # for m in [self.up_1[0].weight, self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
+        for m in [self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
             nn.init.normal_(m.data, 0, 0.02)
-        for m in [self.up_1[0].bias, self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
+        # for m in [self.up_1[0].bias, self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
+        for m in [self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
             try:
                 nn.init.constant_(m.data, 0)
             except:
@@ -132,10 +138,14 @@ class Encoder_resnet(nn.Module):
         # x = (x - self.mean.to(x.device)) / self.std.to(x.device)
 
         x4, x3, x2, x1 = self.resnet(x, proj=True)
-        x1 = self.up_1(x1)
-        x2 = self.up_2(torch.cat([x2, x1], dim=1))
-        x3 = self.up_3(torch.cat([x3, x2], dim=1))
-        x4 = self.up_4(torch.cat([x4, x3], dim=1))
+        grid1 = build_grid(x1.shape[2], x1.shape[3], reverse=True).permute(0, 3, 1, 2)
+        x1 = self.up_1(torch.cat([x1, grid1], dim=1))
+        grid2 = build_grid(x2.shape[2], x2.shape[3], reverse=True).permute(0, 3, 1, 2)
+        x2 = self.up_2(torch.cat([x2, x1, grid2], dim=1))
+        grid3 = build_grid(x3.shape[2], x3.shape[3], reverse=True).permute(0, 3, 1, 2)
+        x3 = self.up_3(torch.cat([x3, x2, grid3], dim=1))
+        grid4 = build_grid(x4.shape[2], x4.shape[3], reverse=True).permute(0, 3, 1, 2)
+        x4 = self.up_4(torch.cat([x4, x3, grid4], dim=1))
         
         return x4
     
