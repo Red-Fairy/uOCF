@@ -49,6 +49,7 @@ class MultiscenesDataset(BaseDataset):
             self.scenes.append(scene_filenames)
 
         self.imagenet_encoder = opt.imagenet_encoder
+        self.sam_encoder = opt.sam_encoder
 
     def _transform(self, img):
         img = TF.resize(img, (self.opt.load_size, self.opt.load_size))
@@ -57,7 +58,7 @@ class MultiscenesDataset(BaseDataset):
         return img
 
     def _transform_encoder(self, img): # for ImageNet encoder
-        img = TF.resize(img, (self.opt.imagenet_size, self.opt.imagenet_size))
+        img = TF.resize(img, (self.opt.encoder_size, self.opt.encoder_size))
         img = TF.to_tensor(img)
         img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         return img
@@ -105,8 +106,8 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
-            if self.imagenet_encoder:
-                ret['img_data_imagenet'] = self._transform_encoder(img)
+            if self.imagenet_encoder or self.sam_encoder:
+                ret['img_data_large'] = self._transform_encoder(img)
             mask_path = path.replace('.png', '_mask.png')
             if os.path.isfile(mask_path):
                 mask = Image.open(mask_path).convert('RGB')
@@ -148,17 +149,17 @@ def collate_fn(batch):
         depths = torch.stack([x['depth'] for x in flat_batch])  # Bx1xHxW
     else:
         depths = None
-    if 'img_data_imagenet' in flat_batch[0]:
-        img_data_imagenet = torch.stack([x['img_data_imagenet'] for x in flat_batch]) # Bx3xHxW
+    if 'img_data_large' in flat_batch[0]:
+        img_data_large = torch.stack([x['img_data_large'] for x in flat_batch]) # Bx3xHxW
     else:
-        img_data_imagenet = None
+        img_data_large = None
     ret = {
         'img_data': img_data,
         'paths': paths,
         'cam2world': cam2world,
         'azi_rot': azi_rot,
         'depths': depths,
-        'img_data_imagenet': img_data_imagenet
+        'img_data_large': img_data_large
     }
     if 'mask' in flat_batch[0]:
         masks = torch.stack([x['mask'] for x in flat_batch])

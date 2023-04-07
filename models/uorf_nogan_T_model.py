@@ -10,9 +10,8 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, Encoder_resnet, position_loss
-
-
+from .model_T import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, Encoder_resnet, position_loss, sam_encoder
+from segment_anything import sam_model_registry
 
 class uorfNoGanTModel(BaseModel):
 
@@ -53,6 +52,7 @@ class uorfNoGanTModel(BaseModel):
         parser.add_argument('--position_loss',action='store_true', help='whether to use position loss')
         parser.add_argument('--position_loss_weight', type=float, default=0.5, help='weight of position loss')
         parser.add_argument('--position_loss_threshold', type=float, default=0.5, help='weight of position loss')
+        parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
@@ -92,16 +92,23 @@ class uorfNoGanTModel(BaseModel):
                                           frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
         z_dim = opt.z_dim
         self.num_slots = opt.num_slots
+
         self.imagenet_encoder = opt.imagenet_encoder
+        self.sam_encoder = opt.sam_encoder
         if self.imagenet_encoder:
             self.netEncoder = Encoder_resnet(z_dim=opt.z_dim, pretrained=True).to(self.device)
+        elif self.sam_encoder:
+            sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
+            self.netEncoder = sam_encoder(sam_model=sam_model, z_dim=opt.z_dim).to(self.device)
         else:
             self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
         self.netSlotAttention = networks.init_net(
             SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter, learnable_pos=opt.learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world), gpu_ids=self.gpu_ids, init_type='xavier')
+                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+                                                    project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
+                                                    ), gpu_ids=self.gpu_ids, init_type='xavier')
 
         if self.isTrain:  # only defined during training time
             # if opt.pos_emb, apply lower LR on encoder
@@ -147,7 +154,7 @@ class uorfNoGanTModel(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['img_data'].to(self.device)
-        self.x_imagenet = None if not self.imagenet_encoder else input['img_data_imagenet'].to(self.device)
+        self.x_large = input['img_data_large'].to(self.device) if self.imagenet_encoder or self.sam_encoder else None
         self.cam2world = input['cam2world'].to(self.device)
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
@@ -165,10 +172,10 @@ class uorfNoGanTModel(BaseModel):
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
-        if not self.imagenet_encoder:
+        if not (self.imagenet_encoder or self.sam_encoder):
             feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
         else:
-            feature_map = self.netEncoder(self.x_imagenet[0:1])
+            feature_map = self.netEncoder(self.x_large[0:1].to(dev))  # BxCxHxW
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         # H, W = feat.shape[1:3]
         # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
@@ -205,7 +212,8 @@ class uorfNoGanTModel(BaseModel):
         sampling_coor_bg = frus_nss_coor  # Px3
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        invariant = epoch >= self.opt.invariant_in
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])

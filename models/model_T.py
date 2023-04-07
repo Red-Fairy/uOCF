@@ -74,7 +74,7 @@ class Encoder(nn.Module):
             X = torch.linspace(-1, 1, W)
             Y = torch.linspace(-1, 1, H)
             y1_m, x1_m = torch.meshgrid([Y, X])
-            x2_m, y2_m = 2-x1_m, 2-y1_m  # Normalized distance in the four direction
+            x2_m, y2_m = -x1_m, -y1_m  # Normalized distance in the four direction
             pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
             x_ = torch.cat([x, pixel_emb], dim=1)
         else:
@@ -137,17 +137,37 @@ class Encoder_resnet(nn.Module):
         # x = (x + 1) / 2
         # x = (x - self.mean.to(x.device)) / self.std.to(x.device)
 
+        dev = x.device
         x4, x3, x2, x1 = self.resnet(x, proj=True)
-        grid1 = build_grid(x1.shape[2], x1.shape[3], reverse=True).permute(0, 3, 1, 2)
+        grid1 = build_grid(x1.shape[2], x1.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
         x1 = self.up_1(torch.cat([x1, grid1], dim=1))
-        grid2 = build_grid(x2.shape[2], x2.shape[3], reverse=True).permute(0, 3, 1, 2)
+        grid2 = build_grid(x2.shape[2], x2.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
         x2 = self.up_2(torch.cat([x2, x1, grid2], dim=1))
-        grid3 = build_grid(x3.shape[2], x3.shape[3], reverse=True).permute(0, 3, 1, 2)
+        grid3 = build_grid(x3.shape[2], x3.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
         x3 = self.up_3(torch.cat([x3, x2, grid3], dim=1))
-        grid4 = build_grid(x4.shape[2], x4.shape[3], reverse=True).permute(0, 3, 1, 2)
+        grid4 = build_grid(x4.shape[2], x4.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
         x4 = self.up_4(torch.cat([x4, x3, grid4], dim=1))
         
         return x4
+
+class sam_encoder(nn.Module):
+    def __init__(self, sam_model, z_dim):
+        super(sam_encoder, self).__init__()
+
+        self.sam = sam_model
+        self.sam.requires_grad_(False)
+        self.sam.eval()
+
+        self.vit_dim = 256
+        self.z_dim = z_dim
+        self.conv = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
+        self.relu = nn.ReLU(True)
+
+    def forward(self, x):
+        x = self.sam.image_encoder(x)
+        x = self.conv(x)
+        x = self.relu(x)
+        return x
     
 class EncoderPosEmbedding(nn.Module):
     def __init__(self, dim, slot_dim, hidden_dim=128):
@@ -221,7 +241,8 @@ class EncoderPosEmbedding(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, project=False, rel_pos=True, fg_in_world=False):
+    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
+                    project=False, rel_pos=True, fg_in_world=False):
         """
         freq: raised frequency
         input_dim: pos emb dim + slot dim
@@ -274,7 +295,7 @@ class Decoder(nn.Module):
         self.rel_pos = rel_pos
         self.fg_in_world = fg_in_world
 
-    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0.):
+    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True):
         """
         1. pos emb by Fourier
         2. for each slot, decode all points from coord and slot feature
@@ -300,14 +321,16 @@ class Decoder(nn.Module):
             sampling_coor_fg_temp = sampling_coor_fg_temp.squeeze(-1)  # (K-1)xPx3
             outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
             # relative position with fg slot position
-            if self.rel_pos:
+            if self.rel_pos and invariant:
                 sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # (K-1)xPx3
                 sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3x1
+            else:
+                sampling_coor_fg = sampling_coor_fg_temp
 
         z_bg = z_slots[0:1, :]  # 1xC
         z_fg = z_slots[1:, :]  # (K-1)xC
 
-        if self.position_project is not None:
+        if self.position_project is not None and invariant:
             # w/ and w/o residual connection
             z_fg = z_fg + self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) 
             # slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2

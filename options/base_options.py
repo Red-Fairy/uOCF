@@ -58,8 +58,11 @@ class BaseOptions():
         parser.add_argument('--pos_emb', action='store_true', help='apply position embedding on encoder')
         parser.add_argument('--emb_path', type=str, default='', help='path to pretrained embedding')
         parser.add_argument('--imagenet_encoder', action='store_true', help='use imagenet pretrained encoder, resnet18')
-        parser.add_argument('--imagenet_size', type=int, default=256, help='size of imagenet pretrained encoder')
         parser.add_argument('--learnable_pos', action='store_false', help='disable learnable position embedding')
+        parser.add_argument('--sam_encoder', action='store_true', help='use sam encoder')
+        parser.add_argument('--sam_type', type=str, default='vit_l', help='sam type')
+        parser.add_argument('--sam_path', type=str, default='/viscam/u/redfairy/pretrained_weights/SAM/sam_vit_l_0b3195.pth', help='path to pretrained sam')
+        parser.add_argument('--encoder_size', type=int, default=256, help='size of input to encoder')
         # additional dummy info, save into the log file
         parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
 
