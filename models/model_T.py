@@ -159,24 +159,70 @@ class sam_encoder(nn.Module):
         self.sam.eval()
 
         self.vit_dim = 256
-        self.z_dim = z_dim
+        self.sam_dim = (z_dim // 4) * 3
+        self.color_dim = z_dim - self.sam_dim
         self.down = nn.Sequential(nn.Conv2d(3, 64, 3, 1, 1),
                                     nn.ReLU(True),
                                     nn.Conv2d(64, 128, 3, 2, 1),
                                     nn.ReLU(True)) # (128, 64, 64)
         self.input_0 = nn.Conv2d(128, 128, 3, 1, 1)
-        self.input_1 = nn.Conv2d(256, self.vit_dim, 3, 1, 1)
+        self.input_1 = nn.Conv2d(256, 256, 3, 1, 1)
 
-        self.conv1 = nn.Conv2d(self.vit_dim*2, self.vit_dim, 3, 1, 1)
-        self.conv2 = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
+        self.input_2 = nn.Conv2d(256, self.color_dim, 3, 1, 1)
+
+        self.conv1 = nn.Conv2d(self.vit_dim, self.vit_dim, 3, 1, 1)
+        self.conv2 = nn.Conv2d(self.vit_dim, self.sam_dim, 3, 1, 1)
         self.relu = nn.ReLU(True)
 
     def forward(self, x_sam, x):
-        x_sam = self.sam.image_encoder(x_sam) # (B, 256, 64, 64)
+        
 
         x = self.down(x) # (B, 128, 64, 64)
         x1 = self.input_0(x) # (B, 128, 64, 64)
         x = self.input_1(torch.cat([x, x1], dim=1)) # (B, 256, 64, 64)
+        x = self.relu(x)
+        x = self.input_2(x) # (B, color_dim, 64, 64)
+
+        x_sam = self.sam.image_encoder(x_sam) # (B, 256, 64, 64)
+        x_sam = self.conv1(x_sam)
+        x_sam = self.relu(x_sam)
+        x_sam = self.conv2(x_sam) # (B, sam_dim, 64, 64)
+
+        return torch.cat([x, x_sam], dim=1)
+
+class sam_encoder_v2(nn.Module):
+    def __init__(self, sam_model, z_dim):
+        super(sam_encoder_v2, self).__init__()
+
+        self.sam = sam_model
+        self.sam.requires_grad_(False)
+        self.sam.eval()
+
+        self.vit_dim = 256
+        self.color_dim = 64
+        self.down = nn.Sequential(nn.Conv2d(3, 64, 3, 1, 1),
+                                    nn.ReLU(True),
+                                    nn.Conv2d(64, 128, 3, 2, 1),
+                                    nn.ReLU(True)) # (128, 64, 64)
+        self.input_0 = nn.Conv2d(128, 128, 3, 1, 1)
+        self.input_1 = nn.Conv2d(256, 256, 3, 1, 1)
+
+        self.input_2 = nn.Conv2d(256, self.color_dim, 3, 1, 1)
+
+        self.conv1 = nn.Conv2d(self.vit_dim+self.color_dim, self.vit_dim, 3, 1, 1)
+        self.conv2 = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
+        self.relu = nn.ReLU(True)
+
+    def forward(self, x_sam, x):
+        
+
+        x = self.down(x) # (B, 128, 64, 64)
+        x1 = self.input_0(x) # (B, 128, 64, 64)
+        x = self.input_1(torch.cat([x, x1], dim=1)) # (B, 256, 64, 64)
+        x = self.relu(x)
+        x = self.input_2(x) # (B, color_dim, 64, 64)
+
+        x_sam = self.sam.image_encoder(x_sam) # (B, 256, 64, 64)
 
         x = self.conv1(torch.cat([x, x_sam], dim=1))
         x = self.relu(x)

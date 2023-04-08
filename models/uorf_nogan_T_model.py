@@ -10,7 +10,7 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, Encoder_resnet, position_loss, sam_encoder
+from .model_T import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, Encoder_resnet, position_loss, sam_encoder, sam_encoder_v2
 from segment_anything import sam_model_registry
 
 class uorfNoGanTModel(BaseModel):
