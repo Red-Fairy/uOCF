@@ -166,6 +166,11 @@ class sam_encoder(nn.Module):
         self.conv2 = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
         self.relu = nn.ReLU(True)
 
+        for m in [self.conv0, self.conv1, self.conv2]:
+            nn.init.normal_(m.weight.data, 0, 0.02)
+            nn.init.constant_(m.bias.data, 0)
+
+
     def forward(self, x):
         x_sam = self.sam.image_encoder(x)
         x_color = self.conv0(self.downsample(x))
@@ -175,7 +180,7 @@ class sam_encoder(nn.Module):
 
         x = self.conv2(x)
         x = self.relu(x)
-        
+
         return x
     
 class EncoderPosEmbedding(nn.Module):
