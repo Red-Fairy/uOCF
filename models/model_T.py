@@ -160,22 +160,25 @@ class sam_encoder(nn.Module):
 
         self.vit_dim = 256
         self.z_dim = z_dim
-        self.conv0 = nn.Conv2d(3, self.vit_dim, 3, 1, 1)
-        self.downsample = nn.Upsample(scale_factor=0.25, mode='bilinear', align_corners=False)
+        self.down = nn.Sequential(nn.Conv2d(3, 64, 3, 1, 1),
+                                    nn.ReLU(True),
+                                    nn.Conv2d(64, 128, 3, 2, 1),
+                                    nn.ReLU(True)) # (128, 64, 64)
+        self.input_0 = nn.Conv2d(128, 128, 3, 1, 1)
+        self.input_1 = nn.Conv2d(256, self.vit_dim, 3, 1, 1)
+
         self.conv1 = nn.Conv2d(self.vit_dim*2, self.vit_dim, 3, 1, 1)
         self.conv2 = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
         self.relu = nn.ReLU(True)
 
-        for m in [self.conv0, self.conv1, self.conv2]:
-            nn.init.normal_(m.weight.data, 0, 0.02)
-            nn.init.constant_(m.bias.data, 0)
+    def forward(self, x_sam, x):
+        x_sam = self.sam.image_encoder(x_sam) # (B, 256, 64, 64)
 
+        x = self.down(x) # (B, 128, 64, 64)
+        x1 = self.input_0(x) # (B, 128, 64, 64)
+        x = self.input_1(torch.cat([x, x1], dim=1)) # (B, 256, 64, 64)
 
-    def forward(self, x):
-        x_sam = self.sam.image_encoder(x)
-        x_color = self.conv0(self.downsample(x))
-
-        x = self.conv1(torch.cat([x_sam, x_color], dim=1))
+        x = self.conv1(torch.cat([x, x_sam], dim=1))
         x = self.relu(x)
 
         x = self.conv2(x)

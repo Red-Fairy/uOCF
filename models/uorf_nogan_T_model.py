@@ -172,10 +172,13 @@ class uorfNoGanTModel(BaseModel):
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
-        if not (self.imagenet_encoder or self.sam_encoder):
-            feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-        else:
+        if self.imagenet_encoder:
             feature_map = self.netEncoder(self.x_large[0:1].to(dev))  # BxCxHxW
+        elif self.sam_encoder:
+            feature_map = self.netEncoder(self.x_large[0:1].to(dev), F.interpolate(self.x[0:1], size=128, mode='bilinear', align_corners=False))  # BxCxHxW
+        else:
+            feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+            
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         # H, W = feat.shape[1:3]
         # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
