@@ -160,13 +160,22 @@ class sam_encoder(nn.Module):
 
         self.vit_dim = 256
         self.z_dim = z_dim
-        self.conv = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
+        self.conv0 = nn.Conv2d(3, self.vit_dim, 3, 1, 1)
+        self.downsample = nn.Upsample(scale_factor=0.25, mode='bilinear', align_corners=False)
+        self.conv1 = nn.Conv2d(self.vit_dim*2, self.vit_dim, 3, 1, 1)
+        self.conv2 = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
         self.relu = nn.ReLU(True)
 
     def forward(self, x):
-        x = self.sam.image_encoder(x)
-        x = self.conv(x)
+        x_sam = self.sam.image_encoder(x)
+        x_color = self.conv0(self.downsample(x))
+
+        x = self.conv1(torch.cat([x_sam, x_color], dim=1))
         x = self.relu(x)
+
+        x = self.conv2(x)
+        x = self.relu(x)
+        
         return x
     
 class EncoderPosEmbedding(nn.Module):
