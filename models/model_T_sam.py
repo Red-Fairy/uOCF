@@ -459,14 +459,11 @@ class Decoder(nn.Module):
             # z_slots = self.position_project(slot_position) + z_slots # KxC
         
         # concat feature
-        print(z_bg.shape, z_bg_texture.shape)
         z_fg = torch.cat([z_fg, z_fg_texture], dim=-1)  # (K-1)x(C+C')
         z_bg = torch.cat([z_bg, z_bg_texture], dim=-1)  # 1x(C+C')
-        print(z_bg.shape)
 
         query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
         input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
-        print(input_bg.shape)
 
         sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
         query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
