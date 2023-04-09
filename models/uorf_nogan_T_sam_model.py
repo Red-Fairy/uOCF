@@ -57,7 +57,8 @@ class uorfNoGanTsamModel(BaseModel):
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
-                            dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
+                            dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
+                            sam_encoder=True)
 
         parser.set_defaults(exp_id='run-{}'.format(time.strftime('%Y-%m-%d-%H-%M-%S')))
 
@@ -139,7 +140,7 @@ class uorfNoGanTsamModel(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['img_data'].to(self.device)
-        self.x_large = input['img_data_large'].to(self.device) if self.imagenet_encoder or self.sam_encoder else None
+        self.x_large = input['img_data_large'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
