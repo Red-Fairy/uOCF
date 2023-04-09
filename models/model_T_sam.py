@@ -546,10 +546,10 @@ class SlotAttention(nn.Module):
         self.slot_dim = slot_dim
 
         self.to_texture_fg = nn.Sequential(nn.LayerNorm(texture_dim), 
-                                        nn.Linear(texture_dim, slot_dim))
+                                        nn.Linear(texture_dim, texture_dim))
         
         self.to_texture_bg = nn.Sequential(nn.LayerNorm(texture_dim),
-                                        nn.Linear(texture_dim, slot_dim))
+                                        nn.Linear(texture_dim, texture_dim))
 
     def forward(self, feat, feat_texture, num_slots=None):
         """
