@@ -162,7 +162,7 @@ class uorfNoGanTsamModel(BaseModel):
         feature_map_texture = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
 
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-        feat_texture = feature_texture_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+        feat_texture = feature_map_texture.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         # H, W = feat.shape[1:3]
         # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
