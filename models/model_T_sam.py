@@ -459,6 +459,7 @@ class Decoder(nn.Module):
             # z_slots = self.position_project(slot_position) + z_slots # KxC
         
         # concat feature
+        print(z_bg.shape, z_bg_texture.shape)
         z_fg = torch.cat([z_fg, z_fg_texture], dim=-1)  # (K-1)x(C+C')
         z_bg = torch.cat([z_bg, z_bg_texture], dim=-1)  # 1x(C+C')
         print(z_bg.shape)
