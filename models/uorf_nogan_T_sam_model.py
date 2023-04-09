@@ -10,7 +10,7 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, Encoder_resnet, position_loss
+from .model_T_sam import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, Encoder_resnet, position_loss, sam_encoder_v0
 from segment_anything import sam_model_registry
 
 class uorfNoGanTsamModel(BaseModel):
@@ -96,7 +96,7 @@ class uorfNoGanTsamModel(BaseModel):
         self.num_slots = opt.num_slots
 
         sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-        self.netEncoder_sam = sam_encoder_v3(sam_model=sam_model, z_dim=opt.z_dim).to(self.device)
+        self.netEncoder_sam = sam_encoder_v0(sam_model=sam_model, z_dim=opt.z_dim).to(self.device)
 
         self.netEncoder = networks.init_net(Encoder(3, z_dim=opt.texture_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
