@@ -190,7 +190,7 @@ class sam_encoder_v2(nn.Module):
 
         self.vit_dim = 256
         self.color_dim = 64
-        self.z_dim = z_dim
+        self.total_dim = z_dim
         self.down = nn.Sequential(nn.Conv2d(3, 64, 3, 1, 1),
                                     nn.ReLU(True),
                                     nn.Conv2d(64, 128, 3, 2, 1),
@@ -201,7 +201,7 @@ class sam_encoder_v2(nn.Module):
         self.input_2 = nn.Conv2d(256, self.color_dim, 3, 1, 1)
 
         self.conv1 = nn.Conv2d(self.vit_dim+self.color_dim, self.vit_dim, 3, 1, 1)
-        self.conv2 = nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1)
+        self.conv2 = nn.Conv2d(self.vit_dim, self.total_dim, 3, 1, 1)
         self.relu = nn.ReLU(True)
 
     def forward(self, x_sam, x):
@@ -231,7 +231,7 @@ class sam_encoder_v3(nn.Module):
         self.sam.eval()
 
         self.vit_dim = 256
-        self.z_dim = z_dim
+        self.total_dim = z_dim
         self.down = nn.Sequential(nn.Conv2d(3, 64, 3, 1, 1),
                                     nn.ReLU(True),
                                     nn.Conv2d(64, 128, 3, 2, 1),
@@ -244,7 +244,7 @@ class sam_encoder_v3(nn.Module):
 
         self.MLP = nn.Sequential(nn.Conv2d(self.vit_dim, self.vit_dim, 1, 1, 1),
                                 nn.ReLU(True),
-                                nn.Conv2d(self.vit_dim, self.z_dim, 1, 1, 1))
+                                nn.Conv2d(self.vit_dim, self.total_dim, 1, 1, 1))
 
 
     def forward(self, x_sam, x):
@@ -269,11 +269,11 @@ class sam_encoder_v0(nn.Module):
         self.sam.eval()
 
         self.vit_dim = 256
-        self.z_dim = z_dim
+        self.total_dim = z_dim
 
         self.sam_conv = nn.Sequential(nn.Conv2d(self.vit_dim, self.vit_dim, 3, 1, 1),
                                     nn.ReLU(True),
-                                    nn.Conv2d(self.vit_dim, self.z_dim, 3, 1, 1),
+                                    nn.Conv2d(self.vit_dim, self.total_dim, 3, 1, 1),
                                     nn.ReLU(True))
 
     def forward(self, x_sam):
@@ -356,7 +356,7 @@ class EncoderPosEmbedding(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
+    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, texture_dim=8, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
                     project=False, rel_pos=True, fg_in_world=False):
         """
         freq: raised frequency
@@ -373,38 +373,40 @@ class Decoder(nn.Module):
         self.locality_ratio = locality_ratio
         self.fixed_locality = fixed_locality
         self.out_ch = 4
-        before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
-        after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
+        self.total_dim = z_dim + texture_dim
+        self.z_dim = z_dim
+        before_skip = [nn.Linear(input_dim, self.total_dim), nn.ReLU(True)]
+        after_skip = [nn.Linear(self.total_dim+input_dim, self.total_dim), nn.ReLU(True)]
         for i in range(n_layers-1):
-            before_skip.append(nn.Linear(z_dim, z_dim))
+            before_skip.append(nn.Linear(self.total_dim, self.total_dim))
             before_skip.append(nn.ReLU(True))
-            after_skip.append(nn.Linear(z_dim, z_dim))
+            after_skip.append(nn.Linear(self.total_dim, self.total_dim))
             after_skip.append(nn.ReLU(True))
         self.f_before = nn.Sequential(*before_skip)
         self.f_after = nn.Sequential(*after_skip)
-        self.f_after_latent = nn.Linear(z_dim, z_dim)
-        self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
-        self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
+        self.f_after_latent = nn.Linear(self.total_dim, self.total_dim)
+        self.f_after_shape = nn.Linear(self.total_dim, self.out_ch - 3)
+        self.f_color = nn.Sequential(nn.Linear(self.total_dim, self.total_dim//4),
                                      nn.ReLU(True),
-                                     nn.Linear(z_dim//4, 3))
-        before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
-        after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
+                                     nn.Linear(self.total_dim//4, 3))
+        before_skip = [nn.Linear(input_dim, self.total_dim), nn.ReLU(True)]
+        after_skip = [nn.Linear(self.total_dim + input_dim, self.total_dim), nn.ReLU(True)]
         for i in range(n_layers - 1):
-            before_skip.append(nn.Linear(z_dim, z_dim))
+            before_skip.append(nn.Linear(self.total_dim, self.total_dim))
             before_skip.append(nn.ReLU(True))
-            after_skip.append(nn.Linear(z_dim, z_dim))
+            after_skip.append(nn.Linear(self.total_dim, self.total_dim))
             after_skip.append(nn.ReLU(True))
-        after_skip.append(nn.Linear(z_dim, self.out_ch))
+        after_skip.append(nn.Linear(self.total_dim, self.out_ch))
         self.b_before = nn.Sequential(*before_skip)
         self.b_after = nn.Sequential(*after_skip)
 
         if project:
-            self.position_project = nn.Linear(2, z_dim)
+            self.position_project = nn.Linear(2, self.z_dim)
             self.post_MLP = nn.Sequential(
-                    nn.LayerNorm(z_dim),
-                    nn.Linear(z_dim, z_dim),
+                    nn.LayerNorm(self.z_dim),
+                    nn.Linear(self.z_dim, self.z_dim),
                     nn.ReLU(inplace=True),
-                    nn.Linear(z_dim, z_dim))
+                    nn.Linear(self.z_dim, self.z_dim))
         else:
             self.position_project = None
         self.rel_pos = rel_pos
