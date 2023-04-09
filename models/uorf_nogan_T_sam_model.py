@@ -168,7 +168,7 @@ class uorfNoGanTsamModel(BaseModel):
 
         # Slot Attention
         z_slots, attn, fg_slot_position, z_slots_texture = self.netSlotAttention(feat, feat_texture)  # 1xKxC, 1xKxN (N=HxW), 1x(K-1)x2
-        z_slots, attn, fg_slot_position = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0)  # KxC, KxN, K-1x2
+        z_slots, attn, fg_slot_position, z_slots_texture = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0), z_slots_texture.squeeze(0)  # KxC, KxN, K-1x2
         fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # (K-1)x3
         
         K = attn.shape[0]
