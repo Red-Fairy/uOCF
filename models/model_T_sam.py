@@ -368,35 +368,36 @@ class Decoder(nn.Module):
         fixed_locality: if True, compute locality in world space instead of in transformed view space
         """
         super().__init__()
+        super().__init__()
         self.n_freq = n_freq
         self.locality = locality
         self.locality_ratio = locality_ratio
         self.fixed_locality = fixed_locality
         self.out_ch = 4
-        self.total_dim = z_dim + texture_dim
         self.z_dim = z_dim
-        before_skip = [nn.Linear(input_dim, self.total_dim), nn.ReLU(True)]
-        after_skip = [nn.Linear(self.total_dim+input_dim, self.total_dim), nn.ReLU(True)]
+        z_dim += texture_dim
+        before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+        after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
         for i in range(n_layers-1):
-            before_skip.append(nn.Linear(self.total_dim, self.total_dim))
+            before_skip.append(nn.Linear(z_dim, z_dim))
             before_skip.append(nn.ReLU(True))
-            after_skip.append(nn.Linear(self.total_dim, self.total_dim))
+            after_skip.append(nn.Linear(z_dim, z_dim))
             after_skip.append(nn.ReLU(True))
         self.f_before = nn.Sequential(*before_skip)
         self.f_after = nn.Sequential(*after_skip)
-        self.f_after_latent = nn.Linear(self.total_dim, self.total_dim)
-        self.f_after_shape = nn.Linear(self.total_dim, self.out_ch - 3)
-        self.f_color = nn.Sequential(nn.Linear(self.total_dim, self.total_dim//4),
+        self.f_after_latent = nn.Linear(z_dim, z_dim)
+        self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
+        self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
                                      nn.ReLU(True),
-                                     nn.Linear(self.total_dim//4, 3))
-        before_skip = [nn.Linear(input_dim, self.total_dim), nn.ReLU(True)]
-        after_skip = [nn.Linear(self.total_dim + input_dim, self.total_dim), nn.ReLU(True)]
+                                     nn.Linear(z_dim//4, 3))
+        before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+        after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
         for i in range(n_layers - 1):
-            before_skip.append(nn.Linear(self.total_dim, self.total_dim))
+            before_skip.append(nn.Linear(z_dim, z_dim))
             before_skip.append(nn.ReLU(True))
-            after_skip.append(nn.Linear(self.total_dim, self.total_dim))
+            after_skip.append(nn.Linear(z_dim, z_dim))
             after_skip.append(nn.ReLU(True))
-        after_skip.append(nn.Linear(self.total_dim, self.out_ch))
+        after_skip.append(nn.Linear(z_dim, self.out_ch))
         self.b_before = nn.Sequential(*before_skip)
         self.b_after = nn.Sequential(*after_skip)
 
