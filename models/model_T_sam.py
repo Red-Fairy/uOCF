@@ -140,9 +140,9 @@ class Encoder_resnet(nn.Module):
         
         return x4
 
-class sam_encoder(nn.Module):
+class sam_encoder_v1(nn.Module):
     def __init__(self, sam_model, z_dim):
-        super(sam_encoder, self).__init__()
+        super(sam_encoder_v1, self).__init__()
 
         self.sam = sam_model
         self.sam.requires_grad_(False)
