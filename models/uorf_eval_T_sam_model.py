@@ -7,17 +7,16 @@ from . import networks
 import os
 import time
 from .projection import Projection, pixel2world
-from .model_T import Encoder, Decoder, SlotAttention, raw2outputs
-from .model_T_sam import sam_encoder_v1
+from .model_T_sam import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, Encoder_resnet, position_loss, sam_encoder_v0
+from segment_anything import sam_model_registry
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
 import lpips
 from piq import ssim as compute_ssim
 from piq import psnr as compute_psnr
-from segment_anything import sam_model_registry
 
 
-class uorfEvalTModel(BaseModel):
+class uorfEvalTsamModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -32,6 +31,7 @@ class uorfEvalTModel(BaseModel):
 		"""
 		parser.add_argument('--num_slots', metavar='K', type=int, default=8, help='Number of supported slots')
 		parser.add_argument('--z_dim', type=int, default=64, help='Dimension of individual z latent per slot')
+		parser.add_argument('--texture_dim', type=int, default=16, help='Dimension of individual z latent per slot')
 		parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
 		parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
 		parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
@@ -72,7 +72,7 @@ class uorfEvalTModel(BaseModel):
 							# ['slot{}_attn'.format(k) for k in range(opt.num_slots)] + \
 							# ['gt_mask{}'.format(i) for i in range(n)] + 
 							# ['render_mask{}'.format(i) for i in range(n)] + 
-		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
+		self.model_names = ['Encoder', 'Encoder_sam', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
@@ -80,14 +80,11 @@ class uorfEvalTModel(BaseModel):
 		z_dim = opt.z_dim
 		self.num_slots = opt.num_slots
 
-		self.sam_encoder = opt.sam_encoder
-		if self.sam_encoder:
-			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-			self.netEncoder = sam_encoder_v1(sam_model=sam_model, z_dim=opt.z_dim).to(self.device)
-		else:
-			self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
-												gpu_ids=self.gpu_ids, init_type='normal')
+		sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
+		self.netEncoder_sam = sam_encoder_v0(sam_model=sam_model, z_dim=opt.z_dim).to(self.device)
 
+		self.netEncoder = networks.init_net(Encoder(3, z_dim=opt.texture_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
+												gpu_ids=self.gpu_ids, init_type='normal')
 		self.netSlotAttention = networks.init_net(
 			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=False,
@@ -114,7 +111,7 @@ class uorfEvalTModel(BaseModel):
 			input: a dictionary that contains the data itself and its metadata information.
 		"""
 		self.x = input['img_data'].to(self.device)
-		self.x_large = input['img_data_large'].to(self.device) if self.sam_encoder else None
+		self.x_large = input['img_data_large'].to(self.device)
 		self.cam2world = input['cam2world'].to(self.device)
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
@@ -132,17 +129,16 @@ class uorfEvalTModel(BaseModel):
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
 		# Encoding images
-		if self.sam_encoder:
-			feature_map = self.netEncoder(self.x_large[0:1].to(dev), F.interpolate(self.x[0:1], size=128, mode='bilinear', align_corners=False))  # BxCxHxW
-		else:
-			feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-		# feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
+		feature_map = self.netEncoder_sam(self.x_large[0:1].to(dev))  # BxCxHxW
+		feature_map_texture = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+
 		feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_texture = feature_map_texture.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 
 		# Slot Attention
-		z_slots, attn, fg_slot_position = self.netSlotAttention(feat)  # 1xKxC, 1xKxN (N=HxW)
-		z_slots, attn, fg_slot_position = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0)  # KxC, KxN, K-1x2
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # K-1x3
+		z_slots, attn, fg_slot_position, z_slots_texture = self.netSlotAttention(feat, feat_texture)  # 1xKxC, 1xKxN (N=HxW), 1x(K-1)x2
+		z_slots, attn, fg_slot_position, z_slots_texture = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0), z_slots_texture.squeeze(0)  # KxC, KxN, K-1x2
+		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # (K-1)x3
 
 		K = attn.shape[0]
 
@@ -162,7 +158,7 @@ class uorfEvalTModel(BaseModel):
 			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
 			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, z_slots_texture, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
