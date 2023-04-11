@@ -1,4 +1,4 @@
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/3600shape_50bg'}
+DATAROOT=${1:-'/viscam/projects/uorf/datasets/3600shape_50bg'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 3  \
