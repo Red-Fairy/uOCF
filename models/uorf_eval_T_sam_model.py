@@ -197,8 +197,9 @@ class uorfEvalTsamModel(BaseModel):
 			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 			setattr(self, 'z_slots', z_slots.detach())
+			setattr(self, 'z_slots_texture', z_slots_texture.detach())
    
-	def forward_position(self, fg_slot_image_position=None, fg_slot_nss_position=None):
+	def forward_position(self, fg_slot_image_position=None, fg_slot_nss_position=None, z_slots_texture=None):
 		assert fg_slot_image_position is None or fg_slot_nss_position is None
 		x = self.x
 		dev = x.device
@@ -216,6 +217,11 @@ class uorfEvalTsamModel(BaseModel):
 		else:
 			fg_slot_nss_position = self.fg_slot_nss_position.to(dev)
 
+		if z_slots_texture is not None:
+			z_slots_texture = z_slots_texture.to(dev)
+		else:
+			z_slots_texture = self.z_slots_texture.to(dev)
+
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
 		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, partitioned=True)
@@ -228,7 +234,7 @@ class uorfEvalTsamModel(BaseModel):
 			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
 			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, self.z_slots, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, self.z_slots, z_slots_texture, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
