@@ -10,6 +10,6 @@ python test-swapTexture.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 
     --sam_encoder --encoder_size 1024 \
     --exp_id '0410-sam-texture' \
     --z_dim 48 --texture_dim 16 \
-    --project --attn_iter 4 --testset_name swap2_test \
+    --project --attn_iter 4 --testset_name swap_slot_test \
 # done
 echo "Done"
