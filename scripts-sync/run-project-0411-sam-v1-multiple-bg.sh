@@ -5,7 +5,7 @@
 #SBATCH --mem=16G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:a5000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/T_uORF_clevr567_%j.out
@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/scene_generation/datasets/3600shape_nobg-5000'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/3600shape_50bg'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 3  \
@@ -30,13 +30,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --model 'uorf_nogan_T' \
-    --exp_id '0412-sam-nobg' --attn_iter 4 \
+    --exp_id '0411-sam-bg' --attn_iter 4 \
     --sam_encoder --encoder_size 1024 \
     --project \
     --lr 3e-4 --coarse_epoch 80  --niter 160 --percept_in 24 \
     --save_epoch_freq 12 \
     --z_dim 64 --num_slots 5 \
-    --bottom \
+    --continue_train --epoch_count 24 \
     --dummy_info 'w/ bg MLP encoding, input positional encoding w/o 2-, apply invariant in 100' \
 
 # can try the following to list out which GPU you have access to
