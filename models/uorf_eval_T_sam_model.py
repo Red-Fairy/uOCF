@@ -78,6 +78,7 @@ class uorfEvalTsamModel(BaseModel):
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 		z_dim = opt.z_dim
+		texture_dim = opt.texture_dim
 		self.num_slots = opt.num_slots
 
 		sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
@@ -86,9 +87,10 @@ class uorfEvalTsamModel(BaseModel):
 		self.netEncoder = networks.init_net(Encoder(3, z_dim=opt.texture_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
 												gpu_ids=self.gpu_ids, init_type='normal')
 		self.netSlotAttention = networks.init_net(
-			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=False,
-													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, project=opt.project), gpu_ids=self.gpu_ids, init_type='xavier')
+			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, texture_dim=texture_dim, iters=opt.attn_iter, learnable_pos=opt.learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
+		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim+texture_dim, z_dim=z_dim, texture_dim=texture_dim, n_layers=opt.n_layer,
+													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+													project=opt.project, rel_pos=opt.relative_position), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
@@ -158,7 +160,7 @@ class uorfEvalTsamModel(BaseModel):
 			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
 			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, z_slots_texture, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, z_slots_texture, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
