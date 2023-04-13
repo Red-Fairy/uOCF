@@ -49,11 +49,11 @@ for i, data in enumerate(dataset):
 
         z_slots_texture = model.z_slots_texture # (n_slots, texture_dim)
         # broadcast z_slots_texture[0] to all slots
-        # z_slots_texture[1] = z_slots_texture[2] = z_slots_texture[3] = z_slots_texture[4]
+        z_slots_texture[1] = z_slots_texture[2] = z_slots_texture[3] = z_slots_texture[4]
 
         z_slots = model.z_slots # (n_slots, slot_dim)
         # broadcast z_slots[0] to all slots
-        z_slots[1] = z_slots[2] = z_slots[3] = z_slots[4]
+        # z_slots[1] = z_slots[2] = z_slots[3] = z_slots[4]
 
         # model.forward_position(fg_slot_nss_position=fg_slot_position, z_slots_texture=z_slots_texture)
         model.forward_position(z_slots_texture=z_slots_texture, z_slots=z_slots)
