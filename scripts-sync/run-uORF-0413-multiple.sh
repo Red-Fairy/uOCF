@@ -22,7 +22,6 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-# DATAROOT=${1:-'/viscam/u/redfairy/room_diverse_generation/image_generation/datasets/1200shape_nobg-5000'}
 DATAROOT=${1:-'/viscam/projects/uorf-extension/scene_generation/datasets/3600shape_nobg-5000'}
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
