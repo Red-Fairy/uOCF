@@ -26,7 +26,7 @@ DATAROOT=${1:-'/viscam/projects/uorf-extension/scene_generation/datasets/3600sha
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
-    --checkpoints_dir 'checkpoints' --name 'room_diverse' \
+    --checkpoints_dir 'checkpoints' --name 'room_multiple' \
     --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 200 --display_grad \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120  --niter 240 \

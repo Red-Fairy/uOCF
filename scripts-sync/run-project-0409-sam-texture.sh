@@ -29,15 +29,15 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --checkpoints_dir 'checkpoints' --name 'clevr_567' \
     --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad \
     --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 --num_slots 8 \
-    --coarse_epoch 400 --niter 800 \
+    --coarse_epoch 500 --niter 1000 \
     --model 'uorf_nogan_T_sam' \
-    --exp_id '0410-sam-texture-v2' \
-    --z_dim 30 --texture_dim 10 \
+    --exp_id '0414-sam-texture' \
+    --z_dim 10 --texture_dim 30 \
     --sam_encoder --encoder_size 1024 \
     --attn_iter 4 \
-    --seed 1 --lr 1e-4 \
+    --seed 2023 --lr 3e-4 \
     --project \
-    --dummy_info 'dim=30:10, lr 1e-4, frozen sam encoder, disentangle texture, share grid embed projection, correct deduct operation (before azi transform), move deduction after locality, add decoder MLP to z-slots projection (w/ residual), 4 round attn, use ImageNet ResNet18 encoder, pyramid upsample' \
+    --dummy_info 'seed 2023 sam texture' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery
