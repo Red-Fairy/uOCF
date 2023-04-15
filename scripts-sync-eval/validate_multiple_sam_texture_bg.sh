@@ -1,5 +1,5 @@
 #!/bin/bash
-DATAROOT=${1:-'/viscam/u/redfairy/room_diverse_generation/image_generation/datasets/3600shape_nobg_test'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/scene_generation/datasets/3600shape_bg-test'}
 PORT=${2:-12783}
 python test.py --dataroot $DATAROOT --n_scenes 500 --n_img_each_scene 4 \
     --checkpoints_dir 'checkpoints' --name 'room_multiple' --results_dir 'results' \
