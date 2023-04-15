@@ -35,7 +35,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --project \
     --lr 3e-4 --coarse_epoch 80  --niter 160 --percept_in 24 \
     --save_epoch_freq 12 \
-    --z_dim 48 --texture_dim 16 --num_slots 5 \
+    --z_dim 56 --texture_dim 8 --num_slots 5 \
     --bottom \
     --dummy_info 'w/ bg MLP encoding, input positional encoding w/o 2-, apply invariant in 100' \
 
