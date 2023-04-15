@@ -36,10 +36,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --sam_encoder --encoder_size 1024 \
     --project \
     --lr 3e-4 --coarse_epoch 80  --niter 160 --percept_in 24 \
-    --exp_id '0410-sam-texture-diverse' \
+    --exp_id '0415-sam-texture-diverse-r2' \
     --save_epoch_freq 10 \
-    --continue_train --epoch_count 51 --epoch 50 \
-    --dummy_info 'frozen sam encoder v0, disentangle texture, lr 3e-4, share grid embed projection, correct deduct operation (before azi transform), move deduction after locality, add decoder MLP to z-slots projection (w/ residual), 4 round attn, use ImageNet ResNet18 encoder, pyramid upsample' \
+    --seed 2023 \
+    --dummy_info 'sam encoder v0' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery
