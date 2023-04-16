@@ -25,19 +25,20 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/viscam/u/redfairy/datasets/room_chair/train'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 3  \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_chair' \
     --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad \
     --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 --num_slots 5 \
     --coarse_epoch 400 --niter 800 \
     --model 'uorf_nogan_T_sam' \
-    --exp_id '0410-sam-texture' \
-    --z_dim 48 --texture_dim 16 \
+    --exp_id '0416-sam-texture' \
+    --z_dim 56 --texture_dim 8 \
     --sam_encoder --encoder_size 1024 \
     --save_epoch_freq 25 \
     --attn_iter 4 \
     --project \
-    --dummy_info 'frozen sam encoder, disentangle texture, share grid embed projection, correct deduct operation (before azi transform), move deduction after locality, add decoder MLP to z-slots projection (w/ residual), 4 round attn, use ImageNet ResNet18 encoder, pyramid upsample' \
+    --seed 2023 \
+    --dummy_info 'sam v0 56+8' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery
