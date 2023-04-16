@@ -31,9 +31,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 --num_slots 8 \
     --coarse_epoch 500 --niter 1000 \
     --model 'uorf_nogan_T_sam' \
-    --exp_id '0414-sam-texture-4view' \
-    --z_dim 30 --texture_dim 6 \
+    --exp_id '0416-sam-texture-4view' \
+    --z_dim 28 --texture_dim 8 \
     --sam_encoder --encoder_size 1024 \
+    --save_epoch_freq 25 \
     --attn_iter 4 \
     --seed 2023 --lr 3e-4 \
     --project \

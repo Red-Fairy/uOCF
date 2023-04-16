@@ -37,7 +37,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --save_epoch_freq 25 \
     --attn_iter 4 \
     --project \
-    --seed 2023 \
+    --seed 12345 \
     --dummy_info 'sam v0 56+8' \
 
 # can try the following to list out which GPU you have access to
