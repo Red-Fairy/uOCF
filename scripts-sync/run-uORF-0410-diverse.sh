@@ -32,8 +32,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120  --niter 240 \
     --z_dim 64 --num_slots 5 --attn_iter 4 \
-    --exp_id 0410-uORF \
+    --exp_id 0416-uORF \
     --model 'uorf_nogan' --bottom \
     --lr 3e-4 \
+    --seed 2023 \
 # done
 echo "Done"

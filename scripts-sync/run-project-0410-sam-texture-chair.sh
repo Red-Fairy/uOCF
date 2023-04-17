@@ -31,14 +31,14 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 --num_slots 5 \
     --coarse_epoch 400 --niter 800 \
     --model 'uorf_nogan_T_sam' \
-    --exp_id '0416-sam-texture' \
-    --z_dim 56 --texture_dim 8 \
+    --exp_id '0416-sam-texture-32-24' \
+    --z_dim 32 --texture_dim 24 \
     --sam_encoder --encoder_size 1024 \
     --save_epoch_freq 25 \
     --attn_iter 4 \
     --project \
     --seed 12345 \
-    --dummy_info 'sam v0 56+8' \
+    --dummy_info 'sam v0 32+24' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

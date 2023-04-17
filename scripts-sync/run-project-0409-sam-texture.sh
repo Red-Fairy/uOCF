@@ -29,10 +29,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --checkpoints_dir 'checkpoints' --name 'clevr_567' \
     --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad \
     --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 --num_slots 8 \
-    --coarse_epoch 500 --niter 1000 \
+    --coarse_epoch 500 --niter 1000 --init_n_epoch 60 --percept_in 120 \
     --model 'uorf_nogan_T_sam' \
-    --exp_id '0416-sam-texture-4view' \
-    --z_dim 28 --texture_dim 8 \
+    --exp_id '0416-sam-texture-30-6' \
+    --z_dim 30 --texture_dim 6 \
     --sam_encoder --encoder_size 1024 \
     --save_epoch_freq 25 \
     --attn_iter 4 \

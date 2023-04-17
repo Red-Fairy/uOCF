@@ -55,6 +55,8 @@ class uorfNoGanTsamModel(BaseModel):
         parser.add_argument('--position_loss_threshold', type=float, default=0.5, help='weight of position loss')
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
+        parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
+        parser.add_argument('--init_n_epoch', type=int, default=0, help='number of epochs for the first epoch')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -172,6 +174,14 @@ class uorfNoGanTsamModel(BaseModel):
         fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # (K-1)x3
         
         K = attn.shape[0]
+
+        # if epoch < self.opt.n_init_epoch, trunc the n_img_each_scene to init_n_img_each_scene_
+        if epoch < self.opt.init_n_epoch:
+            self.opt.n_img_each_scene = self.opt.init_n_img_each_scene
+            self.x = self.x[0:self.opt.init_n_img_each_scene]
+            self.cam2world = self.cam2world[0:self.opt.init_n_img_each_scene]
+            if not self.opt.fixed_locality:
+                self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
 
         cam2world = self.cam2world
         N = cam2world.shape[0]
