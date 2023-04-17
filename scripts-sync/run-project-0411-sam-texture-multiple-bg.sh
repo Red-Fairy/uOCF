@@ -30,12 +30,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --model 'uorf_nogan_T_sam' \
-    --exp_id '0416-sam-texture-bg-32-24' --attn_iter 4 \
+    --exp_id '0417-sam-texture-bg-48-16-4view' --attn_iter 4 \
     --sam_encoder --encoder_size 1024 \
     --project \
-    --lr 3e-4 --coarse_epoch 80  --niter 160 --percept_in 24 \
+    --coarse_epoch 100  --niter 200 --init_n_epoch 24 --percept_in 24 \
     --save_epoch_freq 12 \
-    --z_dim 32 --texture_dim 24 --num_slots 5 \
+    --z_dim 48 --texture_dim 16 --num_slots 5 \
+    --continue_train --epoch 24 --epoch_count 25 \
     --bottom \
     --dummy_info 'frozen sam encoder v0' \
 

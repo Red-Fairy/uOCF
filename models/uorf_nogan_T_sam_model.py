@@ -78,12 +78,7 @@ class uorfNoGanTsamModel(BaseModel):
         self.loss_names = ['recon', 'perc']
         if opt.position_loss:
             self.loss_names += ['pos']
-        n = opt.n_img_each_scene
-        self.visual_names = ['x{}'.format(i) for i in range(n)] + \
-                            ['x_rec{}'.format(i) for i in range(n)] + \
-                            ['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)] + \
-                            ['unmasked_slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)] + \
-                            ['slot{}_attn'.format(k) for k in range(opt.num_slots)]
+        self.set_visual_names()
         self.model_names = ['Encoder', 'Encoder_sam', 'SlotAttention', 'Decoder']
         self.perceptual_net = get_perceptual_net().to(self.device)
         self.vgg_norm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -123,6 +118,15 @@ class uorfNoGanTsamModel(BaseModel):
             self.position_loss = position_loss(opt.position_loss_weight, threshold=opt.position_loss_threshold)
         else:
             self.position_loss = None
+
+    def set_visual_names(self):
+        n = self.opt.n_img_each_scene
+        n_slot = self.opt.num_slots
+        self.visual_names = ['x{}'.format(i) for i in range(n)] + \
+                            ['x_rec{}'.format(i) for i in range(n)] + \
+                            ['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
+                            ['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
+                            ['slot{}_attn'.format(k) for k in range(n_slot)]
 
     def setup(self, opt):
         """Load and print networks; create schedulers
@@ -182,6 +186,8 @@ class uorfNoGanTsamModel(BaseModel):
             self.cam2world = self.cam2world[0:self.opt.init_n_img_each_scene]
             if not self.opt.fixed_locality:
                 self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
+            self.set_visual_names()
+            
 
         cam2world = self.cam2world
         N = cam2world.shape[0]
