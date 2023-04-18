@@ -38,6 +38,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --attn_iter 4 \
     --seed 12345 --lr 3e-4 \
     --project \
+    --continue_train --epoch 75 --epoch_count 76 \
     --dummy_info 'sam v0 texture' \
 
 # can try the following to list out which GPU you have access to
