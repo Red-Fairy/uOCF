@@ -5,7 +5,7 @@
 #SBATCH --mem=16G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/T_uORF_clevr567_%j.out
@@ -31,14 +31,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 --num_slots 8 \
     --coarse_epoch 500 --niter 1000 --init_n_epoch 100 --percept_in 100 \
     --model 'uorf_nogan_T_sam' \
-    --exp_id '0416-sam-texture-28-8' \
+    --exp_id '0419-sam-texture-28-8' \
     --z_dim 28 --texture_dim 8 \
     --sam_encoder --encoder_size 1024 \
     --save_epoch_freq 25 \
     --attn_iter 4 \
-    --seed 12345 --lr 3e-4 \
+    --seed 2024 --lr 3e-4 \
     --project \
-    --continue_train --epoch 175 --epoch_count 176 \
     --dummy_info 'sam v0 texture' \
 
 # can try the following to list out which GPU you have access to

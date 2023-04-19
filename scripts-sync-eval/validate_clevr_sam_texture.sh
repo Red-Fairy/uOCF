@@ -10,6 +10,6 @@ python test.py --dataroot $DATAROOT --n_scenes 500 --n_img_each_scene 4 \
     --sam_encoder --encoder_size 1024 \
     --exp_id '0409-sam-texture' \
     --z_dim 32 --texture_dim 8 \
-    --project --attn_iter 4 --testset_name trail_test \
+    --project --attn_iter 4 --testset_name test_regular \
 # done
 echo "Done"

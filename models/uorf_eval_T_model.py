@@ -67,8 +67,8 @@ class uorfEvalTModel(BaseModel):
 		self.loss_names = ['ari', 'fgari', 'nvari', 'psnr', 'ssim', 'lpips']
 		n = opt.n_img_each_scene
 		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
-							['x_rec{}'.format(i) for i in range(n)] + \
-							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
+							['x_rec{}'.format(i) for i in range(n)]
+							# ['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
 							# ['slot{}_attn'.format(k) for k in range(opt.num_slots)] + \
 							# ['gt_mask{}'.format(i) for i in range(n)] + 
 							# ['render_mask{}'.format(i) for i in range(n)] + 
