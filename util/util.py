@@ -373,3 +373,60 @@ class GroupMeters(object):
         else:
             meters_kv = values
         return meters_kv
+
+def get_spherical_cam2world(radius, theta, n_views=48):
+    """
+    Get spherical camera to world matrix
+    radius: radius of the sphere
+    theta: angle between the line from the camera to the origin and the Z axis
+    n_views: number of views
+    return: Tensor of shape (n_views, 4, 4)
+    """
+
+    # Convert theta to radians
+    theta_rad = np.radians(theta)
+
+    # Calculate the rotation angle for each view
+    rotation_angles = np.linspace(0, 2 * np.pi, n_views, endpoint=False)
+
+    # Initialize a list to store the transformation matrices
+    cam2world_matrices = []
+
+    for angle in rotation_angles:
+        # Calculate the camera position on the sphere
+        x = radius * np.sin(theta_rad) * np.cos(angle)
+        y = radius * np.sin(theta_rad) * np.sin(angle)
+        z = radius * np.cos(theta_rad)
+
+        camera_position = np.array([x, y, z])
+
+        # Calculate the camera's forward direction vector
+        forward = -camera_position / np.linalg.norm(camera_position)
+
+        # Calculate the camera's up vector
+        up = np.array([0, 0, 1])
+        if np.abs(np.dot(up, forward)) > 0.999:
+            up = np.array([0, 1, 0])
+
+        # Calculate the camera's right direction vector
+        right = np.cross(up, forward)
+        right /= np.linalg.norm(right)
+
+        # Update the camera's up vector to be orthogonal to forward and right vectors
+        up = np.cross(forward, right)
+
+        # Create the camera to world matrix
+        cam2world = np.eye(4)
+        cam2world[:3, 0] = right
+        cam2world[:3, 1] = up
+        cam2world[:3, 2] = forward
+        cam2world[:3, 3] = camera_position
+
+        cam2world_matrices.append(cam2world)
+
+    return np.stack(cam2world_matrices)
+
+
+
+
+

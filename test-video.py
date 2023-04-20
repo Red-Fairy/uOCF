@@ -7,6 +7,7 @@ import os
 from util.util import AverageMeter, set_seed, write_location
 
 import torch
+from util.util import get_spherical_cam2world
 
 
 opt = TestOptions().parse()  # get test options
@@ -27,14 +28,10 @@ web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
 print('creating web directory', web_dir)
 webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
-file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w+')
-
 for i, data in enumerate(dataset):
     visualizer.reset()
     model.set_input(data)  # unpack data from data loader
     # model.test()           # run inference: forward + compute_visuals
-
-    file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, '{}_{}'.format(opt.testset_name, opt.epoch), 'slot_location.txt'), 'w')
 
     with torch.no_grad():
         model.forward()
@@ -70,13 +67,3 @@ for i, data in enumerate(dataset):
     img_path = model.get_image_paths()
     save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
     print('process image... %s' % img_path)
-    # losses = {}
-    # for loss_name in model.loss_names:
-    #     losses[loss_name] = meters_tst[loss_name].avg
-    # visualizer.print_test_losses('average', losses)
-
-    # try:
-    #     write_location(file, model.fg_slot_image_position, i, description='(image position)')
-    #     write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
-    # except:
-    #     pass

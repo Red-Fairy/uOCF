@@ -34,10 +34,11 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --sam_encoder --encoder_size 1024 \
     --project \
     --coarse_epoch 100  --niter 200 --init_n_epoch 24 --percept_in 24 \
-    --save_epoch_freq 12 \
+    --save_epoch_freq 4 \
     --z_dim 48 --texture_dim 16 --num_slots 5 \
-    --continue_train --epoch 24 --epoch_count 25 \
+    --continue_train --epoch 72 --epoch_count 73 \
     --bottom \
+    --seed 2023 \
     --dummy_info 'frozen sam encoder v0' \
 
 # can try the following to list out which GPU you have access to

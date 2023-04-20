@@ -198,6 +198,41 @@ class uorfEvalTsamModel(BaseModel):
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 			setattr(self, 'z_slots', z_slots.detach())
 			setattr(self, 'z_slots_texture', z_slots_texture.detach())
+
+	def visual_cam2world(self, cam2world):
+		'''
+		render the scene given the cam2world matrix (1x4x4)
+		must be called after forward()
+		'''
+		dev = self.x[0:1].device
+		cam2world_viewer = self.cam2world[0]
+		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
+
+		W, H, D = self.projection.frustum_size
+		scale = H // self.opt.render_size
+		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, partitioned=True)
+		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
+		x_recon, rendered, masked_raws, unmasked_raws = \
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
+		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
+			h, w = divmod(j, scale)
+			H_, W_ = H // scale, W // scale
+			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
+			sampling_coor_bg_ = frus_nss_coor_  # Px3
+
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, z_slots_texture, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
+			masked_raws[..., h::scale, w::scale, :] = masked_raws_
+			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
+			# (NxHxW)x3, (NxHxW)
+			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+			rendered[..., h::scale, w::scale] = rendered_
+			x_recon_ = rendered_ * 2 - 1
+			x_recon[..., h::scale, w::scale] = x_recon_
+
    
 	def forward_position(self, fg_slot_image_position=None, fg_slot_nss_position=None, z_slots_texture=None, z_slots=None):
 		assert fg_slot_image_position is None or fg_slot_nss_position is None
