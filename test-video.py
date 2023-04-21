@@ -10,6 +10,8 @@ import torch
 from util.util import get_spherical_cam2world
 import torchvision
 import cv2
+from tqdm import tqdm
+import numpy as np
 
 
 opt = TestOptions().parse()  # get test options
@@ -30,7 +32,11 @@ web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
 print('creating web directory', web_dir)
 webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
-for i, data in enumerate(dataset):
+# wanted idx
+idx = 1
+for data in dataset:
+    for id in range(idx):
+        continue
     visualizer.reset()
     model.set_input(data)  # unpack data from data loader
 
@@ -44,26 +50,56 @@ for i, data in enumerate(dataset):
         z = (cam2world_input[:, 2, 3]) / radius
         theta = torch.acos(z)
         radius, theta = radius.item(), theta.item()
-        print(radius, theta)
 
-        cam2worlds = get_spherical_cam2world(radius, theta, 64)
+        cam2worlds = get_spherical_cam2world(radius, theta, 48)
         cam2worlds = torch.from_numpy(cam2worlds).float()
 
-        # for i in range(cam2worlds.shape[0]):
-        #     cam2world = cam2worlds[i:i+1]
-        #     # print(cam2world)
-        #     rendered = (model.visual_cam2world(cam2world) + 1) / 2
-        #     path = os.path.join(web_dir, 'images' ,'rendered_{}.png'.format(i))
-        #     # torchvision.utils.save_image(rendered[0], path)
-        #     torchvision.utils.save_image(rendered, path)
+        video_writers = []
+        for j in range(1, opt.num_slots):
+            video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_slot{}.mp4'.format(j)), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128)))
+
+        for i in tqdm(range(cam2worlds.shape[0])):
+            cam2world = cam2worlds[i:i+1]
+            # print(cam2world)
+            model.visual_cam2world(cam2world)
+            model.compute_visuals()
+            visuals = model.get_current_visuals()
+            # print(len(visuals))
+            for j in range(1, opt.num_slots):
+                visual_name = f'slot{j}_view0'
+                img = visuals[visual_name].detach().cpu()
+                img = (img + 1) / 2
+                video_writers[j-1].write((img * 255).permute(1, 2, 0).numpy().astype(np.uint8))
+                # path = os.path.join(web_dir, 'images' ,'rendered_slot{}_{}.png'.format(j, i))
+                # torchvision.utils.save_image(img, path)
+
+        for j in range(1, opt.num_slots):
+            video_writers[j-1].release()
+
+        # congregate the images into a video for each slot
+        # for j in tqdm(range(1, opt.num_slots)):
+        #     video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered_slot{}.mp4'.format(j)), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128))
+        #     for i in range(cam2worlds.shape[0]):
+        #         path = os.path.join(web_dir, 'images' , 'rendered_slot{}_{}.png'.format(j, i))
+        #         img = cv2.imread(path)
+        #         video_writer.write(img)
+        #     video_writer.release()
+                
+            # visualizer.display_current_results(visuals, epoch=None, save_result=False)
+            # img_path = model.get_image_paths()
+            # save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
+            # rendered = (model.visual_cam2world(cam2world) + 1) / 2
+            # path = os.path.join(web_dir, 'images' ,'rendered_{}.png'.format(i))
+            # torchvision.utils.save_image(rendered[0], path)
+            # torchvision.utils.save_image(rendered, path)
 
         # congregate the images into a video
-        video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128))
-        for i in range(cam2worlds.shape[0]):
-            path = os.path.join(web_dir, 'images' , 'rendered_{}.png'.format(i))
-            img = cv2.imread(path)
-            video_writer.write(img)
-        video_writer.release()
+        # video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128))
+        # for i in range(cam2worlds.shape[0]):
+        #     path = os.path.join(web_dir, 'images' , 'rendered_{}.png'.format(i))
+        #     img = cv2.imread(path)
+        #     video_writer.write(img)
+        # video_writer.release()
 
 
     # visuals = model.get_current_visuals()
@@ -71,3 +107,4 @@ for i, data in enumerate(dataset):
     # img_path = model.get_image_paths()
     # save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
     # print('process image... %s' % img_path)
+    break
