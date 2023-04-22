@@ -8,6 +8,6 @@ python test.py --dataroot $DATAROOT --n_scenes 500 --n_img_each_scene 4 \
     --n_samp 256 --z_dim 64 --num_slots 5 \
     --model 'uorf_eval' \
     --pos_emb --exp_id '0416-uORF-bg' \
-    --attn_iter 4 --testset_name test_ood_143epoch \
+    --attn_iter 4 --testset_name test_regular_240full \
 # done
 echo "Done"

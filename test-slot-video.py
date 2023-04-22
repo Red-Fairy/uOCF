@@ -4,7 +4,7 @@ from models import create_model
 from util.visualizer import Visualizer, save_images
 from util.html import HTML
 import os
-from util.util import AverageMeter, set_seed, write_location, tensor2im
+from util.util import AverageMeter, set_seed, write_location
 
 import torch
 from util.util import get_spherical_cam2world
@@ -12,7 +12,6 @@ import torchvision
 import cv2
 from tqdm import tqdm
 import numpy as np
-from PIL import Image
 
 
 opt = TestOptions().parse()  # get test options
@@ -32,34 +31,22 @@ web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
                         '{}_{}'.format(opt.testset_name, opt.epoch))  # define the website directory
 print('creating web directory', web_dir)
 webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
-img_path = model.get_image_paths()
 
-manipulation = True
 # wanted idx
-idx = 0
-for id, data in enumerate(dataset):
-    if id < idx:
+idx = 1
+for data in dataset:
+    for id in range(idx):
         continue
     visualizer.reset()
     model.set_input(data)  # unpack data from data loader
 
     with torch.no_grad():
         model.forward()
-        # model.compute_visuals()
-        # visuals = model.get_current_visuals()
-        # visualizer.display_current_results(visuals, epoch=None, save_result=False)
-        # save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
-
-        if manipulation:
-            fg_slot_position = torch.zeros((opt.num_slots-1, 2))
-            fg_slot_position[0] = torch.tensor([0.5, 0.5])
-            fg_slot_position[1] = torch.tensor([-0.5, 0.5])
-            fg_slot_position[2] = torch.tensor([-0.5, -0.5])
-            fg_slot_position[3] = torch.tensor([0.5, -0.5])
-            # fg_slot_position[4] = torch.tensor([0, 0.5])
-            # fg_slot_position[5] = torch.tensor([0, -0.5])
-            # fg_slot_position[6] = torch.tensor([0, 0])
-            model.forward_position(fg_slot_nss_position=fg_slot_position)
+        model.compute_visuals()
+        visuals = model.get_current_visuals()
+        visualizer.display_current_results(visuals, epoch=None, save_result=False)
+        img_path = model.get_image_paths()
+        save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
 
         cam2world_input = model.cam2world[0:1].cpu()
         # print(cam2world_input)
@@ -71,9 +58,9 @@ for id, data in enumerate(dataset):
         cam2worlds = get_spherical_cam2world(radius, theta, 48)
         cam2worlds = torch.from_numpy(cam2worlds).float()
 
-        # video writer in .avi format
-        # video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.avi'), cv2.VideoWriter_fourcc(*'XVID'), 30, (128, 128))
-        video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128))
+        video_writers = []
+        for j in range(1, opt.num_slots):
+            video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_slot{}.mp4'.format(j)), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128)))
 
         for i in tqdm(range(cam2worlds.shape[0])):
             cam2world = cam2worlds[i:i+1]
@@ -81,16 +68,17 @@ for id, data in enumerate(dataset):
             model.visual_cam2world(cam2world)
             model.compute_visuals()
             visuals = model.get_current_visuals()
-            save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i}')
-            visual_name = 'x_rec0'
-            img = tensor2im(visuals[visual_name])
-            # img_pil = Image.fromarray(img)
-            # img_pil.save(os.path.join(web_dir, 'images_debug' , 'rendered_{}.png'.format(i)))
-            # write to video, transform to BGR
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            video_writer.write(img)
+            # print(len(visuals))
+            for j in range(1, opt.num_slots):
+                visual_name = f'slot{j}_view0'
+                img = visuals[visual_name].detach().cpu()
+                img = (img + 1) / 2
+                video_writers[j-1].write((img * 255).permute(1, 2, 0).numpy().astype(np.uint8))
+                # path = os.path.join(web_dir, 'images' ,'rendered_slot{}_{}.png'.format(j, i))
+                # torchvision.utils.save_image(img, path)
 
-        video_writer.release()
+        for j in range(1, opt.num_slots):
+            video_writers[j-1].release()
 
         # congregate the images into a video for each slot
         # for j in tqdm(range(1, opt.num_slots)):
