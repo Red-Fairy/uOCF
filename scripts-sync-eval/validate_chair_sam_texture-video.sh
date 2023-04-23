@@ -10,6 +10,7 @@ python test-video.py --dataroot $DATAROOT --n_scenes 10 --n_img_each_scene 1 \
     --sam_encoder --encoder_size 1024 \
     --exp_id '0416-sam-texture-48-16-4view' \
     --z_dim 48 --texture_dim 16 \
-    --project --attn_iter 4 --no_loss --testset_name test_video \
+    --project --attn_iter 4 --no_loss --testset_name test_manipulation_boardcast-duplicate_video \
+    --n_objects_eval 10 \
 # done
 echo "Done"

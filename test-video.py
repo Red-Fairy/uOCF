@@ -32,7 +32,6 @@ web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
                         '{}_{}'.format(opt.testset_name, opt.epoch))  # define the website directory
 print('creating web directory', web_dir)
 webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
-img_path = model.get_image_paths()
 
 manipulation = True
 # wanted idx
@@ -45,21 +44,29 @@ for id, data in enumerate(dataset):
 
     with torch.no_grad():
         model.forward()
+        img_path = model.get_image_paths()
         # model.compute_visuals()
         # visuals = model.get_current_visuals()
         # visualizer.display_current_results(visuals, epoch=None, save_result=False)
         # save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
 
         if manipulation:
-            fg_slot_position = torch.zeros((opt.num_slots-1, 2))
-            fg_slot_position[0] = torch.tensor([0.5, 0.5])
-            fg_slot_position[1] = torch.tensor([-0.5, 0.5])
-            fg_slot_position[2] = torch.tensor([-0.5, -0.5])
-            fg_slot_position[3] = torch.tensor([0.5, -0.5])
-            # fg_slot_position[4] = torch.tensor([0, 0.5])
-            # fg_slot_position[5] = torch.tensor([0, -0.5])
-            # fg_slot_position[6] = torch.tensor([0, 0])
-            model.forward_position(fg_slot_nss_position=fg_slot_position)
+            offset1 = 0.4
+            # offset2 = offset1
+            num_slots = opt.num_slots if opt.n_objects_eval is None else opt.n_objects_eval
+            fg_slot_position = torch.zeros((num_slots-1, 2))
+            fg_slot_position[0] = torch.tensor([offset1, offset1])
+            fg_slot_position[1] = torch.tensor([0, offset1])
+            fg_slot_position[2] = torch.tensor([0, 0])
+            fg_slot_position[3] = torch.tensor([0, offset1*2])
+            fg_slot_position[4] = torch.tensor([-offset1, offset1])
+            fg_slot_position[5] = torch.tensor([-offset1, offset1 * 2])
+            fg_slot_position[6] = torch.tensor([offset1, offset1 * 2])
+            fg_slot_position[7] = torch.tensor([offset1, 0])
+            fg_slot_position[8] = torch.tensor([-offset1, 0])
+            z_slots = torch.cat([model.z_slots[0:1], model.z_slots[1:2].repeat(num_slots-1, 1)], dim=0)
+            z_slots_texture = torch.cat([model.z_slots_texture[0:1], model.z_slots_texture[1:2].repeat(num_slots-1, 1)], dim=0)
+            model.forward_position(fg_slot_nss_position=fg_slot_position, z_slots=z_slots, z_slots_texture=z_slots_texture)
 
         cam2world_input = model.cam2world[0:1].cpu()
         # print(cam2world_input)
@@ -68,7 +75,7 @@ for id, data in enumerate(dataset):
         theta = torch.acos(z)
         radius, theta = radius.item(), theta.item()
 
-        cam2worlds = get_spherical_cam2world(radius, theta, 48)
+        cam2worlds = get_spherical_cam2world(radius, theta, 30)
         cam2worlds = torch.from_numpy(cam2worlds).float()
 
         # video writer in .avi format

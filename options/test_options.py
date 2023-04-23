@@ -16,5 +16,6 @@ class TestOptions(BaseOptions):
         parser.add_argument('--eval', action='store_true', help='use eval mode during test time.')
         parser.add_argument('--testset_name', type=str, default='testset')
         parser.add_argument('--stage', type=str, default='fine', help='stage of the model')
+        parser.add_argument('--n_objects_eval', type=int,default=None, help='number of objects for manipulation')
         self.isTrain = False
         return parser

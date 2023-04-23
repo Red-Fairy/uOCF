@@ -67,10 +67,12 @@ class uorfEvalTsamModel(BaseModel):
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
 		self.loss_names = ['ari', 'fgari', 'nvari', 'psnr', 'ssim', 'lpips']
 		n = opt.n_img_each_scene
-		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
+		self.visual_names = \
+							['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
-							['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
-							# ['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
+							['input_image'] + \
+							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
+							# ['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
 							# ['slot{}_attn'.format(k) for k in range(opt.num_slots)] + \
 							# ['gt_mask{}'.format(i) for i in range(n)] + 
 							# ['render_mask{}'.format(i) for i in range(n)] + 
@@ -211,7 +213,7 @@ class uorfEvalTsamModel(BaseModel):
 		dev = self.x[0:1].device
 		cam2world = cam2world.to(dev)
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
-		K = self.attn.shape[0]
+		K = self.num_slots
 		N = cam2world.shape[0]
 
 		W, H, D = self.projection.frustum_size
@@ -250,7 +252,6 @@ class uorfEvalTsamModel(BaseModel):
 		assert fg_slot_image_position is None or fg_slot_nss_position is None
 		x = self.x
 		dev = x.device
-		K = self.attn.shape[0]
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -273,6 +274,18 @@ class uorfEvalTsamModel(BaseModel):
 			z_slots = z_slots.to(dev)
 		else:
 			z_slots = self.z_slots.to(dev)
+
+		if self.opt.n_objects_eval is not None:
+			self.num_slots = self.opt.n_objects_eval
+			assert fg_slot_nss_position.shape[0] == self.num_slots - 1
+			if z_slots.shape[0] < self.num_slots:
+				z_slots = torch.cat([z_slots, z_slots[1:2].expand(self.num_slots - z_slots.shape[0], -1)], dim=0)
+			z_slots = z_slots[:self.num_slots]
+			if z_slots_texture.shape[0] < self.num_slots:
+				z_slots_texture = torch.cat([z_slots_texture, z_slots_texture[1:2].expand(self.num_slots - z_slots_texture.shape[0], -1)], dim=0)
+			z_slots_texture = z_slots_texture[:self.num_slots]
+
+		K = self.num_slots
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
@@ -307,6 +320,8 @@ class uorfEvalTsamModel(BaseModel):
 			if fg_slot_image_position is not None:
 				setattr(self, 'fg_slot_image_position', fg_slot_image_position.detach())
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
+			setattr(self, 'z_slots', z_slots.detach())
+			setattr(self, 'z_slots_texture', z_slots_texture.detach())
 
 	def compute_visuals(self):
 		with torch.no_grad():
@@ -316,21 +331,8 @@ class uorfEvalTsamModel(BaseModel):
 			unmasked_raws = self.unmasked_raws  # KxNxDxHxWx4
 			mask_maps = []
 
-			for k in range(self.num_slots):
-				raws = masked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
-				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
-				mask_maps.append(mask_map.view(N, H, W))
-				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-				x_recon = rendered * 2 - 1
-				for i in range(self.opt.n_img_each_scene):
-					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-
-				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
-
 			# for k in range(self.num_slots):
-			# 	raws = unmasked_raws[k]  # NxDxHxWx4
+			# 	raws = masked_raws[k]  # NxDxHxWx4
 			# 	_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
 			# 	raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			# 	rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
@@ -338,7 +340,20 @@ class uorfEvalTsamModel(BaseModel):
 			# 	rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			# 	x_recon = rendered * 2 - 1
 			# 	for i in range(self.opt.n_img_each_scene):
-			# 		setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
+			# 		setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
+
+				# setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+
+			for k in range(self.num_slots):
+				raws = unmasked_raws[k]  # NxDxHxWx4
+				_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
+				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
+				mask_maps.append(mask_map.view(N, H, W))
+				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+				x_recon = rendered * 2 - 1
+				for i in range(self.opt.n_img_each_scene):
+					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
 
 			mask_maps = torch.stack(mask_maps)  # KxNxHxW
 			mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
