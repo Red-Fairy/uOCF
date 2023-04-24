@@ -49,6 +49,14 @@ for data in dataset:
         img_path = model.get_image_paths()
         save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
 
+        # modify the position of the slots
+        fg_slot_position = torch.zeros((opt.num_slots-1, 2))
+        fg_slot_position[0] = torch.tensor([0, 0])
+        fg_slot_position[1] = torch.tensor([0, 0])
+        fg_slot_position[2] = torch.tensor([0, 0])
+        fg_slot_position[3] = torch.tensor([0, 0])
+        model.forward_position(fg_slot_nss_position=fg_slot_position)
+
         cam2world_input = model.cam2world[0:1].cpu()
         # print(cam2world_input)
         radius = torch.sqrt(torch.sum(cam2world_input[:, :3, 3] ** 2, dim=1))
