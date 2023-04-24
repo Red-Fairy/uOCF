@@ -33,12 +33,13 @@ print('creating web directory', web_dir)
 webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
 # wanted idx
-idx = 1
+idx = 0
 for data in dataset:
     for id in range(idx):
         continue
     visualizer.reset()
     model.set_input(data)  # unpack data from data loader
+    visual_names = [f'slot{i}_view0_unmasked' for i in range(1, opt.num_slots)] + ['x_rec0']
 
     with torch.no_grad():
         model.forward()
@@ -61,6 +62,7 @@ for data in dataset:
         video_writers = []
         for j in range(1, opt.num_slots):
             video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_slot{}.mp4'.format(j)), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128)))
+        video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_rec.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128)))
 
         for i in tqdm(range(cam2worlds.shape[0])):
             cam2world = cam2worlds[i:i+1]
@@ -69,12 +71,11 @@ for data in dataset:
             model.compute_visuals()
             visuals = model.get_current_visuals()
             # print(len(visuals))
-            for j in range(1, opt.num_slots):
-                visual_name = f'slot{j}_view0'
+            for j, visual_name in enumerate(visual_names):
                 # img = visuals[visual_name].detach().cpu()
                 img = tensor2im(visuals[visual_name])
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                video_writers[j-1].write(img)
+                video_writers[j].write(img)
                 # path = os.path.join(web_dir, 'images' ,'rendered_slot{}_{}.png'.format(j, i))
                 # torchvision.utils.save_image(img, path)
 
