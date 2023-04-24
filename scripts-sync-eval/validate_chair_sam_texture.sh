@@ -1,5 +1,5 @@
 #!/bin/bash
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_chair/test_ood_2.4-debug'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_chair/test'}
 PORT=${2:-12783}
 python test.py --dataroot $DATAROOT --n_scenes 500 --n_img_each_scene 4 \
     --checkpoints_dir 'checkpoints' --name 'room_chair' --results_dir 'results' \
@@ -10,6 +10,7 @@ python test.py --dataroot $DATAROOT --n_scenes 500 --n_img_each_scene 4 \
     --sam_encoder --encoder_size 1024 \
     --exp_id '0416-sam-texture-48-16-4view' \
     --z_dim 48 --texture_dim 16 \
-    --project --attn_iter 4 --testset_name 'test_ood_2.4_864' \
+    --epoch 975 \
+    --project --attn_iter 4 --testset_name 'test_regular_975' \
 # done
 echo "Done"
