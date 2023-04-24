@@ -7,7 +7,7 @@ import os
 from util.util import AverageMeter, set_seed, write_location
 
 import torch
-from util.util import get_spherical_cam2world
+from util.util import get_spherical_cam2world, tensor2im
 import torchvision
 import cv2
 from tqdm import tqdm
@@ -71,9 +71,10 @@ for data in dataset:
             # print(len(visuals))
             for j in range(1, opt.num_slots):
                 visual_name = f'slot{j}_view0'
-                img = visuals[visual_name].detach().cpu()
-                img = (img + 1) / 2
-                video_writers[j-1].write((img * 255).permute(1, 2, 0).numpy().astype(np.uint8))
+                # img = visuals[visual_name].detach().cpu()
+                img = tensor2im(visuals[visual_name])
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                video_writers[j-1].write(img)
                 # path = os.path.join(web_dir, 'images' ,'rendered_slot{}_{}.png'.format(j, i))
                 # torchvision.utils.save_image(img, path)
 
