@@ -98,7 +98,7 @@ class uorfNoGanTmultiviewModel(BaseModel):
             self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
         self.netSlotAttention = networks.init_net(
-            SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter, learnable_pos=opt.learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
+            SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter, learnable_pos=not opt.no_learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer,
                                                     locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, project=opt.project, rel_pos=opt.relative_position), gpu_ids=self.gpu_ids, init_type='xavier')
 
