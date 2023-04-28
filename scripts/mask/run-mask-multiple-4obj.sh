@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --account=viscam --partition=viscam --qos=normal
+#SBATCH --account=viscam --partition=viscam,svl --qos=normal
 #SBATCH --nodes=1
 ##SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:a5000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/T_uORF_clevr567_%j.out
@@ -22,23 +22,24 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/1200shape_nobg-1obj'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_multiple_bg/train-new'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
-    --checkpoints_dir 'checkpoints' --name 'room_diverse' \
-    --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad --save_epoch_freq 10 \
+    --checkpoints_dir 'checkpoints' --name 'room_multiple_mask' \
+    --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
-    --model 'uorf_nogan_T_sam' \
-    --num_slots 2 --attn_iter 4 \
-    --z_dim 48 --texture_dim 16 \
+    --model 'uorf_nogan_T_sam_mask' \
+    --num_slots 5 --attn_iter 3 \
+    --shape_dim 48 --color_dim 16 \
     --bottom \
     --sam_encoder --encoder_size 1024 \
     --project \
-    --coarse_epoch 25 --niter 50 --invariant_in 10 --percept_in 10 \
-    --exp_id '0425-1obj-v0' \
-    --no_learnable_pos \
-    --dummy_info 'sam encoder v0' \
+    --coarse_epoch 30 --niter 60 --percept_in 10 \
+    --attn_decay_steps 1e5 \
+    --exp_id '0428-mask-4obj' \
+    --save_epoch_freq 10 \
+    --dummy_info 'mask' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

@@ -10,10 +10,12 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam import Encoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, position_loss, sam_encoder_v0, sam_encoder_v00
+from .model_T_sam_mask import dualRouteEncoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, sam_encoder
 from segment_anything import sam_model_registry
 
-class uorfNoGanTsamModel(BaseModel):
+import torchvision
+
+class uorfNoGanTsamMaskModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -25,8 +27,8 @@ class uorfNoGanTsamModel(BaseModel):
             the modified parser.
         """
         parser.add_argument('--num_slots', metavar='K', type=int, default=8, help='Number of supported slots')
-        parser.add_argument('--z_dim', type=int, default=32, help='Dimension of individual z latent per slot')
-        parser.add_argument('--texture_dim', type=int, default=8, help='Dimension of individual z latent per slot texture')
+        parser.add_argument('--shape_dim', type=int, default=48, help='Dimension of individual z latent per slot')
+        parser.add_argument('--color_dim', type=int, default=16, help='Dimension of individual z latent per slot texture')
         parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
         parser.add_argument('--warmup_steps', type=int, default=1000, help='Warmup steps')
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
@@ -50,9 +52,6 @@ class uorfNoGanTsamModel(BaseModel):
         parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
         parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
         parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
-        parser.add_argument('--position_loss',action='store_true', help='whether to use position loss')
-        parser.add_argument('--position_loss_weight', type=float, default=0.5, help='weight of position loss')
-        parser.add_argument('--position_loss_threshold', type=float, default=0.5, help='weight of position loss')
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
         parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
@@ -76,10 +75,8 @@ class uorfNoGanTsamModel(BaseModel):
         """
         BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
         self.loss_names = ['recon', 'perc']
-        if opt.position_loss:
-            self.loss_names += ['pos']
         self.set_visual_names()
-        self.model_names = ['Encoder', 'Encoder_sam', 'SlotAttention', 'Decoder']
+        self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
         self.perceptual_net = get_perceptual_net().to(self.device)
         self.vgg_norm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         render_size = (opt.render_size, opt.render_size)
@@ -89,35 +86,29 @@ class uorfNoGanTsamModel(BaseModel):
         frustum_size_fine = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp]
         self.projection_fine = Projection(device=self.device, nss_scale=opt.nss_scale,
                                           frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
-        z_dim = opt.z_dim
-        texture_dim = opt.texture_dim
-        self.num_slots = opt.num_slots
+
+        z_dim = opt.color_dim + opt.shape_dim
 
         sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-        self.netEncoder_sam = sam_encoder_v0(sam_model=sam_model, z_dim=opt.z_dim).to(self.device)
+        self.sam_encoder = sam_encoder(sam_model).cuda()
 
-        self.netEncoder = networks.init_net(Encoder(3, z_dim=opt.texture_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
+        self.netEncoder = networks.init_net(dualRouteEncoder(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim,),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
 
         self.netSlotAttention = networks.init_net(
-            SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, texture_dim=texture_dim, iters=opt.attn_iter, learnable_pos=not opt.no_learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
-        self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim+texture_dim, z_dim=z_dim, texture_dim=texture_dim, n_layers=opt.n_layer,
+            SlotAttention(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+        self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
                                                     locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
                                                     project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
                                                     ), gpu_ids=self.gpu_ids, init_type='xavier')
 
         if self.isTrain:  # only defined during training time
             requires_grad = lambda x: x.requires_grad
-            params = chain(self.netEncoder.parameters(), self.netEncoder_sam.parameters(),
-                        self.netSlotAttention.parameters(), self.netDecoder.parameters())
+            params = chain(self.netEncoder.parameters(),self.netSlotAttention.parameters(), self.netDecoder.parameters())
             self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
             self.optimizers = [self.optimizer]
 
         self.L2_loss = nn.MSELoss()
-        if opt.position_loss:
-            self.position_loss = position_loss(opt.position_loss_weight, threshold=opt.position_loss_threshold)
-        else:
-            self.position_loss = None
 
     def set_visual_names(self):
         n = self.opt.n_img_each_scene
@@ -125,8 +116,8 @@ class uorfNoGanTsamModel(BaseModel):
         self.visual_names = ['x{}'.format(i) for i in range(n)] + \
                             ['x_rec{}'.format(i) for i in range(n)] + \
                             ['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
-                            ['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
-                            ['slot{}_attn'.format(k) for k in range(n_slot)]
+                            ['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
+                            # ['slot{}_attn'.format(k) for k in range(n_slot)]
 
     def setup(self, opt):
         """Load and print networks; create schedulers
@@ -148,6 +139,13 @@ class uorfNoGanTsamModel(BaseModel):
         self.x = input['img_data'].to(self.device)
         self.x_large = input['img_data_large'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
+        self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W
+        self.num_slots = self.masks.shape[0]
+        # foreground mask on masks[0] & masks[2:], concat them (remove background mask on masks[1])
+        self.masks = torch.cat([self.masks[0:1], self.masks[2:]], dim=0) # (K-1)*1*H*W
+        # save the masks for debug
+        # for i in range(self.num_slots-1):
+        #     torchvision.utils.save_image(self.masks[i], os.path.join('debug', 'mask_{}.png'.format(i)))
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
 
@@ -157,27 +155,27 @@ class uorfNoGanTsamModel(BaseModel):
         dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
         self.loss_recon = 0
         self.loss_perc = 0
-        if self.position_loss is not None:
-            self.loss_pos = 0
         dev = self.x[0:1].device
         cam2world_viewer = self.cam2world[0]
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
-        feature_map = self.netEncoder_sam(self.x_large[0:1].to(dev))  # BxCxHxW
-        feature_map_texture = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+        feature_map_sam = self.sam_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
+        # Encoder receives feature map from SAM and resized images as inputs
+        feature_map = self.netEncoder(feature_map_sam,
+            F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW, C: shape_dim+color_dim (z_dim+texture_dim)
 
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-        feat_texture = feature_map_texture.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+        self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW
         # H, W = feat.shape[1:3]
         # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
         # Slot Attention
-        z_slots, attn, fg_slot_position, z_slots_texture = self.netSlotAttention(feat, feat_texture)  # 1xKxC, 1xKxN (N=HxW), 1x(K-1)x2
-        z_slots, attn, fg_slot_position, z_slots_texture = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0), z_slots_texture.squeeze(0)  # KxC, KxN, K-1x2
+        z_slots, fg_slot_position = self.netSlotAttention(feat, self.masks)  # 1xKxC, 1x(K-1)x2
+        z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, K-1x2
         fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # (K-1)x3
         
-        K = attn.shape[0]
+        K = z_slots.shape[0]
 
         # if epoch < self.opt.n_init_epoch, trunc the n_img_each_scene to init_n_img_each_scene_
         if epoch < self.opt.init_n_epoch:
@@ -215,7 +213,7 @@ class uorfNoGanTsamModel(BaseModel):
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, z_slots_texture, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
@@ -228,21 +226,19 @@ class uorfNoGanTsamModel(BaseModel):
         x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
         rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
         self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
-        if self.position_loss is not None:
-            self.loss_pos = self.position_loss(fg_slot_position)
 
         with torch.no_grad():
-            attn = attn.detach().cpu()  # KxN
+            # attn = attn.detach().cpu()  # KxN
             H_, W_ = feature_map.shape[2], feature_map.shape[3]
-            attn = attn.view(self.opt.num_slots, 1, H_, W_)
-            if H_ != H:
-                attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+            # attn = attn.view(self.opt.num_slots, 1, H_, W_)
+            # if H_ != H:
+            #     attn = F.interpolate(attn, size=[H, W], mode='bilinear')
             for i in range(self.opt.n_img_each_scene):
                 setattr(self, 'x_rec{}'.format(i), x_recon[i])
                 setattr(self, 'x{}'.format(i), x[i])
             setattr(self, 'masked_raws', masked_raws.detach())
             setattr(self, 'unmasked_raws', unmasked_raws.detach())
-            setattr(self, 'attn', attn)
+            # setattr(self, 'attn', attn)
 
     def compute_visuals(self):
         with torch.no_grad():
@@ -258,7 +254,6 @@ class uorfNoGanTsamModel(BaseModel):
                 x_recon = rendered * 2 - 1
                 for i in range(self.opt.n_img_each_scene):
                     setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-
                 raws = unmasked_raws[k]  # (NxDxHxW)x4
                 raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
                 rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
@@ -267,7 +262,11 @@ class uorfNoGanTsamModel(BaseModel):
                 for i in range(self.opt.n_img_each_scene):
                     setattr(self, 'unmasked_slot{}_view{}'.format(k, i), x_recon[i])
 
-                setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+            for k in range(self.num_slots, self.opt.num_slots):
+                # add dummy images
+                for i in range(self.opt.n_img_each_scene):
+                    setattr(self, 'slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
+                    setattr(self, 'unmasked_slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
 
     def backward(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
