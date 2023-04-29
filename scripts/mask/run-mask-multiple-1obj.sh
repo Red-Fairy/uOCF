@@ -35,9 +35,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --bottom \
     --sam_encoder --encoder_size 1024 \
     --project \
-    --coarse_epoch 30 --niter 60 --percept_in 10 \
-    --attn_decay_steps 1e5 \
-    --exp_id '0428-mask-1obj' \
+    --coarse_epoch 20 --niter 40 --percept_in 10 \
+    --attn_decay_steps 100000 \
+    --exp_id '0428-mask-1obj-r2' \
     --save_epoch_freq 10 \
     --dummy_info 'mask' \
 

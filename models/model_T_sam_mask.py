@@ -386,7 +386,6 @@ class SlotAttention(nn.Module):
         grid = grid * mask # K*2*H*W
 
         fg_position = grid.sum(dim=(2, 3)) / (mask.sum(dim=(2, 3)) + 1e-5) # K*2
-        print(fg_position)
         return fg_position
 
     def forward(self, feat, mask):
@@ -416,6 +415,8 @@ class SlotAttention(nn.Module):
         feat = self.norm_feat(feat)
         k_bg, v_bg = self.to_kv.forward_bg(feat, H, W) # (B,1,N,C)
 
+        grid = build_grid(H, W, device=feat.device).flatten(1, 2).squeeze(0) # Nx2
+
         # attn = None
         for it in range(self.iters):
             slot_prev_bg = slot_bg
@@ -433,10 +434,9 @@ class SlotAttention(nn.Module):
             updates_bg = torch.einsum('bn,bnd->bd', attn_bg, v_bg.squeeze(1)) # BxC
             slot_bg = self.gru_bg(updates_bg, slot_bg.squeeze(1)).unsqueeze(1) # Bx1xC
             slot_bg = self.to_res_bg(slot_bg) + slot_prev_bg # Bx1xC
-            
             # compute foreground attention and updates, each slot only compute attention on corresponding mask
             updates_fg = torch.empty(B, K, self.slot_dim, device=feat.device)
-            grid = build_grid(H, W, device=feat.device).flatten(1, 2).squeeze(0) # Nx2
+            
             for i in range(K):
                 attn_this_slot = torch.einsum('bd,bnd->bn', q_fg[:, i, :], k[:, i, :, :]) * self.scale # BxN
                 mask_this_slot = mask[i].flatten() # N

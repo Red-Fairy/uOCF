@@ -38,7 +38,6 @@ class uorfNoGanTsamModel(BaseModel):
         parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
         parser.add_argument('--weight_percept', type=float, default=0.006)
         parser.add_argument('--percept_in', type=int, default=100)
-        parser.add_argument('--no_locality_epoch', type=int, default=300)
         parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
         parser.add_argument('--input_size', type=int, default=64)
         parser.add_argument('--frustum_size', type=int, default=64)
