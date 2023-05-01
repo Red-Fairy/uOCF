@@ -189,7 +189,7 @@ def cast_rays(t_vals, origins, directions, radii, ray_shape, diag=True):
     return means, covs
 
 
-def sample_along_rays(origins, directions, radii, num_samples, near, far, randomized, lindisp, ray_shape):
+def sample_along_rays(origins, directions, radii, num_samples, near, far, randomized=False, lindisp=False, ray_shape='cone'):
     """Stratified sampling along the rays.
 
     Args:

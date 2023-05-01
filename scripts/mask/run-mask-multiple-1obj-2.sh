@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=viscam --partition=viscam --qos=normal
+#SBATCH --account=viscam --partition=viscam,svl --qos=normal
 #SBATCH --nodes=1
 ##SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
@@ -22,21 +22,25 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/u/redfairy/datasets/room_chair/train'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_multiple_bg/train-1obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 3  \
-    --checkpoints_dir 'checkpoints' --name 'room_chair' \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
+    --checkpoints_dir 'checkpoints' --name 'room_multiple_mask' \
     --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 50 --display_grad \
-    --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 --num_slots 5 \
-    --coarse_epoch 400 --niter 800 \
-    --model 'uorf_nogan_T' \
-    --exp_id '0410-sam-v1' \
-    --z_dim 64 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
+    --model 'uorf_nogan_T_sam_mask' \
+    --num_slots 2 --attn_iter 3 \
+    --shape_dim 48 --color_dim 16 \
+    --bottom \
     --sam_encoder --encoder_size 1024 \
-    --attn_iter 4 \
     --project \
-    --dummy_info 'frozen sam encoder v1, share grid embed projection, correct deduct operation (before azi transform), move deduction after locality, add decoder MLP to z-slots projection (w/ residual), 4 round attn, use ImageNet ResNet18 encoder, pyramid upsample' \
+    --coarse_epoch 30 --niter 60 --percept_in 15 \
+    --attn_decay_steps 100000 \
+    --exp_id '0501-mask-1obj' \
+    --is_train --obj_scale 3.5 \
+    --save_epoch_freq 10 \
+    --dummy_info 'mask, obj_scale=3.5' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

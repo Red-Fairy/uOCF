@@ -10,12 +10,12 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_mask import dualRouteEncoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, sam_encoder
+from .model_T_sam_fgmask import dualRouteEncoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, sam_encoder
 from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfNoGanTsamMaskModel(BaseModel):
+class uorfNoGanTsamFGMaskModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -136,14 +136,12 @@ class uorfNoGanTsamMaskModel(BaseModel):
         Parameters:
             input: a dictionary that contains the data itself and its metadata information.
         """
-        self.x = input['img_data'].to(self.device)
+        self.x = input['img_data'].to(self.device) # N*3*H*W
         self.x_large = input['img_data_large'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
         self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
         self.num_slots = self.masks.shape[0]
-        # save the masks for debug
-        # for i in range(self.num_slots-1):
-        #     torchvision.utils.save_image(self.masks[i], os.path.join('debug', 'mask_{}.png'.format(i)))
+        self.bg_mask = input['bg_mask'].float().to(self.device) # N*1*H*W
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
 
@@ -165,13 +163,15 @@ class uorfNoGanTsamMaskModel(BaseModel):
 
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW
-        # H, W = feat.shape[1:3]
-        # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
+        # apply BG mask to images (remove background, i.e. set to black)
+        # self.x: [-1, 1], bg_mask: {0, 1}, where 1 means background
+        self.x = self.x * (1 - self.bg_mask) - self.bg_mask
+    
         # Slot Attention
-        z_slots, fg_slot_position = self.netSlotAttention(feat, self.masks)  # 1xKxC, 1x(K-1)x2
-        z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, K-1x2
-        fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # (K-1)x3
+        z_slots, fg_slot_position = self.netSlotAttention(feat, self.masks)  # 1xKxC, 1xKx2
+        z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, Kx2
+        fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
         
         K = z_slots.shape[0]
 
@@ -184,7 +184,6 @@ class uorfNoGanTsamMaskModel(BaseModel):
                 self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
             self.set_visual_names()
             
-
         cam2world = self.cam2world
         N = cam2world.shape[0]
         if self.opt.stage == 'coarse':
@@ -206,12 +205,11 @@ class uorfNoGanTsamMaskModel(BaseModel):
             x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
             self.z_vals, self.ray_dir = z_vals, ray_dir
 
-        sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-        sampling_coor_bg = frus_nss_coor  # Px3
+        sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])

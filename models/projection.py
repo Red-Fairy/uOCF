@@ -55,40 +55,22 @@ class Projection(object):
                                         [0, 1/nss_scale, 0, 0],
                                         [0, 0, 1/nss_scale, 0],
                                         [0, 0, 0, 1]]).unsqueeze(0).to(device)
-        focal_x = self.focal_ratio[0] * self.frustum_size[0]
-        focal_y = self.focal_ratio[1] * self.frustum_size[1]
+        self.focal_x = self.focal_ratio[0] * self.frustum_size[0]
+        self.focal_y = self.focal_ratio[1] * self.frustum_size[1]
         bias_x = (self.frustum_size[0] - 1.) / 2.
         bias_y = (self.frustum_size[1] - 1.) / 2.
-        intrinsic_mat = torch.tensor([[focal_x, 0, bias_x, 0],
-                                      [0, focal_y, bias_y, 0],
+        intrinsic_mat = torch.tensor([[self.focal_x, 0, bias_x, 0],
+                                      [0, self.focal_y, bias_y, 0],
                                       [0, 0, 1, 0],
                                       [0, 0, 0, 1]])
         self.cam2spixel = intrinsic_mat.to(self.device)
-        self.spixel2cam = intrinsic_mat.inverse().to(self.device)
-        
-    # def pixel2world(self, slot_pixel_coord, cam2world, H, W):
-    #     '''
-    #     slot_pixel_coord: (K-1) * 2 on the image plane, x and y coord are in range [-1, 1]
-    #     cam2world: 4 * 4
-    #     H, w: image height and width
-    #     output: convert the slot pixel coord to world coord, then project to the XY plane in the world coord, 
-    #             finally convert to NSS coord
-    #     '''
-    #     # convert to pixel coord [0, W-1] and [0, H-1]
-    #     slot_pixel_coord = (slot_pixel_coord + 1) / 2 * torch.tensor([W, H]).to(self.device) # (K-1) * 2
-    #     # append 1 to the end
-    #     slot_pixel_coord = torch.cat([slot_pixel_coord, torch.ones_like(slot_pixel_coord[:, :1])], dim=1) # (K-1) * 3
-    #     # convert to cam coord
-    #     slot_cam_coord = torch.matmul(self.spixel2cam[:3, :3], slot_pixel_coord.t()).t() # (K-1) * 3
-    #     # append 1 to the end, and covert to world coord
-    #     slot_world_coord = torch.matmul(cam2world, torch.cat([slot_cam_coord, torch.ones_like(slot_cam_coord[:, :1])], dim=1).t()).t() # (K-1) * 4
-    #     # normalize
-    #     slot_world_coord = slot_world_coord / slot_world_coord[:, 3:]
-    #     # project to the XY plane
-    #     ray = slot_world_coord[:, :3] - cam2world[:3, 3:] # (K-1) * 3
-    #     XY_pos = cam2world[:3, 3:] + ray * (-cam2world[2, 3] / ray[:, 2:]) # (K-1) * 3
-    #     return torch.matmul(self.world2nss, XY_pos.t()).t() # (K-1) * 3
-        
+        self.spixel2cam = intrinsic_mat.inverse().to(self.device) 
+
+        # calculate the pixel width in world coord (identical to cam coord)
+        pt1, pt2 = torch.Tensor([0, 0, 1, 1]), torch.Tensor([1, 1, 1, 1])
+        pt1, pt2 = pt1.to(self.device), pt2.to(self.device)
+        pt1_cam, pt2_cam = torch.matmul(self.spixel2cam, pt1) / pt1[-1], torch.matmul(self.spixel2cam, pt2) / pt2[-1]
+        self.width = torch.norm(pt1_cam - pt2_cam, dim=0) / torch.sqrt(torch.tensor(6.)).to(self.device)
 
     def construct_frus_coor(self):
         x = torch.arange(self.frustum_size[0])
@@ -171,6 +153,36 @@ class Projection(object):
         else:
             ray_dir = ray_dir.expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
         return frus_nss_coor, z_vals, ray_dir
+
+    def consturct_sampling_MipNeRF(self, cam2world):
+        """
+        Construct a sampling frustum coor in NSS space with MipNeRF sampling strategy (require both mean and cov)
+        return frus_nss_coor (mean) and frus_nss_cov (covariance), both in NSS space, and generate z_vals/ray_dir
+        """
+        # step 1, generate ray origin, ray direction, and ray radius (the distance between adjacent pixels in world space)
+        N = cam2world.shape[0]
+        x, y = torch.meshgrid(torch.arange(self.frustum_size[0]), torch.arange(self.frustum_size[1]))
+        camera_directions = torch.stack([(x - self.frustum_size[0] * 0.5) / self.focal_x,
+                                            -(y - self.frustum_size[1] * 0.5) / self.focal_y,
+                                            -torch.ones_like(x)], axis=-1)
+        camera_directions = camera_directions.reshape(-1, 3)  # (HxW)x3
+        camera_directions = camera_directions.expand(N, self.frustum_size[0] * self.frustum_size[1], 3)  # Nx(HxW)x3
+        # convert to world space, cam2world: Nx4x4
+        ray_dir = torch.matmul(cam2world[:, :3, :3], ray_dir.permute([0, 2, 1]).permute([0, 2, 1])) # N*(HxW)*3
+        viewdirs = F.normalize(ray_dir, dim=-1)  # Nx(HxW)x3
+        ray_origins = cam2world[:, :3, 3].unsqueeze(1).expand(N, self.frustum_size[0] * self.frustum_size[1], 3)  # Nx(HxW)x3
+        radius = self.width.expand(N, self.frustum_size[0] * self.frustum_size[1])  # Nx(HxW)
+
+        # step 2, transform to nss space
+        ray_origins_nss = torch.matmul(self.world2nss[:3, :3], ray_origins.permute([0, 2, 1])) + self.world2nss[:3, 3].unsqueeze(1)  # Nx3x(HxW)
+        radius_nss = radius / self.nss_scale
+
+        # step 3, call sample_along_rays
+        from .ray_utils import sample_along_rays
+        z_vals, (mean, conv) = sample_along_rays(origins=ray_origins_nss, directions=viewdirs, radii=radius_nss, 
+                                                 num_samples=self.frustum_size[2],near=self.near, far=self.far)
+
+        return (mean, conv), z_vals, viewdirs
 
 if __name__ == '__main__':
     pass

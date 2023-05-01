@@ -128,17 +128,7 @@ class EncoderPosEmbedding(nn.Module):
         self.input_to_k_fg = nn.Linear(dim, dim, bias=False)
         self.input_to_v_fg = nn.Linear(dim, dim, bias=False)
 
-        self.input_to_k_bg = nn.Linear(dim, dim, bias=False)
-        self.input_to_v_bg = nn.Linear(dim, dim, bias=False)
-
         self.MLP_fg = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, slot_dim)
-        )
-
-        self.MLP_bg = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, hidden_dim),
             nn.ReLU(),
@@ -178,19 +168,6 @@ class EncoderPosEmbedding(nn.Module):
         k, v = self.MLP_fg(k), self.MLP_fg(v)
 
         return k, v # (b, n, h*w, d)
-
-    def forward_bg(self, x, h, w):
-        grid = build_grid(h, w, x.device) # (1, h, w, 2)
-        rel_grid = grid.unsqueeze(0).repeat(x.shape[0], 1, 1, 1, 1) # (b, 1, h, w, 2)
-        # rel_grid = rel_grid.flatten(-3, -2) # (b, 1, h*w, 2)
-        rel_grid = torch.cat([rel_grid, -rel_grid], dim=-1).flatten(-3, -2) # (b, 1, h*w, 4)
-        grid_embed = self.grid_embed(rel_grid) # (b, 1, h*w, d)
-        
-        k_bg, v_bg = self.input_to_k_bg(x).unsqueeze(1), self.input_to_v_bg(x).unsqueeze(1) # (b, 1, h*w, d)
-        k_bg, v_bg = self.MLP_bg(k_bg + grid_embed), self.MLP_bg(v_bg + grid_embed)
-
-        return k_bg, v_bg # (b, 1, h*w, d)
-
 
 class Decoder(nn.Module):
     def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
@@ -249,65 +226,58 @@ class Decoder(nn.Module):
         self.rel_pos = rel_pos
         self.fg_in_world = fg_in_world
 
-    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True):
+    def forward(self, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True):
         """
         1. pos emb by Fourier
         2. for each slot, decode all points from coord and slot feature
         input:
-            sampling_coor_bg: Px3, P = #points, typically P = NxDxHxW
-            sampling_coor_fg: (K-1)xPx3
+            sampling_coor_fg: KxPx3, P = #points, typically P = NxDxHxW
             z_slots: KxC, K: #slots, C: #feat_dim
             z_slots_texture: KxC', K: #slots, C: #texture_dim
             fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
-            fg_slot_position: (K-1)x3 in nss space
+            fg_slot_position: Kx3 in nss space
             dens_noise: Noise added to density
         """
         K, C = z_slots.shape
-        P = sampling_coor_bg.shape[0]
+        P = sampling_coor_fg.shape[1]
 
         if self.fixed_locality:
-            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
-            sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # (K-1)xPx4
+            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
+            sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
             if not self.fg_in_world:
-                sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx4x1
-            sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # (K-1)xPx3
+                sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
+            sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
         else:
             # relative position with fg slot position
             if self.rel_pos and invariant:
-                sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # (K-1)xPx3
+                sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3
 
-            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3x1
-            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3x1
+            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 
-        z_bg = z_slots[0:1, :]  # 1xC
-        z_fg = z_slots[1:, :]  # (K-1)xC
+        z_fg = z_slots
 
         if self.position_project is not None and invariant:
             # w/ and w/o residual connection
-            z_fg = z_fg + self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) # (K-1)xC
+            z_fg = z_fg + self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) # KxC
             # slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2
             # z_slots = self.position_project(slot_position) + z_slots # KxC
 
-        query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
-        input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
+        sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # (KxP)x3
+        query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # (KxP)x60
+        z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # (KxP)xC
+        input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # (KxP)x(60+C)
 
-        sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
-        query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
-        z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
-        input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
-
-        tmp = self.b_before(input_bg)
-        bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px5 -> 1xPx5
         tmp = self.f_before(input_fg)
-        tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # ((K-1)xP)x64
-        latent_fg = self.f_after_latent(tmp)  # ((K-1)xP)x64
-        fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
-        fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
+        tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # (KxP)x64
+        latent_fg = self.f_after_latent(tmp)  # (KxP)x64
+        fg_raw_rgb = self.f_color(latent_fg).view([K, P, 3])  # (KxP)x3 -> KxPx3
+        fg_raw_shape = self.f_after_shape(tmp).view([K, P])  # (KxP)x1 -> KxP, density
         if self.locality:
             fg_raw_shape[outsider_idx] *= 0
-        fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
+        fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # KxPx4
 
-        all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # KxPx4
+        all_raws = fg_raws
         raw_masks = F.relu(all_raws[:, :, -1:], True)  # KxPx1
         masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # KxPx1
         raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
@@ -340,20 +310,12 @@ class SlotAttention(nn.Module):
         # self.to_k = nn.Linear(in_dim, slot_dim, bias=False)
         # self.to_v = nn.Linear(in_dim, slot_dim, bias=False)
         self.to_q = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
-        self.to_q_bg = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
 
         self.gru_fg = nn.GRUCell(slot_dim, slot_dim)
-        self.gru_bg = nn.GRUCell(slot_dim, slot_dim)
 
         hidden_dim = max(slot_dim, hidden_dim)
 
         self.to_res_fg = nn.Sequential(
-            nn.LayerNorm(slot_dim),
-            nn.Linear(slot_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, slot_dim)
-        )
-        self.to_res_bg = nn.Sequential(
             nn.LayerNorm(slot_dim),
             nn.Linear(slot_dim, hidden_dim),
             nn.ReLU(inplace=True),
@@ -366,8 +328,6 @@ class SlotAttention(nn.Module):
         self.to_res_fg = nn.Sequential(nn.LayerNorm(slot_dim),
                                            nn.Linear(slot_dim, slot_dim))
         
-        self.to_res_bg = nn.Sequential(nn.LayerNorm(slot_dim),
-                                           nn.Linear(slot_dim, slot_dim))
 
     def get_fg_position(self, mask):
         '''
@@ -405,32 +365,19 @@ class SlotAttention(nn.Module):
         fg_position = self.get_fg_position(mask) # Kx2
         fg_position = fg_position.expand(B, -1, -1).to(feat.device) # BxKx2
         
-        mu_bg = self.slots_mu_bg.expand(B, 1, -1)
-        sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
-        slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
-
         feat = self.norm_feat(feat)
-        k_bg, v_bg = self.to_kv.forward_bg(feat, H, W) # (B,1,N,C)
 
         grid = build_grid(H, W, device=feat.device).flatten(1, 2).squeeze(0) # Nx2
 
         # attn = None
         for it in range(self.iters):
-            slot_prev_bg = slot_bg
             slot_prev_fg = slot_fg
             q_fg = self.to_q(slot_fg)
-            q_bg = self.to_q_bg(slot_bg) # (B,1,C)
             
             # attn = torch.empty(B, K, N, device=feat.device)
             
             k, v = self.to_kv(feat, H, W, fg_position) # (B,K,N,C)
 
-            # compute background attention and updates
-            attn_bg = torch.einsum('bd,bnd->bn', q_bg.squeeze(1), k_bg.squeeze(1)) * self.scale # BxN
-            attn_bg = attn_bg.softmax(dim=1) + self.eps # BxN
-            updates_bg = torch.einsum('bn,bnd->bd', attn_bg, v_bg.squeeze(1)) # BxC
-            slot_bg = self.gru_bg(updates_bg, slot_bg.squeeze(1)).unsqueeze(1) # Bx1xC
-            slot_bg = self.to_res_bg(slot_bg) + slot_prev_bg # Bx1xC
             # compute foreground attention and updates, each slot only compute attention on corresponding mask
             updates_fg = torch.empty(B, K, self.slot_dim, device=feat.device)
             
@@ -446,10 +393,8 @@ class SlotAttention(nn.Module):
 
             slot_fg = self.gru_fg(updates_fg.reshape(-1, self.slot_dim), slot_fg.reshape(-1, self.slot_dim)).reshape(B, K, self.slot_dim) # BxKxC
             slot_fg = self.to_res_fg(slot_fg) + slot_prev_fg # BxKx2
-
-        slots = torch.cat([slot_bg, slot_fg], dim=1) # (B,K+1,C)
                 
-        return slots, fg_position
+        return slot_fg, fg_position
 
 
 def sin_emb(x, n_freq=5, keep_ori=True):

@@ -8,6 +8,7 @@ import torch
 import glob
 import numpy as np
 import random
+import torchvision
 
 
 class MultiscenesDataset(BaseDataset):
@@ -17,7 +18,8 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--n_scenes', type=int, default=1000, help='dataset length is #scenes')
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
-        parser.add_argument('--mask_size', type=int, default=128)
+        parser.add_argument('--is_train', action='store_true')
+        parser.add_argument('--bg_color', type=float, default=-127/255, help='background color')
         return parser
 
     def __init__(self, opt):
@@ -50,6 +52,8 @@ class MultiscenesDataset(BaseDataset):
 
         self.imagenet_encoder = opt.imagenet_encoder
         self.sam_encoder = opt.sam_encoder
+        self.is_train = opt.is_train
+        self.bg_color = opt.bg_color
 
     def _transform(self, img):
         img = TF.resize(img, (self.opt.load_size, self.opt.load_size))
@@ -64,7 +68,7 @@ class MultiscenesDataset(BaseDataset):
         return img
 
     def _transform_mask(self, img):
-        img = TF.resize(img, (self.opt.mask_size, self.opt.mask_size), Image.NEAREST)
+        img = TF.resize(img, (self.opt.load_size, self.opt.load_size), Image.NEAREST)
         img = TF.to_tensor(img)
         img = TF.normalize(img, [0.5] * img.shape[0], [0.5] * img.shape[0])  # [0,1] -> [-1,1]
         return img
@@ -120,12 +124,17 @@ class MultiscenesDataset(BaseDataset):
                 onehot_labels = mask_flat[:, None] == greyscale_dict  # HWx8, one-hot
                 onehot_labels = onehot_labels.type(torch.uint8)
                 mask_idx = onehot_labels.argmax(dim=1)  # HW
-                bg_color = greyscale_dict[1]
+                bg_color_idx = torch.argmin(torch.abs(greyscale_dict - self.bg_color))
+                bg_color = greyscale_dict[bg_color_idx]
                 fg_idx = mask_flat != bg_color  # HW
                 ret['mask_idx'] = mask_idx
                 ret['fg_idx'] = fg_idx
                 obj_idxs = []
                 for i in range(len(greyscale_dict)):
+                    if i == bg_color_idx and self.is_train:
+                        bg_mask = mask_l == greyscale_dict[i]  # 1xHxW
+                        ret['bg_mask'] = bg_mask
+                        continue
                     obj_idx = mask_l == greyscale_dict[i]  # 1xHxW
                     obj_idxs.append(obj_idx)
                 obj_idxs = torch.stack(obj_idxs)  # Kx1xHxW
@@ -170,4 +179,7 @@ def collate_fn(batch):
         ret['fg_idx'] = fg_idx
         obj_idxs = flat_batch[0]['obj_idxs']  # Kx1xHxW
         ret['obj_idxs'] = obj_idxs
+        if 'bg_mask' in flat_batch[0]:
+            bg_mask = torch.stack([x['bg_mask'] for x in flat_batch])
+            ret['bg_mask'] = bg_mask # Bx1xHxW
     return ret

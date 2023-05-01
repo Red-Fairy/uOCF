@@ -35,10 +35,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --bottom \
     --sam_encoder --encoder_size 1024 \
     --project \
-    --coarse_epoch 30 --niter 60 --percept_in 10 \
-    --attn_decay_steps 100000 \
-    --exp_id '0428-mask-4obj' \
-    --save_epoch_freq 10 \
+    --coarse_epoch 50 --niter 100 --percept_in 20 \
+    --exp_id '0501-mask-4obj-r2' \
+    --save_epoch_freq 10 --is_train \
     --dummy_info 'mask' \
 
 # can try the following to list out which GPU you have access to
