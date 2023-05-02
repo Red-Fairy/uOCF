@@ -383,9 +383,9 @@ class SlotAttention(nn.Module):
             
             for i in range(K):
                 attn_this_slot = torch.einsum('bd,bnd->bn', q_fg[:, i, :], k[:, i, :, :]) * self.scale # BxN
-                mask_this_slot = mask[i].flatten() # N
+                # mask_this_slot = mask[i].flatten() # N
                 # we will use softmax after masking, so we need to set the masked values to a very small value
-                attn_this_slot = attn_this_slot.masked_fill(mask_this_slot.unsqueeze(0) == 0, -1e9)
+                # attn_this_slot = attn_this_slot.masked_fill(mask_this_slot.unsqueeze(0) == 0, -1e9)
                 attn_this_slot = attn_this_slot.softmax(dim=1) # BxN
                 updates_fg[:, i, :] = torch.einsum('bn,bnd->bd', attn_this_slot, v[:, i, :, :]) # BxC
                 # update the position of this slot (weighted mean of the grid points, with attention as weights)
