@@ -65,6 +65,7 @@ class BaseOptions():
         parser.add_argument('--encoder_size', type=int, default=256, help='size of input to encoder')
         # additional dummy info, save into the log file
         parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
+        parser.add_argument('--not_strict', action='store_true', help='not strict load')
 
         self.initialized = True
         return parser

@@ -16,7 +16,7 @@ from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfNoGanTsamMaskModel(BaseModel):
+class uorfNoGanTsamMaskMipModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -141,7 +141,10 @@ class uorfNoGanTsamMaskModel(BaseModel):
         self.x_large = input['img_data_large'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
         self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
-        self.num_slots = self.masks.shape[0] + 1 # include BG slot
+        self.num_slots = self.masks.shape[0] + 1 # including background
+        # save the masks for debug
+        # for i in range(self.num_slots-1):
+        #     torchvision.utils.save_image(self.masks[i], os.path.join('debug', 'mask_{}.png'.format(i)))
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
 
@@ -186,7 +189,7 @@ class uorfNoGanTsamMaskModel(BaseModel):
         cam2world = self.cam2world
         N = cam2world.shape[0]
         if self.opt.stage == 'coarse':
-            frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
+            (frus_nss_coor, frus_nss_cov), z_vals, ray_dir = self.projection.construct_sampling_coor_MipNeRF(cam2world)
             # (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
             x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
             self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -194,13 +197,15 @@ class uorfNoGanTsamMaskModel(BaseModel):
             W, H, D = self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp
             start_range = self.opt.frustum_size_fine - self.opt.render_size
             rs = self.opt.render_size
-            frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world)
-            # (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
-            frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
+            (frus_nss_coor, frus_nss_cov), z_vals, ray_dir = self.projection_fine.construct_sampling_coor_MipNeRF(cam2world)
+            # (NxDxHxW)x3, (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
+            frus_nss_coor, frus_nss_cov, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), frus_nss_cov.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
             H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
             W_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
             frus_nss_coor_, z_vals_, ray_dir_ = frus_nss_coor[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], z_vals[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], ray_dir[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :]
+            frus_nss_cov_ = frus_nss_cov[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :]
             frus_nss_coor, z_vals, ray_dir = frus_nss_coor_.flatten(0, 3), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
+            frus_nss_cov = frus_nss_cov_.flatten(0, 3)
             x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
             self.z_vals, self.ray_dir = z_vals, ray_dir
 
@@ -209,7 +214,7 @@ class uorfNoGanTsamMaskModel(BaseModel):
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, cov=frus_nss_cov)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])

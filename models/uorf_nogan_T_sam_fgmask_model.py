@@ -10,7 +10,8 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_fgmask import dualRouteEncoder, Decoder, SlotAttention, get_perceptual_net, raw2outputs, sam_encoder
+from .model_T_sam_fgmask import dualRouteEncoder, Decoder, SlotAttention, sam_encoder
+from .utils import *
 from segment_anything import sam_model_registry
 
 import torchvision

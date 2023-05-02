@@ -154,35 +154,43 @@ class Projection(object):
             ray_dir = ray_dir.expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
         return frus_nss_coor, z_vals, ray_dir
 
-    def consturct_sampling_MipNeRF(self, cam2world):
+    def construct_sampling_coor_MipNeRF(self, cam2world):
         """
+        cam2world: Nx4x4
+        nss_space: world coordinate / nss_scale
         Construct a sampling frustum coor in NSS space with MipNeRF sampling strategy (require both mean and cov)
         return frus_nss_coor (mean) and frus_nss_cov (covariance), both in NSS space, and generate z_vals/ray_dir
         """
         # step 1, generate ray origin, ray direction, and ray radius (the distance between adjacent pixels in world space)
         N = cam2world.shape[0]
         x, y = torch.meshgrid(torch.arange(self.frustum_size[0]), torch.arange(self.frustum_size[1]))
+        x, y = x.to(self.device), y.to(self.device)
         camera_directions = torch.stack([(x - self.frustum_size[0] * 0.5) / self.focal_x,
                                             -(y - self.frustum_size[1] * 0.5) / self.focal_y,
                                             -torch.ones_like(x)], axis=-1)
         camera_directions = camera_directions.reshape(-1, 3)  # (HxW)x3
         camera_directions = camera_directions.expand(N, self.frustum_size[0] * self.frustum_size[1], 3)  # Nx(HxW)x3
         # convert to world space, cam2world: Nx4x4
-        ray_dir = torch.matmul(cam2world[:, :3, :3], ray_dir.permute([0, 2, 1]).permute([0, 2, 1])) # N*(HxW)*3
-        viewdirs = F.normalize(ray_dir, dim=-1)  # Nx(HxW)x3
-        ray_origins = cam2world[:, :3, 3].unsqueeze(1).expand(N, self.frustum_size[0] * self.frustum_size[1], 3)  # Nx(HxW)x3
+        ray_dir = torch.matmul(cam2world[:, :3, :3], camera_directions.permute([0, 2, 1])).permute([0, 2, 1]) # N*(HxW)*3
+        ray_dir = F.normalize(ray_dir, dim=-1)  # Nx(HxW)x3
+        ray_origins = cam2world[:, :3, 3:].expand(N, 3, self.frustum_size[0] * self.frustum_size[1])  # Nx3x(HxW)
         radius = self.width.expand(N, self.frustum_size[0] * self.frustum_size[1])  # Nx(HxW)
 
-        # step 2, transform to nss space
-        ray_origins_nss = torch.matmul(self.world2nss[:3, :3], ray_origins.permute([0, 2, 1])) + self.world2nss[:3, 3].unsqueeze(1)  # Nx3x(HxW)
-        radius_nss = radius / self.nss_scale
-
-        # step 3, call sample_along_rays
+        # step 2, call sample_along_rays
         from .ray_utils import sample_along_rays
-        z_vals, (mean, conv) = sample_along_rays(origins=ray_origins_nss, directions=viewdirs, radii=radius_nss, 
+        ray_origins, ray_dir, radius = ray_origins.reshape(-1, 3), ray_dir.reshape(-1, 3), radius.reshape(-1, 1)
+        z_vals, (frus_coor, frus_cov) = sample_along_rays(origins=ray_origins, directions=ray_dir, radii=radius, 
                                                  num_samples=self.frustum_size[2],near=self.near, far=self.far)
+        # we only need diagonal entries of frus_conv
+        z_vals = z_vals[:,:-1].reshape(N * self.frustum_size[0] * self.frustum_size[1], self.frustum_size[2])  # Nx(HxW)xD
+        frus_coor = frus_coor.reshape(-1, 3)
+        frus_cov = frus_cov.reshape(-1, 3) # output: (Nx(HxW))x3
 
-        return (mean, conv), z_vals, viewdirs
+        # step 3, convert to NSS space
+        frus_nss_coor = frus_coor / self.nss_scale
+        frus_nss_cov = frus_cov / self.nss_scale ** 2
+
+        return (frus_nss_coor, frus_nss_cov), z_vals, ray_dir
 
 if __name__ == '__main__':
     pass

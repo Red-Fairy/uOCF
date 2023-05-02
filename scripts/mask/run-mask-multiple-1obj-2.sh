@@ -5,7 +5,7 @@
 #SBATCH --mem=16G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:titanrtx:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/T_uORF_clevr567_%j.out
