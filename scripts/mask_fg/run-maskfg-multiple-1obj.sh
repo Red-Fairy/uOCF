@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_multiple_bg/train-1obj'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_multiple_nobg/train-1obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
@@ -35,9 +35,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --bottom \
     --sam_encoder --encoder_size 1024 \
     --project \
-    --coarse_epoch 20 --niter 40 --percept_in 10 \
+    --coarse_epoch 30 --niter 60 --percept_in 10 \
     --attn_decay_steps 100000 \
-    --exp_id '0501-maskfg-1obj' \
+    --exp_id '0502-maskfg-1obj' \
     --save_epoch_freq 10 \
     --dummy_info 'mask fg' --is_train \
 

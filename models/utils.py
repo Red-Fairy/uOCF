@@ -132,3 +132,16 @@ def make_kernel(k):
     k /= k.sum()
 
     return k
+
+def build_grid(H, W, device, reverse=False):
+    """
+    Build a sampling grid for bilinear sampling
+    """
+    x = torch.linspace(-1+1/W, 1-1/W, W)
+    y = torch.linspace(-1+1/H, 1-1/H, H)
+    y, x = torch.meshgrid([y, x])
+    if not reverse:
+        grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
+    else:
+        grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0)
+    return grid

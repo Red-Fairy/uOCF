@@ -10,13 +10,14 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_mask import dualRouteEncoder, Decoder, SlotAttention, sam_encoder
+from .model_T_sam_fgmask import dualRouteEncoder, SlotAttention, sam_encoder
+from .triplane import TriplaneRendererFG
 from .utils import *
 from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfNoGanTsamMaskModel(BaseModel):
+class uorfNoGanTriplaneFGmaskModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -30,6 +31,7 @@ class uorfNoGanTsamMaskModel(BaseModel):
         parser.add_argument('--num_slots', metavar='K', type=int, default=8, help='Number of supported slots')
         parser.add_argument('--shape_dim', type=int, default=48, help='Dimension of individual z latent per slot')
         parser.add_argument('--color_dim', type=int, default=16, help='Dimension of individual z latent per slot texture')
+        parser.add_argument('--triplane_dim', type=int, default=32, help='')
         parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
         parser.add_argument('--warmup_steps', type=int, default=1000, help='Warmup steps')
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
@@ -38,7 +40,7 @@ class uorfNoGanTsamMaskModel(BaseModel):
         parser.add_argument('--obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects')
         parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
         parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
-        parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
+        parser.add_argument('--n_layer', type=int, default=2, help='num of layers bef/aft skip link in decoder')
         parser.add_argument('--weight_percept', type=float, default=0.006)
         parser.add_argument('--percept_in', type=int, default=100)
         parser.add_argument('--no_locality_epoch', type=int, default=300)
@@ -52,7 +54,7 @@ class uorfNoGanTsamMaskModel(BaseModel):
         parser.add_argument('--far_plane', type=float, default=20)
         parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
         parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
-        parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
+        parser.add_argument('--triplane_resolution', type=int, default=128, help='resolution of triplane renderer')
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
         parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
@@ -98,10 +100,8 @@ class uorfNoGanTsamMaskModel(BaseModel):
 
         self.netSlotAttention = networks.init_net(
             SlotAttention(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
-        self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-                                                    project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
-                                                    ), gpu_ids=self.gpu_ids, init_type='xavier')
+        self.netDecoder = networks.init_net(TriplaneRendererFG(z_dim=z_dim, triplane_dim=opt.triplane_dim, n_layer=opt.n_layer, locality_ratio=opt.obj_scale/opt.nss_scale, rel_pos=True),
+                                            gpu_ids=self.gpu_ids, init_type='normal')
 
         if self.isTrain:  # only defined during training time
             requires_grad = lambda x: x.requires_grad
@@ -137,18 +137,18 @@ class uorfNoGanTsamMaskModel(BaseModel):
         Parameters:
             input: a dictionary that contains the data itself and its metadata information.
         """
-        self.x = input['img_data'].to(self.device)
+        self.x = input['img_data'].to(self.device) # N*3*H*W
         self.x_large = input['img_data_large'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
         self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
-        self.num_slots = self.masks.shape[0] + 1 # include BG slot
+        self.num_slots = self.masks.shape[0]
+        self.bg_mask = input['bg_mask'].float().to(self.device) # N*1*H*W
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
 
     def forward(self, epoch=0):
         """Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
         self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
-        dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
         self.loss_recon = 0
         self.loss_perc = 0
         dev = self.x[0:1].device
@@ -163,13 +163,15 @@ class uorfNoGanTsamMaskModel(BaseModel):
 
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW
-        # H, W = feat.shape[1:3]
-        # feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
+        # apply BG mask to images (remove background, i.e. set to black)
+        # self.x: [-1, 1], bg_mask: {0, 1}, where 1 means background
+        self.x = self.x * (1 - self.bg_mask) - self.bg_mask
+    
         # Slot Attention
-        z_slots, fg_slot_position = self.netSlotAttention(feat, self.masks)  # 1xKxC, 1x(K-1)x2
-        z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, K-1x2
-        fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # (K-1)x3
+        z_slots, fg_slot_position = self.netSlotAttention(feat, self.masks)  # 1xKxC, 1xKx2
+        z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, Kx2
+        fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
         
         K = z_slots.shape[0]
 
@@ -182,7 +184,6 @@ class uorfNoGanTsamMaskModel(BaseModel):
                 self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
             self.set_visual_names()
             
-
         cam2world = self.cam2world
         N = cam2world.shape[0]
         if self.opt.stage == 'coarse':
@@ -204,19 +205,19 @@ class uorfNoGanTsamMaskModel(BaseModel):
             x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
             self.z_vals, self.ray_dir = z_vals, ray_dir
 
-        sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-        sampling_coor_bg = frus_nss_coor  # Px3
+        sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, triplane_resolution=(self.opt.triplane_resolution, self.opt.triplane_resolution)
+                                                                  ,slot_pos=fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
-        rgb_map, _, _ = raw2outputs(raws, z_vals, ray_dir) # [0, 1]
+        rgb_map, _, _ = raw2outputs(raws, z_vals, ray_dir)
         # (NxHxW)x3, (NxHxW)
         rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-        x_recon = rendered * 2 - 1 # [-1, 1], Nx3xHxW
+        x_recon = rendered * 2 - 1
 
         self.loss_recon = self.L2_loss(x_recon, x)
         x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
