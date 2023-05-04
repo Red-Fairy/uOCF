@@ -8,81 +8,7 @@ from torchvision.models import vgg16
 from torch import autograd
 
 from models.resnet import resnet34, resnet18
-
-def build_grid(H, W, device, reverse=False):
-    """
-    Build a sampling grid for bilinear sampling
-    """
-    x = torch.linspace(-1+1/W, 1-1/W, W)
-    y = torch.linspace(-1+1/H, 1-1/H, H)
-    y, x = torch.meshgrid([y, x])
-    if not reverse:
-        grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
-    else:
-        grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0)
-    return grid
-
-class Encoder(nn.Module):
-    def __init__(self, input_nc=3, z_dim=64, bottom=False, pos_emb=False):
-
-        super().__init__()
-
-        self.bottom = bottom
-
-        input_nc = input_nc + 4 if pos_emb else input_nc
-        self.pos_emb = pos_emb
-
-        if self.bottom:
-            self.enc_down_0 = nn.Sequential(nn.Conv2d(input_nc, z_dim, 3, stride=1, padding=1),
-                                            nn.ReLU(True))
-        self.enc_down_1 = nn.Sequential(nn.Conv2d(z_dim if bottom else input_nc, z_dim, 3, stride=2 if bottom else 1, padding=1),
-                                        nn.ReLU(True))
-        self.enc_down_2 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=2, padding=1),
-                                        nn.ReLU(True))
-        self.enc_down_3 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=2, padding=1),
-                                        nn.ReLU(True))
-        self.enc_up_3 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=1, padding=1),
-                                      nn.ReLU(True),
-                                      nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-        self.enc_up_2 = nn.Sequential(nn.Conv2d(z_dim*2, z_dim, 3, stride=1, padding=1),
-                                      nn.ReLU(True),
-                                      nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-        self.enc_up_1 = nn.Sequential(nn.Conv2d(z_dim * 2, z_dim, 3, stride=1, padding=1),
-                                      nn.ReLU(True))
-        
-
-    def forward(self, x):
-        """
-        input:
-            x: input image, Bx3xHxW
-        output:
-            feature_map: BxCxHxW
-        """
-
-        if self.pos_emb:
-            W, H = x.shape[3], x.shape[2]
-            X = torch.linspace(-1, 1, W)
-            Y = torch.linspace(-1, 1, H)
-            y1_m, x1_m = torch.meshgrid([Y, X])
-            x2_m, y2_m = -x1_m, -y1_m  # Normalized distance in the four direction
-            pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
-            x_ = torch.cat([x, pixel_emb], dim=1)
-        else:
-            x_ = x
-
-        if self.bottom:
-            x_down_0 = self.enc_down_0(x_)
-            x_down_1 = self.enc_down_1(x_down_0)
-        else:
-            x_down_1 = self.enc_down_1(x_)
-        x_down_2 = self.enc_down_2(x_down_1)
-        x_down_3 = self.enc_down_3(x_down_2)
-        x_up_3 = self.enc_up_3(x_down_3)
-        x_up_2 = self.enc_up_2(torch.cat([x_up_3, x_down_2], dim=1))
-        feature_map = self.enc_up_1(torch.cat([x_up_2, x_down_1], dim=1))  # BxCxHxW
-        
-        feature_map = feature_map
-        return feature_map
+from .utils import PositionalEncoding, sin_emb, build_grid
 
 class sam_encoder_v1(nn.Module):
     def __init__(self, sam_model, z_dim):
@@ -299,7 +225,8 @@ class EncoderPosEmbedding(nn.Module):
 
         k, v = self.input_to_k_fg(x).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
 
-        k, v = self.MLP_fg(k + grid_embed), self.MLP_fg(v + grid_embed) # (b, n_slot-1, h*w, d)
+        # a bug here, the MLP_fg & grid_embed was used twice
+        # k, v = self.MLP_fg(k + grid_embed), self.MLP_fg(v + grid_embed) # (b, n_slot-1, h*w, d)
 
         k, v = k + grid_embed, v + grid_embed
         k, v = self.MLP_fg(k), self.MLP_fg(v)

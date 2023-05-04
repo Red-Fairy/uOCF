@@ -44,7 +44,7 @@ def sample_from_planes(plane_axes, plane_features, coordinates, mode='bilinear',
     """
     N, n_planes, C, H, W = plane_features.shape
     _, M, _ = coordinates.shape
-    plane_features = plane_features.view(N*n_planes, C, H, W)
+    plane_features = plane_features.reshape(N*n_planes, C, H, W)
 
     # coordinates = (2/box_warp) * coordinates # TODO: add specific box bounds
 
@@ -122,7 +122,7 @@ class TriplaneRendererFG(nn.Module):
     '''
     Triplane Decoder with foreground only
     '''
-    def __init__(self, z_dim=64, triplane_dim=32, n_layer=2, locality_ratio=1, rel_pos=True):
+    def __init__(self, z_dim=64, triplane_dim=32, n_layer=2, locality_ratio=1, rel_pos=True, position_project=True):
         '''
         z_dim: dimension of the latent space
         n_layer: number of layers in the decoder
@@ -136,23 +136,30 @@ class TriplaneRendererFG(nn.Module):
         self.triplane_generator = TriplaneGenerator(z_dim=z_dim, triplane_dim=triplane_dim)
         self.decoder_fg = TriplaneDecoder(feat_dim=triplane_dim*3, n_layer=n_layer)
 
+        if position_project:
+            self.position_project = nn.Linear(2, self.z_dim)
+        else:
+            self.position_project = None
+
     def forward(self, sampling_coor_fg, z_slots, triplane_resolution=(128, 128), slot_pos=None):
         '''
         sampling_coor_fg: foreground sampling coordinates (N, M, 3); M is the number of foreground points, N is number of slots
         z_slots: latent vector of size (N, z_dim)
         slot_pos: position of the slots (N, 3) (in NSS space); must be provided if rel_pos is True
         '''
+        if self.rel_pos:
+            assert slot_pos is not None
+            # compute query points' relative position with respect to the slots
+            sampling_coor_fg = sampling_coor_fg - slot_pos.unsqueeze(1) # (N, M, 3)
+
+        if self.position_project is not None:
+            z_slots = z_slots + self.position_project(slot_pos[:, :2]) # (N, z_dim)
+
         triplane = self.triplane_generator(z_slots, resolution=triplane_resolution) # (N, triplane_dim*3, H, W)
         N, _, H, W = triplane.shape
         triplane = triplane.view(N, 3, -1, H, W) # (N, 3, triplane_dim, H, W)
         _, M, _ = sampling_coor_fg.shape
         plane_axes = generate_planes().to(sampling_coor_fg.device) # (3, 3)
-
-        if self.rel_pos:
-            assert slot_pos is not None
-            slot_pos = slot_pos.unsqueeze(1) # (N, 1, 3)
-            # compute query points' relative position with respect to the slots
-            sampling_coor_fg = sampling_coor_fg - slot_pos # (N, M, 3)
 
         outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1) # (N, M)
 
@@ -181,7 +188,7 @@ class TriplaneRenderer(nn.Module):
     '''
     Triplane Decoder with foreground and background
     '''
-    def __init__(self, z_dim=64, n_layer=2, locality_ratio=1, rel_pos=True):
+    def __init__(self, z_dim=64, triplane_dim=32, n_layer=2, locality_ratio=1, rel_pos=True, position_project=True):
         '''
         z_dim: dimension of the latent space
         n_layer: number of layers in the decoder
@@ -192,33 +199,44 @@ class TriplaneRenderer(nn.Module):
         self.n_layer = n_layer
         self.rel_pos = rel_pos
         self.locality_ratio = locality_ratio
-        self.triplane_generator = TriplaneGenerator(z_dim=z_dim)
-        self.decoder_fg = TriplaneDecoder(z_dim, n_layer)
-        self.decoder_bg = TriplaneDecoder(z_dim, n_layer)
+        self.triplane_generator_fg = TriplaneGenerator(z_dim=z_dim, triplane_dim=triplane_dim)
+        self.triplane_generator_bg = TriplaneGenerator(z_dim=z_dim, triplane_dim=triplane_dim)
+        self.decoder_fg = TriplaneDecoder(feat_dim=triplane_dim*3, n_layer=n_layer)
+        self.decoder_bg = TriplaneDecoder(feat_dim=triplane_dim*3, n_layer=n_layer)
 
-    def forward(self, sampling_coor_fg, sampling_coor_bg, z_slots, triplane_resolution=(128, 128), slot_pos=None):
+        if position_project:
+            self.position_project = nn.Linear(2, self.z_dim)
+        else:
+            self.position_project = None
+
+
+    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, triplane_resolution=(128, 128), slot_pos=None):
         '''
         sampling_coor_fg: foreground sampling coordinates (N, M, 3); M is the number of foreground points, N is number of slots
         sampling_coor_bg: background sampling coordinates (1, M, 3)
         z_slots: latent vector of size (N+1, z_dim)
         slot_pos: position of the slots (N, 3) (in NSS space); must be provided if rel_pos is True
         '''
-        triplane = self.triplane_generator(z_slots, resolution=triplane_resolution) # (N+1, triplane_dim*3, H, W)
-        _, _, H, W = triplane.shape
-        N, M, _ = sampling_coor_fg.shape
-        triplane = triplane.view(N+1, 3, -1, H, W) # (N+1, 3, triplane_dim, H, W)
-        plane_axes = generate_planes().to(sampling_coor_fg.device) # (3, 3)
-
         if self.rel_pos:
             assert slot_pos is not None
-            slot_pos = slot_pos.unsqueeze(1)
             # compute query points' relative position with respect to the slots
-            sampling_coor_fg = sampling_coor_fg - slot_pos # (N, M, 3)
+            sampling_coor_fg = sampling_coor_fg - slot_pos.unsqueeze(1) # (N, M, 3)
+
+        z_slots_fg, z_slots_bg = z_slots[:-1], z_slots[-1:]
+        if self.position_project is not None:
+            z_slots_fg = z_slots_fg + self.position_project(slot_pos[:, :2]) # (N, z_dim)
+        triplane_fg, triplane_bg = self.triplane_generator_fg(z_slots_fg, resolution=triplane_resolution), self.triplane_generator_bg(z_slots_bg, resolution=triplane_resolution) # (N, triplane_dim*3, H, W), (1, triplane_dim*3, H, W)
+        _, _, H, W = triplane_fg.shape
+        N, M, _ = sampling_coor_fg.shape
+        triplane_fg = triplane_fg.view(N, 3, -1, H, W) # (N, 3, triplane_dim, H, W)
+        triplane_bg = triplane_bg.view(1, 3, -1, H, W) # (1, 3, triplane_dim, H, W)
+        plane_axes = generate_planes().to(sampling_coor_fg.device) # (3, 3)
 
         outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1) # (N, M)
+        # print the ratio of points outside the locality
 
         # sample from the triplane
-        sampling_feat_fg = sample_from_planes(plane_axes, triplane[:-1], sampling_coor_fg) # (N, 3, M, triplane_dim)
+        sampling_feat_fg = sample_from_planes(plane_axes, triplane_fg, sampling_coor_fg) # (N, 3, M, triplane_dim)
         sampling_feat_fg = sampling_feat_fg.permute(0, 2, 1, 3).reshape(N*M, -1) # (N*M, 3*triplane_dim)
         sampling_density_fg, sampling_color_fg = self.decoder_fg(sampling_feat_fg) # (N*M, 1), (N*M, 3)
         sampling_density_fg = sampling_density_fg.view(N, M, 1) # (N, M, 1)
@@ -226,7 +244,7 @@ class TriplaneRenderer(nn.Module):
         sampling_density_fg[outsider_idx] *= 0
         sampling_color_fg = sampling_color_fg.view(N, M, 3) # (N, M, 3)
 
-        sampling_feat_bg = sample_from_planes(plane_axes, triplane[-1:], sampling_coor_bg) # (1, 3, M, triplane_dim)
+        sampling_feat_bg = sample_from_planes(plane_axes, triplane_bg, sampling_coor_bg) # (1, 3, M, triplane_dim)
         sampling_feat_bg = sampling_feat_bg.permute(0, 2, 1, 3).reshape(1*M, -1) # (1*M, 3*triplane_dim)
         sampling_density_bg, sampling_color_bg = self.decoder_bg(sampling_feat_bg) # (1*M, 1), (1*M, 3)
         sampling_density_bg = sampling_density_bg.view(1, M, 1) # (1, M, 1)

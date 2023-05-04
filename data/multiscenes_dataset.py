@@ -50,7 +50,6 @@ class MultiscenesDataset(BaseDataset):
             scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
             self.scenes.append(scene_filenames)
 
-        self.imagenet_encoder = opt.imagenet_encoder
         self.sam_encoder = opt.sam_encoder
         self.is_train = opt.is_train
         self.bg_color = opt.bg_color
@@ -110,7 +109,7 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
-            if self.imagenet_encoder or self.sam_encoder:
+            if self.sam_encoder and rd == 0:
                 ret['img_data_large'] = self._transform_encoder(img)
             mask_path = path.replace('.png', '_mask.png')
             if os.path.isfile(mask_path):
@@ -159,7 +158,7 @@ def collate_fn(batch):
     else:
         depths = None
     if 'img_data_large' in flat_batch[0]:
-        img_data_large = torch.stack([x['img_data_large'] for x in flat_batch]) # Bx3xHxW
+        img_data_large = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
     else:
         img_data_large = None
     ret = {

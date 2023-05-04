@@ -10,14 +10,15 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_fgmask import dualRouteEncoder, SlotAttention, sam_encoder
+from .model_T_sam_fgmask import SlotAttention
+from .model_general import dualRouteEncoder, sam_encoder
 from .triplane import TriplaneRendererFG
 from .utils import *
 from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfNoGanTriplaneFGmaskModel(BaseModel):
+class uorfNoGanTriplaneFGMaskModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -40,7 +41,7 @@ class uorfNoGanTriplaneFGmaskModel(BaseModel):
         parser.add_argument('--obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects')
         parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
         parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
-        parser.add_argument('--n_layer', type=int, default=2, help='num of layers bef/aft skip link in decoder')
+        parser.add_argument('--n_layer', type=int, default=1, help='num of layers bef/aft skip link in decoder')
         parser.add_argument('--weight_percept', type=float, default=0.006)
         parser.add_argument('--percept_in', type=int, default=100)
         parser.add_argument('--no_locality_epoch', type=int, default=300)
@@ -54,7 +55,7 @@ class uorfNoGanTriplaneFGmaskModel(BaseModel):
         parser.add_argument('--far_plane', type=float, default=20)
         parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
         parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
-        parser.add_argument('--triplane_resolution', type=int, default=128, help='resolution of triplane renderer')
+        parser.add_argument('--triplane_resolution', type=int, default=64, help='resolution of triplane renderer')
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
         parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
@@ -208,7 +209,6 @@ class uorfNoGanTriplaneFGmaskModel(BaseModel):
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
-        invariant = epoch >= self.opt.invariant_in
         raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, triplane_resolution=(self.opt.triplane_resolution, self.opt.triplane_resolution)
                                                                   ,slot_pos=fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4

@@ -17,6 +17,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, x, y=None):
         # x: (P, 3), y: (P, 3)
         shape = list(x.shape[:-1]) + [-1]
+        self.scales = self.scales.to(x.device)
         x_enc = (x[..., None, :] * self.scales[:, None]).reshape(shape)
         x_enc = torch.cat((x_enc, x_enc + 0.5 * torch.pi), -1)
         if y is not None:
@@ -76,7 +77,7 @@ def raw2outputs(raw, z_vals, rays_d, render_mask=False):
     rgb_map = torch.sum(weights[..., None] * rgb, -2)  # [N_rays, 3]
 
     weights_norm = weights.detach() + 1e-5
-    weights_norm /= weights_norm.sum(dim=-1, keepdim=True)
+    weights_norm /= weights_norm.sum(dim=-1, keepdim=True) # [N_rays, N_samples]
     depth_map = torch.sum(weights_norm * z_vals, -1)
 
     if render_mask:
