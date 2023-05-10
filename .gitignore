@@ -6,3 +6,4 @@ scripts-sbatch/*
 */__pycache__/*
 */.idea/*
 */.idea
+debug/*

@@ -109,3 +109,21 @@ class dualRouteEncoder(nn.Module):
         feat_shape = self.shallow_encoder(sam_feature)
 
         return torch.cat([feat_shape, feat_color], dim=1)
+
+class DinoEncoder(nn.Module):
+    def __init__(self, z_dim=64, hidden_dim=128):
+        super().__init__()
+
+        dino_dim = 1024
+        self.shallow_encoder = nn.Sequential(nn.Conv2d(dino_dim, hidden_dim, 3, stride=1, padding=1),
+                                            nn.ReLU(True),
+                                            nn.Conv2d(hidden_dim, z_dim, 3, stride=1, padding=1))
+
+    def forward(self, dino_feats):
+        '''
+        input:
+            dino_feature: (B, 1024, 64, 64)
+        output:
+            spatial feature (B, z_dim, 64, 64)
+        '''
+        return self.shallow_encoder(dino_feats)

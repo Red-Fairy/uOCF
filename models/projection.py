@@ -68,7 +68,7 @@ class Projection(object):
         
     def construct_frus_coor(self, z_vals=None, partial_render=None):
         '''
-        partial_render: three ints, render_size, start_x, start_y
+        partial_render: three ints, render_size, W_idx, H_idx
         '''
         if partial_render is not None:
             x = torch.arange(partial_render[1], partial_render[1] + partial_render[0])
@@ -88,6 +88,7 @@ class Projection(object):
             depth_range = self.near + (self.far - self.near) * z_vals
         z_cam = depth_range[z_frus].to(self.device)
 
+        print('z_cam', z_cam.shape, x_frus.shape)
         x_unnorm_pix = x_frus * z_cam
         y_unnorm_pix = y_frus * z_cam
         z_unnorm_pix = z_cam
@@ -158,7 +159,7 @@ class Projection(object):
             ray_dir = ray_dir.expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
         return frus_nss_coor, z_vals, ray_dir
 
-    def sample_pdf(bins, weights, N_samples, det=False):
+    def sample_pdf(self, bins, weights, N_samples, det=False):
         # Get pdf
         weights = weights + 1e-5 # prevent nans
         pdf = weights / torch.sum(weights, -1, keepdim=True)
@@ -173,7 +174,7 @@ class Projection(object):
             u = torch.rand(list(cdf.shape[:-1]) + [N_samples])
 
         # Invert CDF
-        u = u.contiguous()
+        u = u.contiguous().to(cdf.device)
         inds = torch.searchsorted(cdf, u, right=True)
         below = torch.max(torch.zeros_like(inds-1), inds-1)
         above = torch.min((cdf.shape[-1]-1) * torch.ones_like(inds), inds)
@@ -192,41 +193,56 @@ class Projection(object):
 
         return samples
 
-    def sample_importance(self, z_vals, weights, N_samples, partial_render=None):
+    def sample_importance(self, z_vals, weights, N_samples, ray_origin, ray_dir, partial_render=None):
         '''
         :param z_vals: (NxHxW)xD
-        :param ray_dir: (NxHxW)x3
         :param weights: (NxHxW)xD
         :param N_samples: int
+        :param ray_origin: (NxHxW)x3, in world coord
+        :param ray_dir: (NxHxW)x3, in world coord, not normalized
         :param partial_render: if specified, only sample from the partial rendered region, (three integers)
         :output z_samples: (batch, N_samples, 1), batch=NxHxW
         '''
         # Sample depth points
         z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
-        z_samples = self.sample_pdf(z_vals_mid, weights[...,1:-1], N_samples)  # (batch, N_samples, 1)
+        z_samples = self.sample_pdf(z_vals_mid, weights[...,1:-1], N_samples)  # (NxHxW)xN_samples
         z_samples = z_samples.detach()
+        # print('z_samples:', z_samples.shape)
 
-        z_vals = torch.sort(torch.cat([z_vals, z_samples], -1), -1)[0]  # (batch, N_samples+D)
+        z_vals = torch.sort(torch.cat([z_vals, z_samples], -1), -1)[0]  # (NxHxW)x(N_samples+D)
+        # print('z_vals:', z_vals.shape)
 
-        pixel_coor = self.construct_frus_coor(z_vals=z_vals, partial_render=partial_render) # # 4x(HxWxD'), D'=N_samples+D
-        return pixel_coor
+        # Construct pixel coordinates
+        # normalize ray_dir
+        ray_dir = ray_dir / torch.norm(ray_dir, dim=-1, keepdim=True) # (NxHxW)x3
+        # print('ray_dir:', ray_dir.shape)
+        # now we have ray_dir in world coord, construct pixel coor
+        pixel_coor = ray_origin.unsqueeze(1) + ray_dir.unsqueeze(1) * z_vals.unsqueeze(-1).repeat(1, 1, 3)  # (NxHxW)x(N_samples+D)x3
+        # convert to homogeneous coord
+        pixel_coor = torch.cat([pixel_coor, torch.ones_like(pixel_coor[..., :1])], -1)  # (NxHxW)x(N_samples+D)x4
         
-    def construct_importance_sampling_coor(self, cam2world, z_vals, weights, N_samples, partial_render=None):
+        return pixel_coor, z_vals
+        
+    def construct_importance_sampling_coor(self, cam2world, z_vals, weights, N_samples, ray_dir, partial_render=None):
         '''
         cam2world: Nx4x4
+        partial_render: three ints, render_size, W_idx, H_idx
+        ray_dir: (NxHxW)x3
         '''
         N = cam2world.shape[0]
         W, H, _ = self.frustum_size
-        D = N_samples
-        pixel_coor = self.sample_importance(z_vals, weights, N_samples, partial_render=partial_render) # 4x(HxWxD)
-        frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float()) # 4x(HxWxD)
-        frus_world_coor = torch.matmul(cam2world, frus_cam_coor) # Nx4x(HxWxD)
-        frus_nss_coor = torch.matmul(self.world2nss, frus_world_coor) # Nx4x(HxWxD)
-        frus_nss_coor = frus_nss_coor.reshape(N, 4, H, W, D).permute([0, 4, 2, 3, 1]) # NxDxHxWx4
-        frus_nss_coor = frus_nss_coor[..., :3] / frus_nss_coor[..., 3:4] # NxDxHxWx3
-        frus_nss_coor = frus_nss_coor.flatten(start_dim=0, end_dim=3) # (NxDxHxW)x3
+        D = N_samples + z_vals.shape[-1]
+        ray_origin = cam2world[:, :3, 3] # Nx3
+        ray_origin = ray_origin.unsqueeze(1).expand(N, H*W, 3).flatten(start_dim=0, end_dim=1) # (NxHxW)x3
+        pixel_coor, z_vals = self.sample_importance(z_vals, weights, N_samples, ray_origin, ray_dir, partial_render=partial_render) # (NxHxW)x(N_samples+D)x4
+        # print(pixel_coor.shape, z_vals.shape)
+        # here pixel_coor is in world coord, convert to nss coord
+        frus_nss_coor = torch.matmul(pixel_coor, self.world2nss) # (NxHxW)x(N_samples+D)x4
+        frus_nss_coor = frus_nss_coor[..., :3] / frus_nss_coor[..., 3:4] # (NxHxW)x(N_samples+D)x3
+        frus_nss_coor = frus_nss_coor.flatten(start_dim=0, end_dim=1) # ((NxHxW)x(N_samples+D))x3
 
-        return frus_nss_coor
+        return frus_nss_coor, z_vals
+    
 
 if __name__ == '__main__':
     pass

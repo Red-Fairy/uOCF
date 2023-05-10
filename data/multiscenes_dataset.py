@@ -19,6 +19,7 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
         parser.add_argument('--is_train', action='store_true')
+        parser.add_argument('--transparent', action='store_true')
         parser.add_argument('--bg_color', type=float, default=-127/255, help='background color')
         return parser
 
@@ -86,7 +87,12 @@ class MultiscenesDataset(BaseDataset):
             filenames = scene_filenames[:self.n_img_each_scene]
         rets = []
         for rd, path in enumerate(filenames):
-            img = Image.open(path).convert('RGB')
+            if self.opt.transparent:
+                img = Image.open(path).convert('RGB')
+                # white_bg = Image.new('RGBA', img.size, (255, 255, 255, 255))
+                # img = Image.alpha_composite(white_bg, img).convert('RGB')
+            else:
+                img = Image.open(path).convert('RGB')
             img_data = self._transform(img)
             pose_path = path.replace('.png', '_RT.txt')
             try:
@@ -110,7 +116,12 @@ class MultiscenesDataset(BaseDataset):
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
             if self.sam_encoder and rd == 0:
-                ret['img_data_large'] = self._transform_encoder(img)
+                feats_path = path.replace('.png', '.npy')
+                if os.path.isfile(feats_path) and self.opt.preextract:
+                    feats = np.load(feats_path)
+                    ret['img_feats'] = torch.from_numpy(feats) # 1*H*W*1024, (H=64, W=64)
+                else:
+                    ret['img_data_large'] = self._transform_encoder(img)
             mask_path = path.replace('.png', '_mask.png')
             if os.path.isfile(mask_path):
                 mask = Image.open(mask_path).convert('RGB')
@@ -157,18 +168,17 @@ def collate_fn(batch):
         depths = torch.stack([x['depth'] for x in flat_batch])  # Bx1xHxW
     else:
         depths = None
-    if 'img_data_large' in flat_batch[0]:
-        img_data_large = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
-    else:
-        img_data_large = None
     ret = {
         'img_data': img_data,
         'paths': paths,
         'cam2world': cam2world,
         'azi_rot': azi_rot,
         'depths': depths,
-        'img_data_large': img_data_large
     }
+    if 'img_data_large' in flat_batch[0]:
+        ret['img_data_large'] = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
+    if 'img_feats' in flat_batch[0]:
+        ret['img_feats'] = torch.stack([x['img_feats'] for x in flat_batch if 'img_feats' in x])
     if 'mask' in flat_batch[0]:
         masks = torch.stack([x['mask'] for x in flat_batch])
         ret['masks'] = masks

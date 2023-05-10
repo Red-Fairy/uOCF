@@ -139,8 +139,8 @@ class Decoder(nn.Module):
             # relative position with fg slot position
             if self.rel_pos and invariant:
                 sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3
-
-            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3x1
+            if not self.fg_in_world:
+                sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3x1
             outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 
         z_fg = z_slots
@@ -176,6 +176,40 @@ class Decoder(nn.Module):
         raws = masked_raws.sum(dim=0)
 
         return raws, masked_raws, unmasked_raws, masks
+
+class FeatureAggregate(nn.Module):
+    def __init__(self, in_dim=64, out_dim=64):
+        super().__init__()
+        self.convs = nn.Sequential(nn.Conv2d(in_dim, in_dim, 3, 1, 1), 
+                                nn.ReLU(inplace=True),
+                                nn.Conv2d(in_dim, out_dim, 3, 1, 1))
+        self.pool = nn.AdaptiveAvgPool2d(1)
+
+    def get_fg_position(self, mask):
+        '''
+        Compute the weighted mean of the grid points as the position of foreground objects.
+        input:
+            mask: mask for foreground objects. shape: K*1*H*W, K: number of slots
+        output:
+            fg_position: position of foreground objects. shape: K*2
+        '''
+        K, _, H, W = mask.shape
+        grid = build_grid(H, W, device=mask.device) # 1*H*W*2
+        grid = grid.expand(K, -1, -1, -1).permute(0, 3, 1, 2) # K*2*H*W
+        grid = grid * mask # K*2*H*W
+
+        fg_position = grid.sum(dim=(2, 3)) / (mask.sum(dim=(2, 3)) + 1e-5) # K*2
+        return fg_position
+
+    def forward(self, x, mask, use_mask=True):
+        x = self.convs(x)
+        if use_mask: # only aggregate foreground features
+            x = x * mask
+            x = x.sum(dim=(2, 3)) / (mask.sum(dim=(2, 3)) + 1e-5) # BxC
+        else: 
+            x = self.pool(x).squeeze(-1).squeeze(-1) # BxC
+        fg_position = self.get_fg_position(mask) # K*2
+        return x, fg_position
 
 
 class SlotAttention(nn.Module):
@@ -233,7 +267,7 @@ class SlotAttention(nn.Module):
         fg_position = grid.sum(dim=(2, 3)) / (mask.sum(dim=(2, 3)) + 1e-5) # K*2
         return fg_position
 
-    def forward(self, feat, mask):
+    def forward(self, feat, mask, use_mask=True):
         """
         input:
             feat: visual feature with position information, BxHxWxC, C: shape_dim + color_dim
@@ -262,7 +296,7 @@ class SlotAttention(nn.Module):
             slot_prev_fg = slot_fg
             q_fg = self.to_q(slot_fg)
             
-            # attn = torch.empty(B, K, N, device=feat.device)
+            attn = torch.empty(B, K, N, device=feat.device)
             
             k, v = self.to_kv(feat, H, W, fg_position) # (B,K,N,C)
 
@@ -271,307 +305,21 @@ class SlotAttention(nn.Module):
             
             for i in range(K):
                 attn_this_slot = torch.einsum('bd,bnd->bn', q_fg[:, i, :], k[:, i, :, :]) * self.scale # BxN
-                # mask_this_slot = mask[i].flatten() # N
                 # we will use softmax after masking, so we need to set the masked values to a very small value
-                # attn_this_slot = attn_this_slot.masked_fill(mask_this_slot.unsqueeze(0) == 0, -1e9)
+                if use_mask:
+                    mask_this_slot = mask[i].flatten() # N
+                    attn_this_slot = attn_this_slot.masked_fill(mask_this_slot.unsqueeze(0) == 0, -1e9)
                 attn_this_slot = attn_this_slot.softmax(dim=1) # BxN
                 updates_fg[:, i, :] = torch.einsum('bn,bnd->bd', attn_this_slot, v[:, i, :, :]) # BxC
                 # update the position of this slot (weighted mean of the grid points, with attention as weights)
                 # fg_position[:, i, :] = torch.einsum('bn,nd->bd', attn_this_slot, grid) # Bx2
+                attn[:, i, :] = attn_this_slot
 
             slot_fg = self.gru_fg(updates_fg.reshape(-1, self.slot_dim), slot_fg.reshape(-1, self.slot_dim)).reshape(B, K, self.slot_dim) # BxKxC
             slot_fg = self.to_res_fg(slot_fg) + slot_prev_fg # BxKx2
+
+            # normalize attn for visualization (min-max normalization along the N dimension)
+            attn = (attn - attn.min(dim=2, keepdim=True)[0]) / (attn.max(dim=2, keepdim=True)[0] - attn.min(dim=2, keepdim=True)[0] + 1e-5)
+
                 
-        return slot_fg, fg_position
-
-
-def sin_emb(x, n_freq=5, keep_ori=True):
-    """
-    create sin embedding for 3d coordinates
-    input:
-        x: Px3
-        n_freq: number of raised frequency
-    """
-    embedded = []
-    if keep_ori:
-        embedded.append(x)
-    emb_fns = [torch.sin, torch.cos]
-    freqs = 2. ** torch.linspace(0., n_freq - 1, steps=n_freq)
-    for freq in freqs:
-        for emb_fn in emb_fns:
-            embedded.append(emb_fn(freq * x))
-    embedded_ = torch.cat(embedded, dim=1)
-    return embedded_
-
-def raw2outputs(raw, z_vals, rays_d, render_mask=False):
-    """Transforms model's predictions to semantically meaningful values.
-    Args:
-        raw: [num_rays, num_samples along ray, 4]. Prediction from model.
-        z_vals: [num_rays, num_samples along ray]. Integration time.
-        rays_d: [num_rays, 3]. Direction of each ray in cam coor.
-    Returns:
-        rgb_map: [num_rays, 3]. Estimated RGB color of a ray.
-        depth_map: [num_rays]. Estimated distance to object.
-    """
-    raw2alpha = lambda x, y: 1. - torch.exp(-x * y)
-    device = raw.device
-
-    dists = z_vals[..., 1:] - z_vals[..., :-1]
-    dists = torch.cat([dists, torch.tensor([1e-2], device=device).expand(dists[..., :1].shape)], -1)  # [N_rays, N_samples]
-
-    dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
-
-    rgb = raw[..., :3]
-
-    alpha = raw2alpha(raw[..., 3], dists)  # [N_rays, N_samples]
-    weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1. - alpha + 1e-10], -1), -1)[:,:-1]
-
-    rgb_map = torch.sum(weights[..., None] * rgb, -2)  # [N_rays, 3]
-
-    weights_norm = weights.detach() + 1e-5
-    weights_norm /= weights_norm.sum(dim=-1, keepdim=True)
-    depth_map = torch.sum(weights_norm * z_vals, -1)
-
-    if render_mask:
-        density = raw[..., 3]  # [N_rays, N_samples]
-        mask_map = torch.sum(weights * density, dim=1)  # [N_rays,]
-        return rgb_map, depth_map, weights_norm, mask_map
-
-    return rgb_map, depth_map, weights_norm
-
-
-def get_perceptual_net(layer=4):
-    assert layer > 0
-    idx_set = [None, 4, 9, 16, 23, 30]
-    idx = idx_set[layer]
-    vgg = vgg16(pretrained=True)
-    loss_network = nn.Sequential(*list(vgg.features)[:idx]).eval()
-    for param in loss_network.parameters():
-        param.requires_grad = False
-    return loss_network
-
-
-def toggle_grad(model, requires_grad):
-    for p in model.parameters():
-        p.requires_grad_(requires_grad)
-
-def d_logistic_loss(real_pred, fake_pred):
-    real_loss = F.softplus(-real_pred)
-    fake_loss = F.softplus(fake_pred)
-
-    return real_loss.mean(), fake_loss.mean()
-
-def d_r1_loss(real_pred, real_img):
-    with conv2d_gradfix.no_weight_gradients():
-        grad_real, = autograd.grad(
-            outputs=real_pred.sum(), inputs=real_img, create_graph=True
-        )
-    grad_penalty = grad_real.pow(2).reshape(grad_real.shape[0], -1).sum(1).mean()
-
-    return grad_penalty
-
-def g_nonsaturating_loss(fake_pred):
-    loss = F.softplus(-fake_pred).mean()
-
-    return loss
-
-
-def make_kernel(k):
-    k = torch.tensor(k, dtype=torch.float32)
-
-    if k.ndim == 1:
-        k = k[None, :] * k[:, None]
-
-    k /= k.sum()
-
-    return k
-
-class EqualConv2d(nn.Module):
-    def __init__(
-        self, in_channel, out_channel, kernel_size, stride=1, padding=0, bias=True
-    ):
-        super().__init__()
-
-        self.weight = nn.Parameter(
-            torch.randn(out_channel, in_channel, kernel_size, kernel_size)
-        )
-        self.scale = 1 / math.sqrt(in_channel * kernel_size ** 2)
-
-        self.stride = stride
-        self.padding = padding
-
-        if bias:
-            self.bias = nn.Parameter(torch.zeros(out_channel))
-
-        else:
-            self.bias = None
-
-    def forward(self, input):
-        out = conv2d_gradfix.conv2d(
-            input,
-            self.weight * self.scale,
-            bias=self.bias,
-            stride=self.stride,
-            padding=self.padding,
-        )
-
-        return out
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},"
-            f" {self.weight.shape[2]}, stride={self.stride}, padding={self.padding})"
-        )
-
-
-class EqualLinear(nn.Module):
-    def __init__(
-        self, in_dim, out_dim, bias=True, bias_init=0, lr_mul=1, activation=None
-    ):
-        super().__init__()
-
-        self.weight = nn.Parameter(torch.randn(out_dim, in_dim).div_(lr_mul))
-
-        if bias:
-            self.bias = nn.Parameter(torch.zeros(out_dim).fill_(bias_init))
-
-        else:
-            self.bias = None
-
-        self.activation = activation
-
-        self.scale = (1 / math.sqrt(in_dim)) * lr_mul
-        self.lr_mul = lr_mul
-
-    def forward(self, input):
-        if self.activation:
-            out = F.linear(input, self.weight * self.scale)
-            out = F.leaky_relu(out, 0.2, inplace=True) * 1.4
-
-        else:
-            out = F.linear(
-                input, self.weight * self.scale, bias=self.bias * self.lr_mul
-            )
-
-        return out
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]})"
-        )
-
-
-
-class ConvLayer(nn.Sequential):
-    def __init__(
-        self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        downsample=False,
-        blur_kernel=[1, 3, 3, 1],
-        bias=True,
-        activate=True,
-        stride=1,
-        padding=1
-    ):
-        layers = []
-
-        if downsample:
-            layers.append(nn.AvgPool2d(kernel_size=2, stride=2))
-
-        layers.append(
-            EqualConv2d(
-                in_channel,
-                out_channel,
-                kernel_size,
-                padding=padding,
-                stride=stride,
-                bias=bias and not activate,
-            )
-        )
-
-        if activate:
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-
-        super().__init__(*layers)
-
-
-class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, blur_kernel=[1, 3, 3, 1]):
-        super().__init__()
-
-        self.conv1 = ConvLayer(in_channel, in_channel, 3, stride=1, padding=1)
-        self.conv2 = ConvLayer(in_channel, out_channel, 3, downsample=True, stride=1, padding=1)
-
-        self.skip = ConvLayer(
-            in_channel, out_channel, 1, downsample=True, activate=False, bias=False, stride=1, padding=0
-        )
-
-    def forward(self, input):
-        out = self.conv1(input) * 1.4
-        out = self.conv2(out) * 1.4
-
-        skip = self.skip(input) * 1.4
-        out = (out + skip) / math.sqrt(2)
-
-        return out
-
-
-class Discriminator(nn.Module):
-    def __init__(self, size, ndf, blur_kernel=[1, 3, 3, 1]):
-        super().__init__()
-
-        channels = {
-            4: ndf*2,
-            8: ndf*2,
-            16: ndf,
-            32: ndf,
-            64: ndf//2,
-            128: ndf//2
-        }
-
-        convs = [ConvLayer(3, channels[size], 1, stride=1, padding=1)]
-
-        log_size = int(math.log(size, 2))
-
-        in_channel = channels[size]
-
-        for i in range(log_size, 2, -1):
-            out_channel = channels[2 ** (i - 1)]
-
-            convs.append(ResBlock(in_channel, out_channel, blur_kernel))
-
-            in_channel = out_channel
-
-        self.convs = nn.Sequential(*convs)
-
-        self.stddev_group = 4
-        self.stddev_feat = 1
-
-        self.final_conv = ConvLayer(in_channel + 1, channels[4], 3, stride=1, padding=1)
-        self.final_linear = nn.Sequential(
-            EqualLinear(channels[4] * 4 * 4, channels[4], activation="fused_lrelu"),
-            EqualLinear(channels[4], 1),
-        )
-
-    def forward(self, input):
-        out = self.convs(input) * 1.4
-
-        batch, channel, height, width = out.shape
-        group = min(batch, self.stddev_group)
-        stddev = out.view(
-            group, -1, self.stddev_feat, channel // self.stddev_feat, height, width
-        )
-        stddev = torch.sqrt(stddev.var(0, unbiased=False) + 1e-8)
-        stddev = stddev.mean([2, 3, 4], keepdims=True).squeeze(2)
-        stddev = stddev.repeat(group, 1, height, width)
-        out = torch.cat([out, stddev], 1)
-
-        out = self.final_conv(out) * 1.4
-
-        out = out.view(batch, -1)
-        out = self.final_linear(out)
-
-
-
+        return slot_fg, fg_position, attn

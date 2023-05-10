@@ -12,13 +12,13 @@ import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 from .model_T_sam_fgmask import Decoder, SlotAttention, FeatureAggregate
-from .model_general import dualRouteEncoder, sam_encoder
+from .model_general import DinoEncoder
 from .utils import *
 from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfNoGanTsamFGMaskModel(BaseModel):
+class uorfNoGanTsamFGMaskDinoModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -30,8 +30,7 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
             the modified parser.
         """
         parser.add_argument('--num_slots', metavar='K', type=int, default=8, help='Number of supported slots')
-        parser.add_argument('--shape_dim', type=int, default=48, help='Dimension of individual z latent per slot')
-        parser.add_argument('--color_dim', type=int, default=16, help='Dimension of individual z latent per slot texture')
+        parser.add_argument('--z_dim', type=int, default=64, help='Dimension of latent vector')
         parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
         parser.add_argument('--warmup_steps', type=int, default=1000, help='Warmup steps')
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
@@ -59,8 +58,6 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
         parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
-        # parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
-        # parser.add_argument('--init_n_epoch', type=int, default=0, help='number of epochs for the first epoch')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -92,13 +89,11 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         self.projection_fine = Projection(device=self.device, nss_scale=opt.nss_scale,
                                           frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 
-        z_dim = opt.color_dim + opt.shape_dim
+        z_dim = opt.z_dim
 
-        sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-        self.sam_encoder = sam_encoder(sam_model).cuda()
-
-        self.netEncoder = networks.init_net(dualRouteEncoder(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim,),
-                                                gpu_ids=self.gpu_ids, init_type='normal')
+        if not opt.preextract:
+            self.DinoViT = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitl14').cuda()
+        self.netEncoder = networks.init_net(DinoEncoder(z_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
         if not opt.feature_aggregate:
             self.netSlotAttention = networks.init_net(
                 SlotAttention(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
@@ -146,12 +141,10 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['img_data'].to(self.device) # N*3*H*W
-        assert 'img_data_large' in input or 'img_feats' in input
-        if 'img_data_large' in input:
-            self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W
-        else:
-            self.x_large = None
+        if self.opt.preextract:
             self.x_feats = input['img_feats'].to(self.device) # 1*H'*W'*C (H'=W'=64, C=1024)
+        else:
+            self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W (H=W=1024)
         self.cam2world = input['cam2world'].to(self.device)
         self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
         self.num_slots = self.masks.shape[0]
@@ -170,10 +163,11 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
-        feature_map_sam = self.sam_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-        # Encoder receives feature map from SAM and resized images as inputs
-        feature_map = self.netEncoder(feature_map_sam,
-            F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW, C: shape_dim+color_dim (z_dim+texture_dim)
+        if not self.opt.preextract:
+            feature_map = self.DinoViT(self.x_large[0:1].to(dev))  # BxHxWxC, C: 1024 for DinoViT_L
+        else:
+            feature_map = self.x_feats[0:1].to(dev)  # BxHxWxC, C: 1024 for DinoViT_L
+        feature_map = self.netEncoder(feature_map.permute([0, 3, 1, 2]).contiguous())  # BxCxHxW
 
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW

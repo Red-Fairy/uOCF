@@ -5,7 +5,7 @@
 #SBATCH --mem=16G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/T_uORF_clevr567_%j.out
@@ -36,7 +36,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --sam_encoder --encoder_size 1024 \
     --project \
     --coarse_epoch 40 --niter 80 --percept_in 10 \
-    --exp_id '0503-mask-4obj-scale3.5-light' \
+    --exp_id '0504-mask-4obj-scale3.5-light' \
     --is_train --obj_scale 3.5 \
     --save_epoch_freq 10 \
     --dummy_info 'mask, scale=3.5, light weight model' \

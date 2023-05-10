@@ -66,6 +66,7 @@ class BaseOptions():
         # additional dummy info, save into the log file
         parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
         parser.add_argument('--not_strict', action='store_true', help='not strict load')
+        parser.add_argument('--preextract', action='store_true', help='preextract features from encoder')
 
         self.initialized = True
         return parser

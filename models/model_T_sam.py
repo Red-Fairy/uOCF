@@ -186,16 +186,18 @@ class EncoderPosEmbedding(nn.Module):
 
         self.MLP_fg = nn.Sequential(
             nn.LayerNorm(dim),
-            nn.Linear(dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, slot_dim)
+            nn.Linear(dim, slot_dim),
+            # nn.Linear(dim, hidden_dim),
+            # nn.ReLU(),
+            # nn.Linear(hidden_dim, slot_dim)
         )
 
         self.MLP_bg = nn.Sequential(
             nn.LayerNorm(dim),
-            nn.Linear(dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, slot_dim)
+            nn.Linear(dim, slot_dim),
+            # nn.Linear(dim, hidden_dim),
+            # nn.ReLU(),
+            # nn.Linear(hidden_dim, slot_dim)
         )
         
     def apply_rel_position_scale(self, grid, position):
@@ -294,11 +296,11 @@ class Decoder(nn.Module):
 
         if project:
             self.position_project = nn.Linear(2, self.z_dim)
-            self.post_MLP = nn.Sequential(
-                    nn.LayerNorm(self.z_dim),
-                    nn.Linear(self.z_dim, self.z_dim),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(self.z_dim, self.z_dim))
+            # self.post_MLP = nn.Sequential(
+            #         nn.LayerNorm(self.z_dim),
+            #         nn.Linear(self.z_dim, self.z_dim),
+            #         nn.ReLU(inplace=True),
+            #         nn.Linear(self.z_dim, self.z_dim))
         else:
             self.position_project = None
         self.rel_pos = rel_pos
@@ -345,7 +347,8 @@ class Decoder(nn.Module):
 
         if self.position_project is not None and invariant:
             # w/ and w/o residual connection
-            z_fg = z_fg + self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) # (K-1)xC
+            # z_fg = z_fg + self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) # (K-1)xC
+            z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # (K-1)xC
             # slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2
             # z_slots = self.position_project(slot_position) + z_slots # KxC
         

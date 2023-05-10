@@ -18,7 +18,7 @@ from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfNoGanTsamFGMaskModel(BaseModel):
+class uorfNoGanTsamFGMaskImpModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -59,8 +59,7 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
         parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
-        # parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
-        # parser.add_argument('--init_n_epoch', type=int, default=0, help='number of epochs for the first epoch')
+        parser.add_argument('--N_importance', type=int, default=64, help='number of samples for fine rendering')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -193,15 +192,6 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
         
         K = z_slots.shape[0]
-
-        # if epoch < self.opt.n_init_epoch, trunc the n_img_each_scene to init_n_img_each_scene_
-        # if epoch < self.opt.init_n_epoch:
-        #     self.opt.n_img_each_scene = self.opt.init_n_img_each_scene
-        #     self.x = self.x[0:self.opt.init_n_img_each_scene]
-        #     self.cam2world = self.cam2world[0:self.opt.init_n_img_each_scene]
-        #     if not self.opt.fixed_locality:
-        #         self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
-        #     self.set_visual_names()
             
         cam2world = self.cam2world
         N = cam2world.shape[0]
@@ -230,9 +220,24 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         invariant = epoch >= self.opt.invariant_in
         raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+        rgb_map, _, weights = raw2outputs(raws, z_vals, ray_dir)
+
+        if self.opt.N_importance > 0: # hierarchical sampling
+            D = self.opt.N_importance + self.opt.n_samp
+            if self.opt.stage == 'coarse':
+                frus_nss_coor, z_vals = self.projection.construct_importance_sampling_coor(cam2world, z_vals, weights, N_samples=self.opt.N_importance, ray_dir=ray_dir)
+            else:
+                partial_render = (rs, W_idx, H_idx)
+                frus_nss_coor, z_vals = self.projection_fine.construct_importance_sampling_coor(cam2world, z_vals, weights, N_samples=self.opt.N_importance, ray_dir=ray_dir, partial_render=partial_render)
+            self.z_vals, self.ray_dir = z_vals, ray_dir
+            sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
+            raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+            raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+            rgb_map, _, _ = raw2outputs(raws, z_vals, ray_dir) # [0, 1]
+
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
-        rgb_map, _, _ = raw2outputs(raws, z_vals, ray_dir)
+
         # (NxHxW)x3, (NxHxW)
         rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
         x_recon = rendered * 2 - 1
