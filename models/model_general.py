@@ -127,3 +127,31 @@ class DinoEncoder(nn.Module):
             spatial feature (B, z_dim, 64, 64)
         '''
         return self.shallow_encoder(dino_feats)
+
+class SDEncoder(nn.Module):
+    def __init__(self, z_dim=64):
+        super().__init__()
+        '''
+        input: list of Tensors: B*512*32*32, B*640*32*32, B*512*64*64
+        output: B*z_dim*64*64
+        '''
+
+        self.conv1 = nn.Sequential(nn.Conv2d(512, 128, 1, stride=1, padding=0),
+                                   nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+        self.conv2 = nn.Sequential(nn.Conv2d(640, 128, 1, stride=1, padding=0),
+                                      nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+        self.conv3 = nn.Conv2d(512, 128, 1, stride=1, padding=0)
+
+        self.out = nn.Sequential(nn.Conv2d(128*3, 128, 3, stride=1, padding=1),
+                                    nn.ReLU(True),
+                                nn.Conv2d(128, z_dim, 3, stride=1, padding=1))
+
+    def forward(self, x):
+        x1 = self.conv1(x[0])
+        x2 = self.conv2(x[1])
+        x3 = self.conv3(x[2])
+        x = torch.cat([x1, x2, x3], dim=1)
+        return self.out(x)
+
+                        
+    

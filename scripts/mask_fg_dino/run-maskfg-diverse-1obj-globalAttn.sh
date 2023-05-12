@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-##SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=24G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:titanrtx:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -38,6 +38,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --attn_decay_steps 100000 --save_epoch_freq 2 \
     --is_train --transparent --preextract  --mask_in 0 --bg_color -1 \
     --exp_id '0510-dino/maskfg-1obj-preextract-global' \
+    --continue_train --epoch 8 --epoch_count 9 \
     --dummy_info 'mask fg scale-3.5, light, fixed FG position, global attention, preextract' \
     
 

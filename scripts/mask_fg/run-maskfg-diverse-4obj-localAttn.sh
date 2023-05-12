@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-##SBATCH --cpus-per-task=10
-#SBATCH --mem=16G
+##SBATCH --cpus-per-task=16
+#SBATCH --mem=32G
 
 # only use the following on partition with GPUs
 #SBATCH --gres=gpu:titanrtx:1
@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-4obj-manysize-trans-orange'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-4obj-manysize-trans'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
@@ -38,7 +38,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 50 --niter 100 --percept_in 10 \
     --attn_decay_steps 100000 \
     --is_train --bg_color '-1' \
-    --exp_id '0507-maskfg-4obj-scale3.5-local' --mask_in 0 \
+    --exp_id '0510-4obj/localAttn' --mask_in 60 --transparent \
     --save_epoch_freq 2 \
     --dummy_info 'mask fg scale-3.5, light, fixed FG position, local attention, no azi' \
     

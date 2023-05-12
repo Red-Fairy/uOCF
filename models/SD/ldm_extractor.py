@@ -21,24 +21,25 @@ from ldm.util import instantiate_from_config
 from omegaconf import OmegaConf
 from timm.models.layers import trunc_normal_
 
-from odise.checkpoint.odise_checkpointer import LdmCheckpointer
-from odise.modeling.meta_arch.clip import ClipAdapter
-from odise.utils.file_io import PathManager
+from .odise_checkpointer import LdmCheckpointer
+# from odise.modeling.meta_arch.clip import ClipAdapter
+# from odise.utils.file_io import PathManager
 
-from ..diffusion import GaussianDiffusion, create_gaussian_diffusion
-from ..preprocess import batched_input_to_device
+from .diffusion_builder import  create_gaussian_diffusion
+from .gaussian_diffusion import GaussianDiffusion
+from .preprocess import batched_input_to_device
 from .helper import FeatureExtractor
 
 
 def build_ldm_from_cfg(cfg_name) -> _LatentDiffusion:
 
-    if cfg_name.startswith("v1"):
-        url_prefix = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/"  # noqa
-    elif cfg_name.startswith("v2"):
-        url_prefix = "https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/"  # noqa
+    # if cfg_name.startswith("v1"):
+    #     url_prefix = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/"  # noqa
+    # elif cfg_name.startswith("v2"):
+    #     url_prefix = "https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/"  # noqa
 
-    logging.getLogger(__name__).info(f"Loading LDM config from {cfg_name}")
-    config = OmegaConf.load(PathManager.open(url_prefix + cfg_name))
+    # logging.getLogger(__name__).info(f"Loading LDM config from {cfg_name}")
+    config = OmegaConf.load('/viscam/projects/uorf-extension/I-uORF/models/SD/config.yaml')
     return instantiate_from_config(config.model)
 
 
@@ -79,7 +80,7 @@ class LatentDiffusion(nn.Module):
         guidance_scale: float = 7.5,
         pixel_mean: Tuple[float] = (0.5, 0.5, 0.5),
         pixel_std: Tuple[float] = (0.5, 0.5, 0.5),
-        init_checkpoint="sd://v1-3",
+        init_checkpoint="sd://v2-1-base",
     ):
 
         super().__init__()
@@ -94,8 +95,11 @@ class LatentDiffusion(nn.Module):
             self.ldm.cond_stage_model.__class__
         )
 
-        self.init_checkpoint = init_checkpoint
+        self.init_checkpoint = '/viscam/projects/uorf-extension/torch_weights_cache/sd-v1-3.ckpt'
         self.load_pretrain()
+        # load state dict
+
+        # self.ldm.load_state_dict(torch.load('/viscam/projects/uorf-extension/torch_weights_cache/sd-v1-3.ckpt')['state_dict'])
 
         self.image_size = image_size
         self.latent_image_size = latent_image_size
@@ -566,6 +570,9 @@ class LdmExtractor(FeatureExtractor):
         latent_image, encoder_features = self.encode_to_latent(normalized_image)
         cond_inputs = batched_inputs.get("cond_inputs", self.ldm.embed_text(captions))
 
+        # for i in encoder_features:
+        #     print(i.shape)
+
         unet_features = []
         for i, t in enumerate(self.steps):
 
@@ -602,8 +609,16 @@ class LdmExtractor(FeatureExtractor):
             )
             unet_features.extend(cond_unet_features)
 
+        # print('unet')
+        # for i in unet_features:
+        #     print(i.shape)
+
         # self.ldm.decode_from_latent(latent_image)
         _, decoder_features = self.decode_to_image(latent_image)
+
+        # print('decoder')
+        # for i in decoder_features:
+        #     print(i.shape)
 
         features = [*encoder_features, *unet_features, *decoder_features]
 
@@ -618,7 +633,8 @@ class LdmExtractor(FeatureExtractor):
                 assert image.shape[-2] // self.feature_strides[idx] == features[idx].shape[-2]
                 assert image.shape[-1] // self.feature_strides[idx] == features[idx].shape[-1]
 
-        return features
+        # return features
+        return [encoder_features[-1], unet_features[-1], decoder_features[-1]]
 
 
 class PositionalLinear(nn.Module):
@@ -633,3 +649,90 @@ class PositionalLinear(nn.Module):
         x = x.unsqueeze(1) + self.positional_embedding
 
         return x
+
+
+# class LdmImplicitCaptionerExtractor(nn.Module):
+#     def __init__(
+#         self,
+#         learnable_time_embed=True,
+#         num_timesteps=1,
+#         clip_model_name="ViT-L-14",
+#         **kwargs,
+#     ):
+#         super().__init__()
+
+#         self.ldm_extractor = LdmExtractor(**kwargs)
+
+#         self.text_embed_shape = self.ldm_extractor.ldm.embed_text([""]).shape[1:]
+
+#         self.clip = ClipAdapter(name=clip_model_name, normalize=False)
+
+#         self.clip_project = PositionalLinear(
+#             self.clip.dim_latent, self.text_embed_shape[1], self.text_embed_shape[0]
+#         )
+#         self.alpha_cond = nn.Parameter(torch.zeros_like(self.ldm_extractor.ldm.uncond_inputs))
+
+#         self.learnable_time_embed = learnable_time_embed
+
+#         if self.learnable_time_embed:
+#             # self.ldm_extractor.ldm.unet.time_embed is nn.Sequential
+#             self.time_embed_project = PositionalLinear(
+#                 self.clip.dim_latent,
+#                 self.ldm_extractor.ldm.unet.time_embed[-1].out_features,
+#                 num_timesteps,
+#             )
+#             self.alpha_cond_time_embed = nn.Parameter(
+#                 torch.zeros(self.ldm_extractor.ldm.unet.time_embed[-1].out_features)
+#             )
+
+#     @property
+#     def feature_size(self):
+#         return self.ldm_extractor.feature_size
+
+#     @property
+#     def feature_dims(self):
+#         return self.ldm_extractor.feature_dims
+
+#     @property
+#     def feature_strides(self):
+#         return self.ldm_extractor.feature_strides
+
+#     @property
+#     def num_groups(self) -> int:
+
+#         return self.ldm_extractor.num_groups
+
+#     @property
+#     def grouped_indices(self):
+
+#         return self.ldm_extractor.grouped_indices
+
+#     def extra_repr(self):
+#         return f"learnable_time_embed={self.learnable_time_embed}"
+
+#     def forward(self, batched_inputs):
+#         """
+#         Args:
+#             batched_inputs (dict): expected keys: "img", Optional["caption"]
+
+#         """
+#         image = batched_inputs["img"]
+
+#         prefix = self.clip.embed_image(image).image_embed
+#         prefix_embed = self.clip_project(prefix)
+#         batched_inputs["cond_inputs"] = (
+#             self.ldm_extractor.ldm.uncond_inputs + torch.tanh(self.alpha_cond) * prefix_embed
+#         )
+
+#         if self.learnable_time_embed:
+#             batched_inputs["cond_emb"] = torch.tanh(
+#                 self.alpha_cond_time_embed
+#             ) * self.time_embed_project(prefix)
+
+#         self.set_requires_grad(self.training)
+
+#         return self.ldm_extractor(batched_inputs)
+
+#     def set_requires_grad(self, requires_grad):
+#         for p in self.ldm_extractor.ldm.ldm.model.parameters():
+#             p.requires_grad = requires_grad

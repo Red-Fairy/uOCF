@@ -94,8 +94,9 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
 
         z_dim = opt.color_dim + opt.shape_dim
 
-        sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-        self.sam_encoder = sam_encoder(sam_model).cuda()
+        if not opt.preextract:
+            sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
+            self.sam_encoder = sam_encoder(sam_model).cuda().eval()
 
         self.netEncoder = networks.init_net(dualRouteEncoder(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim,),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
@@ -146,12 +147,10 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['img_data'].to(self.device) # N*3*H*W
-        assert 'img_data_large' in input or 'img_feats' in input
-        if 'img_data_large' in input:
-            self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W
-        else:
-            self.x_large = None
+        if self.opt.preextract:
             self.x_feats = input['img_feats'].to(self.device) # 1*H'*W'*C (H'=W'=64, C=1024)
+        else:
+            self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W (H=W=1024)
         self.cam2world = input['cam2world'].to(self.device)
         self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
         self.num_slots = self.masks.shape[0]
@@ -170,7 +169,11 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
-        feature_map_sam = self.sam_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
+        if self.opt.preextract:
+            feature_map_sam = self.x_feats[0:1].to(dev)
+        else:
+            with torch.no_grad():
+                feature_map_sam = self.sam_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
         # Encoder receives feature map from SAM and resized images as inputs
         feature_map = self.netEncoder(feature_map_sam,
             F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW, C: shape_dim+color_dim (z_dim+texture_dim)
@@ -178,9 +181,6 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW
 
-        # apply BG mask to images (remove background, i.e. set to black)
-        # self.x: [-1, 1], bg_mask: {0, 1}, where 1 means background
-        # self.x = self.x * (1 - self.bg_mask) - self.bg_mask
     
         # Slot Attention
         use_mask = epoch < self.opt.mask_in
@@ -193,15 +193,6 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
         
         K = z_slots.shape[0]
-
-        # if epoch < self.opt.n_init_epoch, trunc the n_img_each_scene to init_n_img_each_scene_
-        # if epoch < self.opt.init_n_epoch:
-        #     self.opt.n_img_each_scene = self.opt.init_n_img_each_scene
-        #     self.x = self.x[0:self.opt.init_n_img_each_scene]
-        #     self.cam2world = self.cam2world[0:self.opt.init_n_img_each_scene]
-        #     if not self.opt.fixed_locality:
-        #         self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
-        #     self.set_visual_names()
             
         cam2world = self.cam2world
         N = cam2world.shape[0]

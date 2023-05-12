@@ -12,12 +12,13 @@ import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 from .model_T_sam_fgmask import Decoder, SlotAttention, FeatureAggregate
-from .model_general import DinoEncoder
+from .model_general import SDEncoder
 from .utils import *
+from .SD.ldm_extractor import LdmExtractor
 
 import torchvision
 
-class uorfNoGanTsamFGMaskDinoModel(BaseModel):
+class uorfNoGanTSDFGMaskModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -35,7 +36,7 @@ class uorfNoGanTsamFGMaskDinoModel(BaseModel):
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
         parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
         parser.add_argument('--supervision_size', type=int, default=64)
-        parser.add_argument('--obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects')
+        parser.add_argument('--obj_scale', type=float, default=3.5, help='Scale for locality on foreground objects')
         parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
         parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
         parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
@@ -59,8 +60,7 @@ class uorfNoGanTsamFGMaskDinoModel(BaseModel):
         parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
-                            dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
-                            sam_encoder=True)
+                            dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
 
         parser.set_defaults(exp_id='run-{}'.format(time.strftime('%Y-%m-%d-%H-%M-%S')))
 
@@ -91,8 +91,9 @@ class uorfNoGanTsamFGMaskDinoModel(BaseModel):
         z_dim = opt.z_dim
 
         if not opt.preextract:
-            self.DinoViT = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitl14').cuda()
-        self.netEncoder = networks.init_net(DinoEncoder(z_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
+            # assert False
+            self.LdmEncoder = LdmExtractor().cuda().eval()
+        self.netEncoder = networks.init_net(SDEncoder(z_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
         if not opt.feature_aggregate:
             self.netSlotAttention = networks.init_net(
                 SlotAttention(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
@@ -141,7 +142,7 @@ class uorfNoGanTsamFGMaskDinoModel(BaseModel):
         """
         self.x = input['img_data'].to(self.device) # N*3*H*W
         if self.opt.preextract:
-            self.x_feats = input['img_feats'].to(self.device) # 1*H'*W'*C (H'=W'=64, C=1024)
+            self.x_feats = [x.to(self.device) for x in input['img_feats']] # list of features
         else:
             self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W (H=W=1024)
         self.cam2world = input['cam2world'].to(self.device)
@@ -164,11 +165,10 @@ class uorfNoGanTsamFGMaskDinoModel(BaseModel):
         # Encoding images
         if not self.opt.preextract:
             with torch.no_grad():
-                feat_size = 64
-                feature_map = self.DinoViT(self.x_large[0:1].to(dev)).reshape(-1, feat_size, feat_size, 1024)  # 1xHxWxC
+                features = self.LdmEncoder({'img': self.x_large[0:1], 'text':''})
         else:
-            feature_map = self.x_feats[0:1].to(dev)  # 1xHxWxC, C: 1024 for DinoViT_L
-        feature_map = self.netEncoder(feature_map.permute([0, 3, 1, 2]).contiguous())  # BxCxHxW
+            features = self.x_feats  # list of features
+        feature_map = self.netEncoder(features)  # BxCxHxW
 
         feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
         self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW

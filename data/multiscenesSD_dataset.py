@@ -12,7 +12,7 @@ import torchvision
 import pickle
 
 
-class MultiscenesDataset(BaseDataset):
+class MultiscenesSDDataset(BaseDataset):
     @staticmethod
     def modify_commandline_options(parser, is_train):
         parser.set_defaults(input_nc=3, output_nc=3)
@@ -22,7 +22,7 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--is_train', action='store_true')
         parser.add_argument('--transparent', action='store_true')
         parser.add_argument('--bg_color', type=float, default=-127/255, help='background color')
-        parser.add_argument('--pre_feats', default='', type=str)
+        parser.add_argument('--pre_feats', default=None, type=str)
         return parser
 
     def __init__(self, opt):
@@ -66,7 +66,7 @@ class MultiscenesDataset(BaseDataset):
     def _transform_encoder(self, img): # for ImageNet encoder
         img = TF.resize(img, (self.opt.encoder_size, self.opt.encoder_size))
         img = TF.to_tensor(img)
-        img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        # img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         return img
 
     def _transform_mask(self, img):
@@ -117,11 +117,13 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
-            if rd == 0:
+            if self.sam_encoder and rd == 0:
                 if self.opt.preextract:
-                    feats_path = path.replace('.png', f'{self.opt.pre_feats}.npy')
+                    feats_path = path.replace('.png', f'-SD.npy')
                     assert os.path.isfile(feats_path)
-                    ret['img_feats'] = torch.from_numpy(np.load(feats_path))
+                    feats = pickle.load(open(feats_path, 'rb'))
+                    feats = [torch.from_numpy(feat) for feat in feats]
+                    ret['img_feats'] = feats
                 else:
                     ret['img_data_large'] = self._transform_encoder(img)
             mask_path = path.replace('.png', '_mask.png')
@@ -180,7 +182,7 @@ def collate_fn(batch):
     if 'img_data_large' in flat_batch[0]:
         ret['img_data_large'] = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
     if 'img_feats' in flat_batch[0]:
-        ret['img_feats'] = torch.stack([x['img_feats'] for x in flat_batch if 'img_feats' in x])
+        ret['img_feats'] = flat_batch[0]['img_feats']
     if 'mask' in flat_batch[0]:
         masks = torch.stack([x['mask'] for x in flat_batch])
         ret['masks'] = masks

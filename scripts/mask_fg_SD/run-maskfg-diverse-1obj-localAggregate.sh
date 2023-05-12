@@ -2,10 +2,10 @@
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=24G
+#SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -34,12 +34,11 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --bottom \
     --sam_encoder --encoder_size 1024 \
     --project \
-    --coarse_epoch 60 --niter 60 --percept_in 10 \
+    --coarse_epoch 60 --niter 60 --percept_in 10 --mask_in 60 \
     --attn_decay_steps 100000 --save_epoch_freq 2 \
     --is_train --transparent --preextract --feature_aggregate --bg_color -1 \
-    --exp_id '0510-dino/maskfg-1obj-preextract-globalAggregate' \
-    --continue_train --epoch 8 --epoch_count 9 \
-    --dummy_info 'mask fg scale-3.5, light, fixed FG position, global feature aggreate, preextract' \
+    --exp_id '0509-maskfg-1obj-preextract-localAggregate' \
+    --dummy_info 'mask fg scale-3.5, light, fixed FG position, local feature aggreate, preextract' \
     
 
 # can try the following to list out which GPU you have access to

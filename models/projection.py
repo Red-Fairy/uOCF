@@ -88,7 +88,7 @@ class Projection(object):
             depth_range = self.near + (self.far - self.near) * z_vals
         z_cam = depth_range[z_frus].to(self.device)
 
-        print('z_cam', z_cam.shape, x_frus.shape)
+        # print('z_cam', z_cam.shape, x_frus.shape)
         x_unnorm_pix = x_frus * z_cam
         y_unnorm_pix = y_frus * z_cam
         z_unnorm_pix = z_cam
