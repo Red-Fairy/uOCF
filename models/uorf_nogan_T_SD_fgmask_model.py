@@ -164,8 +164,11 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
 
         # Encoding images
         if not self.opt.preextract:
+            # print(self.x_large[0:1].shape)
             with torch.no_grad():
                 features = self.LdmEncoder({'img': self.x_large[0:1], 'text':''})
+                # for feat in features:
+                #     print(feat.shape)
         else:
             features = self.x_feats  # list of features
         feature_map = self.netEncoder(features)  # BxCxHxW

@@ -27,9 +27,9 @@ PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_mask' \
-    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --display_grad \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
     --load_size 128 --n_samp 80 --input_size 128 --supervision_size 128 --frustum_size 128 \
-    --model 'uorf_nogan_T_sam_fgmask_dino' \
+    --model 'uorf_nogan_T_DINO_fgmask' \
     --num_slots 1 --attn_iter 3 --z_dim 64 --encoder_size 896 \
     --project \
     --coarse_epoch 60 --niter 60 --percept_in 10 \

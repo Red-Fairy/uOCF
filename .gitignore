@@ -7,3 +7,4 @@ scripts-sbatch/*
 */.idea/*
 */.idea
 debug/*
+extract_feats/*

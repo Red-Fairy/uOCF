@@ -36,9 +36,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --project \
     --coarse_epoch 60 --niter 60 --percept_in 10 --mask_in 60 \
     --attn_decay_steps 100000 --save_epoch_freq 2 \
-    --is_train --transparent --preextract --feature_aggregate --bg_color -1 \
-    --exp_id '0509-maskfg-1obj-preextract-localAggregate' \
-    --dummy_info 'mask fg scale-3.5, light, fixed FG position, local feature aggreate, preextract' \
+    --is_train --transparent --feature_aggregate --bg_color -1 \
+    --exp_id '0509-maskfg-1obj-localAggregate' \
+    --dummy_info 'mask fg scale-3.5, light, fixed FG position, local feature aggreate' \
     
 
 # can try the following to list out which GPU you have access to

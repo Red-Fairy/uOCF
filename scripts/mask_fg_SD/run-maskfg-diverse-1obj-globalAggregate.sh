@@ -27,16 +27,16 @@ PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_mask' \
-    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --display_grad \
-    --load_size 128 --n_samp 80 --input_size 128 --supervision_size 128 --frustum_size 128 \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
+    --load_size 128 --n_samp 72 --input_size 128 --supervision_size 128 --frustum_size 128 \
     --model 'uorf_nogan_T_SD_fgmask' --dataset_mode 'multiscenesSD' \
     --num_slots 1 --attn_iter 3 --z_dim 64 --encoder_size 256 \
     --project \
     --coarse_epoch 60 --niter 60 --percept_in 5 \
     --attn_decay_steps 100000 --save_epoch_freq 2 \
     --is_train --transparent --feature_aggregate --bg_color -1 \
-    --exp_id '0511-SD/maskfg-1obj-preextract-globalAggregate' \
-    --dummy_info 'mask fg scale-3.5, light, moving FG position, global feature aggreate, preextract' \
+    --exp_id '0511-SD/maskfg-1obj-globalAggregate' \
+    --dummy_info 'mask fg scale-3.5, light, moving FG position, global feature aggreate' \
     
 
 # can try the following to list out which GPU you have access to

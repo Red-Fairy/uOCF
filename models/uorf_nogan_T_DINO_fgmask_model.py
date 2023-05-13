@@ -165,8 +165,7 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         if not self.opt.preextract:
             with torch.no_grad():
                 feat_size = 64
-                print(self.x_large.shape)
-                feature_map = self.DinoViT.forward_features(self.x_large[0:1].to(dev)).reshape(-1, feat_size, feat_size, 1024)  # 1xHxWxC
+                feature_map = self.DinoViT.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(-1, feat_size, feat_size, 1024)  # 1xHxWxC
         else:
             feature_map = self.x_feats[0:1].to(dev)  # 1xHxWxC, C: 1024 for DinoViT_L
         feature_map = self.netEncoder(feature_map.permute([0, 3, 1, 2]).contiguous())  # BxCxHxW

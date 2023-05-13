@@ -54,7 +54,6 @@ class MultiscenesDataset(BaseDataset):
             self.scenes.append(scene_filenames)
 
         self.sam_encoder = opt.sam_encoder
-        self.is_train = opt.is_train
         self.bg_color = opt.bg_color
 
     def _transform(self, img):
@@ -142,15 +141,21 @@ class MultiscenesDataset(BaseDataset):
                 ret['mask_idx'] = mask_idx
                 ret['fg_idx'] = fg_idx
                 obj_idxs = []
+                obj_idxs_test = []
                 for i in range(len(greyscale_dict)):
-                    if i == bg_color_idx and self.is_train:
+                    if i == bg_color_idx and self.opt.isTrain:
                         bg_mask = mask_l == greyscale_dict[i]  # 1xHxW
                         ret['bg_mask'] = bg_mask
                         continue
                     obj_idx = mask_l == greyscale_dict[i]  # 1xHxW
                     obj_idxs.append(obj_idx)
+                    if (not self.opt.isTrain) and i != bg_color_idx:
+                        obj_idxs_test.append(obj_idx)
                 obj_idxs = torch.stack(obj_idxs)  # Kx1xHxW
-                ret['obj_idxs'] = obj_idxs  # KxHxW
+                ret['obj_idxs'] = obj_idxs  # Kx1xHxW
+                if not self.opt.isTrain:
+                    obj_idxs_test = torch.stack(obj_idxs_test)  # Kx1xHxW
+                    ret['obj_idxs_fg'] = obj_idxs_test  # Kx1xHxW
             rets.append(ret)
         return rets
 
@@ -193,4 +198,6 @@ def collate_fn(batch):
         if 'bg_mask' in flat_batch[0]:
             bg_mask = torch.stack([x['bg_mask'] for x in flat_batch])
             ret['bg_mask'] = bg_mask # Bx1xHxW
+        if 'obj_idxs_fg' in flat_batch[0]:
+            ret['obj_idxs_fg'] = flat_batch[0]['obj_idxs_fg']
     return ret
