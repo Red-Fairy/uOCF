@@ -11,7 +11,7 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_fgmask import Decoder, SlotAttention, FeatureAggregate
+from .model_T_sam_fgmask import Decoder, SlotAttention, FeatureAggregate, DecoderLegacy
 from .model_general import DinoEncoder
 from .utils import *
 
@@ -35,14 +35,17 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
         parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
         parser.add_argument('--supervision_size', type=int, default=64)
-        parser.add_argument('--obj_scale', type=float, default=3.5, help='Scale for locality on foreground objects')
+        parser.add_argument('--world_obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects in world coordinates')
+        parser.add_argument('--obj_scale', type=float, default=3.5, help='Scale for locality on foreground objects in object-centric coordinates')
         parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
         parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
         parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
         parser.add_argument('--weight_percept', type=float, default=0.006)
         parser.add_argument('--percept_in', type=int, default=100)
         parser.add_argument('--mask_in', type=int, default=0)
-        parser.add_argument('--no_locality_epoch', type=int, default=300)
+        parser.add_argument('--no_locality_epoch', type=int, default=1000)
+        parser.add_argument('--locality_in', type=int, default=10)
+        parser.add_argument('--locality_full', type=int, default=10)
         parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
         parser.add_argument('--input_size', type=int, default=64)
         parser.add_argument('--frustum_size', type=int, default=64)
@@ -57,6 +60,10 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
         parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
+        parser.add_argument('--surface_loss', action='store_true', help='surface loss')
+        parser.add_argument('--weight_surface', type=float, default=0.1)
+        parser.add_argument('--surface_in', type=int, default=0)
+        parser.add_argument('--dino_type', type=str, default='dinov2_vitb14') # vitb14 or vitl14
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -75,6 +82,9 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         """
         BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
         self.loss_names = ['recon', 'perc']
+        if opt.surface_loss:
+            self.loss_names.append('surface')
+            self.surfaceLoss = surfaceLoss()
         self.set_visual_names()
         self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
         self.perceptual_net = get_perceptual_net().to(self.device)
@@ -90,9 +100,10 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         z_dim = opt.z_dim
 
         if not opt.preextract:
-            self.DinoViT = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitl14').cuda()
+            self.DinoViT = torch.hub.load('facebookresearch/dinov2', opt.dino_type).cuda()
+            self.dino_dim = 768 if opt.dino_type == 'dinov2_vitb14' else 1024
             print("Pretrained DINO model loaded")
-        self.netEncoder = networks.init_net(DinoEncoder(z_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
+        self.netEncoder = networks.init_net(DinoEncoder(dino_dim=self.dino_dim, z_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
         if not opt.feature_aggregate:
             self.netSlotAttention = networks.init_net(
                 SlotAttention(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
@@ -100,7 +111,7 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
             self.netSlotAttention = networks.init_net(
                 FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+                                                    locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, # set locality_ratio to 1
                                                     project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
                                                     ), gpu_ids=self.gpu_ids, init_type='xavier')
 
@@ -157,6 +168,8 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
         self.loss_recon = 0
         self.loss_perc = 0
+        if self.opt.surface_loss:
+            self.loss_surface = 0
         dev = self.x[0:1].device
         cam2world_viewer = self.cam2world[0]
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -165,7 +178,7 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         if not self.opt.preextract:
             with torch.no_grad():
                 feat_size = 64
-                feature_map = self.DinoViT.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(-1, feat_size, feat_size, 1024)  # 1xHxWxC
+                feature_map = self.DinoViT.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(-1, feat_size, feat_size, self.dino_dim)  # 1xHxWxC
         else:
             feature_map = self.x_feats[0:1].to(dev)  # 1xHxWxC, C: 1024 for DinoViT_L
         feature_map = self.netEncoder(feature_map.permute([0, 3, 1, 2]).contiguous())  # BxCxHxW
@@ -208,13 +221,15 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
 
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
+        locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale) if epoch >= self.opt.locality_in else None
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, locality_ratio=locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        # raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
-        rgb_map, _, _ = raw2outputs(raws, z_vals, ray_dir)
+        rgb_map, _, weights = raw2outputs(raws, z_vals, ray_dir)
         # (NxHxW)x3, (NxHxW)
         rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
         x_recon = rendered * 2 - 1
@@ -223,6 +238,8 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
         x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
         rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
         self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
+        if self.opt.surface_loss and epoch >= self.opt.surface_in:
+            self.loss_surface = self.opt.weight_surface * self.surfaceLoss(weights)
 
         with torch.no_grad():
             if not self.opt.feature_aggregate:
@@ -275,6 +292,8 @@ class uorfNoGanTDINOFGMaskModel(BaseModel):
     def backward(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         loss = self.loss_recon + self.loss_perc
+        if self.opt.surface_loss:
+            loss += self.loss_surface
         loss.backward()
         self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 

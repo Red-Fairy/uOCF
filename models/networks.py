@@ -79,7 +79,6 @@ def get_scheduler(optimizer, opt):
         return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
     return scheduler
 
-
 def init_weights(net, init_type='normal', init_gain=0.02):
     """Initialize network weights.
 
@@ -854,6 +853,27 @@ def get_exp_decay_schedule_with_warmup(optimizer, num_warmup_steps, num_decay_st
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
+def get_freezeInit_scheduler(optimizer, opt=None, params=None):
+    # durint the opt.freezeInit_epoch, the learning rate is 0.0
+    # after that, the 
+    if opt is not None:
+        freezeInit_ratio, freezeInit_steps, num_warmup_steps, num_decay_steps = opt.freezeInit_ratio, opt.freezeInit_steps, opt.warmup_steps, opt.attn_decay_steps
+    elif params is not None:
+        num_freeze_steps, num_warmup_steps, num_decay_steps = params
+    else:
+        assert False
+    decay_base = 0.5
+    n_start_decay = 0
+    def lambda_rule(current_step: int):
+        if current_step < freezeInit_steps:
+            rate = 0.0
+        else:
+            rate = decay_base **( float(current_step - num_warmup_steps - n_start_decay) / float(num_decay_steps))
+            rate = min(rate, freezeInit_ratio)
+        return rate
+    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
+    return scheduler
+
 
 def get_exp_decay_schedule(optimizer, num_decay_steps=1e5,
                                        decay_base=0.5, last_epoch=-1):
@@ -863,15 +883,20 @@ def get_exp_decay_schedule(optimizer, num_decay_steps=1e5,
 
 if __name__ == '__main__':
     num_decay_steps = 200000
-    n_start_decay = 100000
+    # n_start_decay = 100000
+    freeze_steps = 100000
     decay_base = 0.5
     last_epoch = -1
     num_warmup_steps = 1000
 
     x = nn.Parameter(torch.tensor([0.,1]))
     opm = torch.optim.Adam([x,], lr=1.)
-    lr_s = get_exp_decay_schedule_with_warmup(opm, num_warmup_steps, num_decay_steps=num_decay_steps, n_start_decay=n_start_decay)
+    opm_freeze = torch.optim.Adam([x,], lr=1.)
+    lr_s = get_exp_decay_schedule_with_warmup(opm, num_warmup_steps, num_decay_steps=num_decay_steps)
+    lr_freeze = get_freezeInit_scheduler(opm_freeze, params=(freeze_steps, num_warmup_steps, num_decay_steps))
     for i in range(5000000):
         lr_s.step()
+        lr_freeze.step()
         if i in [1000, 10000, 100000, 200000, 300000, 400000, 499999]:
             print('i={}, lr_factor={}'.format(i, opm.param_groups[0]['lr']))
+            print('i={}, lr_factor={}'.format(i, opm_freeze.param_groups[0]['lr']))

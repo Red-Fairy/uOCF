@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import torch.nn.functional as F
+import math
 
 def pixel2world(slot_pixel_coord, cam2world):
     '''
@@ -66,7 +67,7 @@ class Projection(object):
         self.cam2spixel = intrinsic_mat.to(self.device)
         self.spixel2cam = intrinsic_mat.inverse().to(self.device) 
         
-    def construct_frus_coor(self, z_vals=None, partial_render=None):
+    def construct_frus_coor(self, z_vals=None, partial_render=None, log_sampling=False):
         '''
         partial_render: three ints, render_size, W_idx, H_idx
         '''
@@ -83,7 +84,11 @@ class Projection(object):
         z_frus = z.flatten().to(self.device)
         # project frustum points to vol coord
         if z_vals is None:
-            depth_range = torch.linspace(self.near, self.far, self.frustum_size[2]).to(self.device)
+            if log_sampling: # emphasize the near part
+                temp = torch.linspace(0, 1, self.frustum_size[2]).to(self.device)
+                depth_range = self.near + (torch.log(temp * (self.far - self.near) + 1) / math.log(self.far - self.near + 1)) * (self.far - self.near)
+            else:
+                depth_range = torch.linspace(self.near, self.far, self.frustum_size[2]).to(self.device)
         else:
             depth_range = self.near + (self.far - self.near) * z_vals
         z_cam = depth_range[z_frus].to(self.device)
@@ -95,7 +100,7 @@ class Projection(object):
         pixel_coor = torch.stack([x_unnorm_pix, y_unnorm_pix, z_unnorm_pix, torch.ones_like(x_unnorm_pix)])
         return pixel_coor # 4x(WxHxD)
 
-    def construct_sampling_coor(self, cam2world, partitioned=False):
+    def construct_sampling_coor(self, cam2world, partitioned=False, log_sampling=False):
         """
         construct a sampling frustum coor in NSS space, and generate z_vals/ray_dir
         input:
@@ -107,7 +112,7 @@ class Projection(object):
         """
         N = cam2world.shape[0]
         W, H, D = self.frustum_size
-        pixel_coor = self.construct_frus_coor()
+        pixel_coor = self.construct_frus_coor(log_sampling=log_sampling)
         frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float())  # 4x(WxHxD)
 
         frus_world_coor = torch.matmul(cam2world, frus_cam_coor)  # Nx4x(WxHxD)

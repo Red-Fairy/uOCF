@@ -9,146 +9,148 @@ from torch import autograd
 
 from models.resnet import resnet34, resnet18
 
-def build_grid(H, W, device, reverse=False):
-    """
-    Build a sampling grid for bilinear sampling
-    """
-    x = torch.linspace(-1+1/W, 1-1/W, W)
-    y = torch.linspace(-1+1/H, 1-1/H, H)
-    y, x = torch.meshgrid([y, x])
-    if not reverse:
-        grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
-    else:
-        grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0)
-    return grid
+from .utils import PositionalEncoding, sin_emb, build_grid
 
-def build_grid_legacy(H, W, device):
-    """
-    Build a sampling grid for bilinear sampling
-    """
-    x = torch.linspace(-1, 1, W)
-    y = torch.linspace(-1, 1, H)
-    y, x = torch.meshgrid([y, x])
-    grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
-    return grid
+# def build_grid(H, W, device, reverse=False):
+#     """
+#     Build a sampling grid for bilinear sampling
+#     """
+#     x = torch.linspace(-1+1/W, 1-1/W, W)
+#     y = torch.linspace(-1+1/H, 1-1/H, H)
+#     y, x = torch.meshgrid([y, x])
+#     if not reverse:
+#         grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
+#     else:
+#         grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0)
+#     return grid
 
-class Encoder(nn.Module):
-    def __init__(self, input_nc=3, z_dim=64, bottom=False, pos_emb=False):
+# def build_grid_legacy(H, W, device):
+#     """
+#     Build a sampling grid for bilinear sampling
+#     """
+#     x = torch.linspace(-1, 1, W)
+#     y = torch.linspace(-1, 1, H)
+#     y, x = torch.meshgrid([y, x])
+#     grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
+#     return grid
 
-        super().__init__()
+# class Encoder(nn.Module):
+#     def __init__(self, input_nc=3, z_dim=64, bottom=False, pos_emb=False):
 
-        self.bottom = bottom
+#         super().__init__()
 
-        input_nc = input_nc + 4 if pos_emb else input_nc
-        self.pos_emb = pos_emb
+#         self.bottom = bottom
 
-        if self.bottom:
-            self.enc_down_0 = nn.Sequential(nn.Conv2d(input_nc, z_dim, 3, stride=1, padding=1),
-                                            nn.ReLU(True))
-        self.enc_down_1 = nn.Sequential(nn.Conv2d(z_dim if bottom else input_nc, z_dim, 3, stride=2 if bottom else 1, padding=1),
-                                        nn.ReLU(True))
-        self.enc_down_2 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=2, padding=1),
-                                        nn.ReLU(True))
-        self.enc_down_3 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=2, padding=1),
-                                        nn.ReLU(True))
-        self.enc_up_3 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=1, padding=1),
-                                      nn.ReLU(True),
-                                      nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-        self.enc_up_2 = nn.Sequential(nn.Conv2d(z_dim*2, z_dim, 3, stride=1, padding=1),
-                                      nn.ReLU(True),
-                                      nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-        self.enc_up_1 = nn.Sequential(nn.Conv2d(z_dim * 2, z_dim, 3, stride=1, padding=1),
-                                      nn.ReLU(True))
+#         input_nc = input_nc + 4 if pos_emb else input_nc
+#         self.pos_emb = pos_emb
+
+#         if self.bottom:
+#             self.enc_down_0 = nn.Sequential(nn.Conv2d(input_nc, z_dim, 3, stride=1, padding=1),
+#                                             nn.ReLU(True))
+#         self.enc_down_1 = nn.Sequential(nn.Conv2d(z_dim if bottom else input_nc, z_dim, 3, stride=2 if bottom else 1, padding=1),
+#                                         nn.ReLU(True))
+#         self.enc_down_2 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=2, padding=1),
+#                                         nn.ReLU(True))
+#         self.enc_down_3 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=2, padding=1),
+#                                         nn.ReLU(True))
+#         self.enc_up_3 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=1, padding=1),
+#                                       nn.ReLU(True),
+#                                       nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+#         self.enc_up_2 = nn.Sequential(nn.Conv2d(z_dim*2, z_dim, 3, stride=1, padding=1),
+#                                       nn.ReLU(True),
+#                                       nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+#         self.enc_up_1 = nn.Sequential(nn.Conv2d(z_dim * 2, z_dim, 3, stride=1, padding=1),
+#                                       nn.ReLU(True))
         
 
-    def forward(self, x):
-        """
-        input:
-            x: input image, Bx3xHxW
-        output:
-            feature_map: BxCxHxW
-        """
+#     def forward(self, x):
+#         """
+#         input:
+#             x: input image, Bx3xHxW
+#         output:
+#             feature_map: BxCxHxW
+#         """
 
-        if self.pos_emb:
-            W, H = x.shape[3], x.shape[2]
-            X = torch.linspace(-1, 1, W)
-            Y = torch.linspace(-1, 1, H)
-            y1_m, x1_m = torch.meshgrid([Y, X])
-            x2_m, y2_m = -x1_m, -y1_m  # Normalized distance in the four direction
-            pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
-            x_ = torch.cat([x, pixel_emb], dim=1)
-        else:
-            x_ = x
+#         if self.pos_emb:
+#             W, H = x.shape[3], x.shape[2]
+#             X = torch.linspace(-1, 1, W)
+#             Y = torch.linspace(-1, 1, H)
+#             y1_m, x1_m = torch.meshgrid([Y, X])
+#             x2_m, y2_m = -x1_m, -y1_m  # Normalized distance in the four direction
+#             pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
+#             x_ = torch.cat([x, pixel_emb], dim=1)
+#         else:
+#             x_ = x
 
-        if self.bottom:
-            x_down_0 = self.enc_down_0(x_)
-            x_down_1 = self.enc_down_1(x_down_0)
-        else:
-            x_down_1 = self.enc_down_1(x_)
-        x_down_2 = self.enc_down_2(x_down_1)
-        x_down_3 = self.enc_down_3(x_down_2)
-        x_up_3 = self.enc_up_3(x_down_3)
-        x_up_2 = self.enc_up_2(torch.cat([x_up_3, x_down_2], dim=1))
-        feature_map = self.enc_up_1(torch.cat([x_up_2, x_down_1], dim=1))  # BxCxHxW
+#         if self.bottom:
+#             x_down_0 = self.enc_down_0(x_)
+#             x_down_1 = self.enc_down_1(x_down_0)
+#         else:
+#             x_down_1 = self.enc_down_1(x_)
+#         x_down_2 = self.enc_down_2(x_down_1)
+#         x_down_3 = self.enc_down_3(x_down_2)
+#         x_up_3 = self.enc_up_3(x_down_3)
+#         x_up_2 = self.enc_up_2(torch.cat([x_up_3, x_down_2], dim=1))
+#         feature_map = self.enc_up_1(torch.cat([x_up_2, x_down_1], dim=1))  # BxCxHxW
         
-        feature_map = feature_map
-        return feature_map
+#         feature_map = feature_map
+#         return feature_map
 
-class Encoder_resnet(nn.Module):
-    def __init__(self, z_dim, pretrained=True):
-        super(Encoder_resnet, self).__init__()
-        self.resnet = resnet18(pretrained=pretrained)
-        # self.resnet = self.resnet.eval()
-        # self.resnet.requires_grad_(False)
+# class Encoder_resnet(nn.Module):
+#     def __init__(self, z_dim, pretrained=True):
+#         super(Encoder_resnet, self).__init__()
+#         self.resnet = resnet18(pretrained=pretrained)
+#         # self.resnet = self.resnet.eval()
+#         # self.resnet.requires_grad_(False)
         
-        # upsample four feature maps to the same size
-        embed_nc = 4
-        self.up_1 = nn.Sequential(nn.Conv2d(512+embed_nc, 256, 3, 1, 1),
-                                    nn.ReLU(True),
-                                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+#         # upsample four feature maps to the same size
+#         embed_nc = 4
+#         self.up_1 = nn.Sequential(nn.Conv2d(512+embed_nc, 256, 3, 1, 1),
+#                                     nn.ReLU(True),
+#                                     nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
         
-        self.up_2 = nn.Sequential(nn.Conv2d(512+embed_nc, 128, 3, 1, 1),
-                                    nn.ReLU(True),
-                                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+#         self.up_2 = nn.Sequential(nn.Conv2d(512+embed_nc, 128, 3, 1, 1),
+#                                     nn.ReLU(True),
+#                                     nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
         
-        self.up_3 = nn.Sequential(nn.Conv2d(256+embed_nc, 64, 3, 1, 1),
-                                    nn.ReLU(True),
-                                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+#         self.up_3 = nn.Sequential(nn.Conv2d(256+embed_nc, 64, 3, 1, 1),
+#                                     nn.ReLU(True),
+#                                     nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
 
-        self.up_4 = nn.Sequential(nn.Conv2d(128+embed_nc, z_dim, 3, 1, 1),
-                                    nn.ReLU(True))
+#         self.up_4 = nn.Sequential(nn.Conv2d(128+embed_nc, z_dim, 3, 1, 1),
+#                                     nn.ReLU(True))
 
-        # init network params
-        # for m in [self.up_1[0].weight, self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
-        for m in [self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
-            nn.init.normal_(m.data, 0, 0.02)
-        # for m in [self.up_1[0].bias, self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
-        for m in [self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
-            try:
-                nn.init.constant_(m.data, 0)
-            except:
-                pass
+#         # init network params
+#         # for m in [self.up_1[0].weight, self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
+#         for m in [self.up_2[0].weight, self.up_3[0].weight, self.up_4[0].weight]:
+#             nn.init.normal_(m.data, 0, 0.02)
+#         # for m in [self.up_1[0].bias, self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
+#         for m in [self.up_2[0].bias, self.up_3[0].bias, self.up_4[0].bias]:
+#             try:
+#                 nn.init.constant_(m.data, 0)
+#             except:
+#                 pass
             
-        self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-        self.std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+#         self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+#         self.std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
     
-    def forward(self, x):
-        # input is [-1, 1]
-        # x = (x + 1) / 2
-        # x = (x - self.mean.to(x.device)) / self.std.to(x.device)
+#     def forward(self, x):
+#         # input is [-1, 1]
+#         # x = (x + 1) / 2
+#         # x = (x - self.mean.to(x.device)) / self.std.to(x.device)
 
-        dev = x.device
-        x4, x3, x2, x1 = self.resnet(x, proj=True)
-        grid1 = build_grid(x1.shape[2], x1.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
-        x1 = self.up_1(torch.cat([x1, grid1], dim=1))
-        grid2 = build_grid(x2.shape[2], x2.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
-        x2 = self.up_2(torch.cat([x2, x1, grid2], dim=1))
-        grid3 = build_grid(x3.shape[2], x3.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
-        x3 = self.up_3(torch.cat([x3, x2, grid3], dim=1))
-        grid4 = build_grid(x4.shape[2], x4.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
-        x4 = self.up_4(torch.cat([x4, x3, grid4], dim=1))
+#         dev = x.device
+#         x4, x3, x2, x1 = self.resnet(x, proj=True)
+#         grid1 = build_grid(x1.shape[2], x1.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
+#         x1 = self.up_1(torch.cat([x1, grid1], dim=1))
+#         grid2 = build_grid(x2.shape[2], x2.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
+#         x2 = self.up_2(torch.cat([x2, x1, grid2], dim=1))
+#         grid3 = build_grid(x3.shape[2], x3.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
+#         x3 = self.up_3(torch.cat([x3, x2, grid3], dim=1))
+#         grid4 = build_grid(x4.shape[2], x4.shape[3], dev, reverse=True).permute(0, 3, 1, 2)
+#         x4 = self.up_4(torch.cat([x4, x3, grid4], dim=1))
         
-        return x4
+#         return x4
     
 class EncoderPosEmbedding(nn.Module):
     def __init__(self, dim, slot_dim, hidden_dim=128):
@@ -201,7 +203,7 @@ class EncoderPosEmbedding(nn.Module):
 
         k, v = self.input_to_k_fg(x).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
 
-        k, v = self.MLP_fg(k + grid_embed), self.MLP_fg(v + grid_embed) # (b, n_slot-1, h*w, d)
+        # k, v = self.MLP_fg(k + grid_embed), self.MLP_fg(v + grid_embed) # (b, n_slot-1, h*w, d)
 
         k, v = k + grid_embed, v + grid_embed
         k, v = self.MLP_fg(k), self.MLP_fg(v)

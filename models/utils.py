@@ -72,7 +72,7 @@ def raw2outputs(raw, z_vals, rays_d, render_mask=False):
     rgb = raw[..., :3]
 
     alpha = raw2alpha(raw[..., 3], dists)  # [N_rays, N_samples]
-    weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1. - alpha + 1e-10], -1), -1)[:,:-1]
+    weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1. - alpha + 1e-10], -1), -1)[:,:-1] # [N_rays, N_samples]
 
     rgb_map = torch.sum(weights[..., None] * rgb, -2)  # [N_rays, 3]
 
@@ -85,7 +85,7 @@ def raw2outputs(raw, z_vals, rays_d, render_mask=False):
         mask_map = torch.sum(weights * density, dim=1)  # [N_rays,]
         return rgb_map, depth_map, weights_norm, mask_map
 
-    return rgb_map, depth_map, weights_norm
+    return rgb_map, depth_map, weights # un-normed weights falls in [0, 1], but may exceed 1
 
 
 def get_perceptual_net(layer=4):
@@ -146,3 +146,16 @@ def build_grid(H, W, device, reverse=False):
     else:
         grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0)
     return grid
+
+class surfaceLoss(nn.Module):
+    def __init__(self):
+        super(surfaceLoss, self).__init__()
+
+    def forward(self, x):
+        '''
+        x: (N*H*W)*N_samples
+        loss = -log(e**(-abs(x)) + e**(-abs(1-x)))
+        '''
+        loss = -torch.log(torch.exp(-torch.abs(x)) + torch.exp(-torch.abs(1-x))) + math.log(1+math.exp(-1)) # guarantee loss is greater than 0
+        return loss.mean()
+        

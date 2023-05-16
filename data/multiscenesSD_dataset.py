@@ -53,8 +53,6 @@ class MultiscenesSDDataset(BaseDataset):
             scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
             self.scenes.append(scene_filenames)
 
-        self.sam_encoder = opt.sam_encoder
-        self.is_train = opt.is_train
         self.bg_color = opt.bg_color
 
     def _transform(self, img):
@@ -145,7 +143,7 @@ class MultiscenesSDDataset(BaseDataset):
                 ret['fg_idx'] = fg_idx
                 obj_idxs = []
                 for i in range(len(greyscale_dict)):
-                    if i == bg_color_idx and self.is_train:
+                    if i == bg_color_idx and self.opt.isTrain:
                         bg_mask = mask_l == greyscale_dict[i]  # 1xHxW
                         ret['bg_mask'] = bg_mask
                         continue

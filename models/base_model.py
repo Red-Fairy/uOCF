@@ -174,6 +174,40 @@ class BaseModel(ABC):
         else:
             self.__patch_instance_norm_state_dict(state_dict, getattr(module, key), keys, i + 1)
 
+    def load_pretrain_networks(self, load_root, epoch):
+        """
+        load pretrained networks, some network may not exist,
+        and keys in the pretrained networks may be fewer than current networks
+        """
+        missing_keys = []
+        for name in self.model_names:
+            if isinstance(name, str):
+                load_filename = '%s_net_%s.pth' % (epoch, name)
+                load_path = os.path.join(load_root, load_filename)
+                net = getattr(self, 'net' + name)
+                if self.opt.only_decoder and name != 'Decoder':
+                    for key, _ in net.named_parameters():
+                        missing_keys.append(key)
+                    continue
+                if isinstance(net, torch.nn.DataParallel):
+                    net = net.module
+                try:
+                    print('loading the model from %s' % load_path)
+                    if not os.path.isfile(load_path):
+                        print(f'{load_path} not exist, skip')
+                        continue
+                    state_dict = torch.load(load_path, map_location=str(self.device))
+                    incompatible = net.load_state_dict(state_dict, strict=False)
+                    if incompatible.missing_keys:
+                        print(f'missing keys in state_dict: {incompatible.missing_keys}')
+                        missing_keys.extend(incompatible.missing_keys)
+                    if incompatible.unexpected_keys:
+                        print(f'Found unexpected keys in state_dict: {incompatible.unexpected_keys}, failed to load')
+                        assert False
+                except:
+                    print('Pretrained network %s not found. Keep training with initialized weights' % load_path)
+        return missing_keys
+
     def load_networks(self, epoch):
         """Load all the networks from the disk.
 
