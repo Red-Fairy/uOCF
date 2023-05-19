@@ -104,11 +104,14 @@ class Decoder(nn.Module):
 
 		if project:
 			self.position_project = nn.Linear(2, self.z_dim)
-			# self.post_MLP = nn.Sequential(
-			#         nn.LayerNorm(self.z_dim),
-			#         nn.Linear(self.z_dim, self.z_dim),
-			#         nn.ReLU(inplace=True),
-			#         nn.Linear(self.z_dim, self.z_dim))
+			# set default value for position_project
+			# self.position_project.weight.data.zero_()
+			# self.position_project.bias.data.zero_()
+			self.post_MLP = nn.Sequential(
+			        nn.LayerNorm(self.z_dim),
+			        nn.Linear(self.z_dim, self.z_dim),
+			        nn.ReLU(inplace=True),
+			        nn.Linear(self.z_dim, self.z_dim))
 		else:
 			self.position_project = None
 		self.rel_pos = rel_pos
@@ -130,11 +133,20 @@ class Decoder(nn.Module):
 		P = sampling_coor_fg.shape[1]
 
 		if self.fixed_locality:
-			outsider_idx = torch.any(sampling_coor_fg.abs() > locality_ratio, dim=-1)  # KxP
-			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
+			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 			if not self.fg_in_world:
-				sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
-			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
+				sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
+				sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx4
+				sampling_coor_fg = sampling_coor_fg[:, :, :3]  # KxPx3
+			if self.rel_pos and invariant:
+				if not self.fg_in_world:
+					fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # Kx4
+					fg_slot_position = torch.matmul(fg_transform, fg_slot_position[:, :, None]).squeeze(-1)[:,:3]  # Kx3
+				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+				# add local locality constraint
+				if locality_ratio is not None:
+					assert locality_ratio > 0 and locality_ratio <= 1
+					outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > locality_ratio, dim=-1)
 		else:
 			if not self.fg_in_world:
 				sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3
@@ -146,17 +158,18 @@ class Decoder(nn.Module):
 				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
 				# add local locality constraint
 				if locality_ratio is not None:
+					assert locality_ratio > 0 and locality_ratio <= 1
 					outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > locality_ratio, dim=-1)  # (K-1)xP
-			else:
-				outsider_idx = torch.any(sampling_coor_fg.abs() > locality_ratio, dim=-1)  # (K-1)xP
-				sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
-				sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
+			# else:
+			# 	sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
+			# 	sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
 
 		z_fg = z_slots
 
 		if self.position_project is not None and invariant:
 			# w/ and w/o residual connection
-			z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # KxC
+			# z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # KxC
+			z_fg = self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) # KxC
 			# slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2
 			# z_slots = self.position_project(slot_position) + z_slots # KxC
 
@@ -210,7 +223,9 @@ class FeatureAggregate(nn.Module):
 		fg_position = grid.sum(dim=(2, 3)) / (mask.sum(dim=(2, 3)) + 1e-5) # K*2
 		return fg_position
 
-	def forward(self, x, mask, use_mask=True):
+	def forward(self, x, mask, use_mask=True, x_color=None):
+		if x_color is not None:
+			x = torch.cat([x, x_color], dim=1)
 		x = self.convs(x)
 		if use_mask: # only aggregate foreground features
 			x = x * mask
@@ -294,6 +309,7 @@ class SlotAttention(nn.Module):
 		slot_fg = mu + sigma * torch.randn_like(mu)
 		
 		fg_position = self.get_fg_position(mask) # Kx2
+		# fg_position = torch.rand(1, K, 2) * 2 - 1
 		fg_position = fg_position.expand(B, -1, -1).to(feat.device) # BxKx2
 		
 		feat = self.norm_feat(feat)
@@ -321,7 +337,7 @@ class SlotAttention(nn.Module):
 				attn_this_slot = attn_this_slot.softmax(dim=1) # BxN
 				updates_fg[:, i, :] = torch.einsum('bn,bnd->bd', attn_this_slot, v[:, i, :, :]) # BxC
 				# update the position of this slot (weighted mean of the grid points, with attention as weights)
-				# fg_position[:, i, :] = torch.einsum('bn,nd->bd', attn_this_slot, grid) # Bx2
+				fg_position[:, i, :] = torch.einsum('bn,nd->bd', attn_this_slot, grid) # Bx2
 				attn[:, i, :] = attn_this_slot
 
 			slot_fg = self.gru_fg(updates_fg.reshape(-1, self.slot_dim), slot_fg.reshape(-1, self.slot_dim)).reshape(B, K, self.slot_dim) # BxKxC

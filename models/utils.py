@@ -158,4 +158,22 @@ class surfaceLoss(nn.Module):
         '''
         loss = -torch.log(torch.exp(-torch.abs(x)) + torch.exp(-torch.abs(1-x))) + math.log(1+math.exp(-1)) # guarantee loss is greater than 0
         return loss.mean()
+
+class MaskedMSELoss(nn.Module):
+    def __init__(self):
+        super(MaskedMSELoss, self).__init__()
+
+    def forward(self, x1, x2, mask=None):
+        '''
+        x1, x2: N*3*H*W
+        mask: N*1*H*W, determine the background (should be masked out)
+        if mask is None, then all mask is determined by x1 (-1 is background)
+        '''
+        if mask is None:
+            mask_fg = (x1 != -1).all(dim=1, keepdim=True).float()
+        else:
+            mask_fg = 1 - mask
+        loss = torch.sum(mask_fg * (x1 - x2)**2, dim=(1,2,3)) / torch.sum(mask_fg, dim=(1,2,3))
+        return loss.mean()
+
         

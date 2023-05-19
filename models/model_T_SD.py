@@ -128,17 +128,17 @@ class Decoder(nn.Module):
 
 		if project:
 			self.position_project = nn.Linear(2, z_dim)
-			# self.post_MLP = nn.Sequential(
-			#         nn.LayerNorm(z_dim),
-			#         nn.Linear(z_dim, z_dim),
-					# nn.ReLU(inplace=True),
-					# nn.Linear(z_dim, z_dim))
+			self.post_MLP = nn.Sequential(
+			        nn.LayerNorm(z_dim),
+			        nn.Linear(z_dim, z_dim),
+					nn.ReLU(inplace=True),
+					nn.Linear(z_dim, z_dim))
 		else:
 			self.position_project = None
 		self.rel_pos = rel_pos
 		self.fg_in_world = fg_in_world
 
-	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True):
+	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, locality_ratio=None):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -160,17 +160,19 @@ class Decoder(nn.Module):
 				sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx4x1
 			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # (K-1)xPx3
 		else:
-			# sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
-			# sampling_coor_fg_temp = sampling_coor_fg_temp.squeeze(-1)  # (K-1)xPx3
-			# outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
-			# relative position with fg slot position
+			if not self.fg_in_world:
+				sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3
+			# world locality constraint
+			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 			if self.rel_pos and invariant:
-				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # (K-1)xPx3
-				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
 				if not self.fg_in_world:
-					sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1) # (K-1)xPx3
+					fg_slot_position = torch.matmul(fg_transform, fg_slot_position[:, :, None]).squeeze(-1)  # Kx3
+				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+				# add local locality constraint
+				if locality_ratio is not None:
+					outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > locality_ratio, dim=-1)  # (K-1)xP
 			else:
-				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+				outsider_idx = torch.any(sampling_coor_fg.abs() > locality_ratio, dim=-1)  # (K-1)xP
 				sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
 				sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
 
@@ -180,7 +182,7 @@ class Decoder(nn.Module):
 		if self.position_project is not None and invariant:
 			# w/ and w/o residual connection
 			# z_fg = z_fg + self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2])) 
-			z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # (K-1)xC
+			z_fg = self.post_MLP(z_fg + self.position_project(fg_slot_position[:, :2]))
 			# slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2
 			# z_slots = self.position_project(slot_position) + z_slots # KxC
 

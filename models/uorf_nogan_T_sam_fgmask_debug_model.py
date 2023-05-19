@@ -11,14 +11,14 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_fgmask import Decoder, SlotAttention, FeatureAggregate
-from .model_general import dualRouteEncoder, SAMViT
+from .model_T_sam_fgmask import Decoder, FeatureAggregate
+from .model_general import dualRouteEncoderSeparate, SAMViT, SlotAttentionFG
 from .utils import *
 from segment_anything import sam_model_registry
-
 import torchvision
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
-class uorfNoGanTsamFGMaskModel(BaseModel):
+class uorfNoGanTsamFGMaskDEBUGModel(BaseModel):
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -65,6 +65,8 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         parser.add_argument('--surface_loss', action='store_true', help='surface loss')
         parser.add_argument('--weight_surface', type=float, default=0.1)
         parser.add_argument('--surface_in', type=int, default=0)
+        parser.add_argument('--lpips', action='store_true', help='use lpips')
+        parser.add_argument('--mask', action='store_true', help='use mask')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -105,11 +107,11 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
             sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
             self.SAMViT = SAMViT(sam_model).cuda().eval()
 
-        self.netEncoder = networks.init_net(dualRouteEncoder(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim,),
+        self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim,),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
         if not opt.feature_aggregate:
             self.netSlotAttention = networks.init_net(
-                SlotAttention(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+                SlotAttentionFG(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
         else:
             self.netSlotAttention = networks.init_net(
                 FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
@@ -124,7 +126,8 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
             self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
             self.optimizers = [self.optimizer]
 
-        self.L2_loss = nn.MSELoss()
+        self.L2_loss = nn.MSELoss() if not opt.mask else MaskedMSELoss()
+        self.LPIPS_loss = LearnedPerceptualImagePatchSimilarity(net_type='vgg').cuda()
 
     def set_visual_names(self):
         n = self.opt.n_img_each_scene
@@ -162,6 +165,7 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
         self.num_slots = self.masks.shape[0]
         self.bg_mask = input['bg_mask'].float().to(self.device) # N*1*H*W
+        self.bg_mask = F.interpolate(self.bg_mask, size=(self.opt.supervision_size, self.opt.supervision_size), mode='nearest')
         if not self.opt.fixed_locality:
             self.cam2world_azi = input['azi_rot'].to(self.device)
 
@@ -182,22 +186,22 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
             feature_map_sam = self.x_feats[0:1].to(dev)
         else:
             with torch.no_grad():
-                feature_map_sam = self.SAMViT(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
+                feature_map_sam = self.SAMViT(self.x_large[0:1].to(dev))  # BxC_vitxHxW, C_vit: 64
         # Encoder receives feature map from SAM and resized images as inputs
-        feature_map = self.netEncoder(feature_map_sam,
+        feature_map_shape, feature_map_color = self.netEncoder(feature_map_sam,
             F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW, C: shape_dim+color_dim (z_dim+texture_dim)
 
-        feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-        self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW
+        feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+        feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC'
+        self.masks = F.interpolate(self.masks, size=feat_shape.shape[1:3], mode='nearest')  # Kx1xHxW
 
-    
         # Slot Attention
         use_mask = epoch < self.opt.mask_in
         if not self.opt.feature_aggregate:
-            z_slots, fg_slot_position, attn = self.netSlotAttention(feat, self.masks, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN
+            z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape, self.masks, use_mask=False, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
             z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
         else:
-            z_slots, fg_slot_position = self.netSlotAttention(feat, self.masks, use_mask=use_mask)  # KxC, Kx2
+            z_slots, fg_slot_position = self.netSlotAttention(feat_shape, self.masks, use_mask=False)  # KxC, Kx2
 
         fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
         
@@ -234,20 +238,25 @@ class uorfNoGanTsamFGMaskModel(BaseModel):
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
-        rgb_map, _, _ = raw2outputs(raws, z_vals, ray_dir)
+        rgb_map, _, weights = raw2outputs(raws, z_vals, ray_dir)
         # (NxHxW)x3, (NxHxW)
         rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
         x_recon = rendered * 2 - 1
 
-        self.loss_recon = self.L2_loss(x_recon, x)
-        x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
-        rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
-        self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
+        self.loss_recon = self.L2_loss(x, x_recon)
+        if self.opt.lpips:
+            self.loss_perc = self.weight_percept * self.LPIPS_loss(x_recon, x)
+        else:
+            x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
+            rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
+            self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
+        if self.opt.surface_loss and epoch >= self.opt.surface_in:
+            self.loss_surface = self.opt.weight_surface * self.surfaceLoss(weights)
 
         with torch.no_grad():
             if not self.opt.feature_aggregate:
                 attn = attn.detach().cpu()  # KxN
-                H_, W_ = feature_map.shape[2], feature_map.shape[3]
+                H_, W_ = feature_map_shape.shape[2], feature_map_shape.shape[3]
                 attn = attn.view(self.opt.num_slots, 1, H_, W_)
                 if H_ != H:
                     attn = F.interpolate(attn, size=[H, W], mode='bilinear')

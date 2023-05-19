@@ -10,8 +10,9 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam import Decoder, SlotAttention, get_perceptual_net, raw2outputs, position_loss, sam_encoder_v0, sam_encoder_v00
-from .model_general import dualRouteEncoder, sam_encoder, Encoder
+from .model_T_sam import Decoder, SlotAttention, sam_encoder_v0
+from .model_general import dualRouteEncoder, Encoder
+from .utils import *
 from segment_anything import sam_model_registry
 
 class uorfNoGanTsamModel(BaseModel):
@@ -51,13 +52,9 @@ class uorfNoGanTsamModel(BaseModel):
         parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
         parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
         parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
-        parser.add_argument('--position_loss',action='store_true', help='whether to use position loss')
-        parser.add_argument('--position_loss_weight', type=float, default=0.5, help='weight of position loss')
-        parser.add_argument('--position_loss_threshold', type=float, default=0.5, help='weight of position loss')
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
-        parser.add_argument('--lr_encoder', type=float, default=6e-5, help='learning rate for encoder')
-        parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
-        parser.add_argument('--init_n_epoch', type=int, default=0, help='number of epochs for the first epoch')
+        # parser.add_argument('--init_n_img_each_scene', type=int, default=3, help='number of images for each scene in the first epoch')
+        # parser.add_argument('--init_n_epoch', type=int, default=0, help='number of epochs for the first epoch')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -77,8 +74,8 @@ class uorfNoGanTsamModel(BaseModel):
         """
         BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
         self.loss_names = ['recon', 'perc']
-        if opt.position_loss:
-            self.loss_names += ['pos']
+        # if opt.position_loss:
+        #     self.loss_names += ['pos']
         self.set_visual_names()
         self.model_names = ['Encoder', 'Encoder_sam', 'SlotAttention', 'Decoder']
         self.perceptual_net = get_perceptual_net().to(self.device)
@@ -115,10 +112,10 @@ class uorfNoGanTsamModel(BaseModel):
             self.optimizers = [self.optimizer]
 
         self.L2_loss = nn.MSELoss()
-        if opt.position_loss:
-            self.position_loss = position_loss(opt.position_loss_weight, threshold=opt.position_loss_threshold)
-        else:
-            self.position_loss = None
+        # if opt.position_loss:
+        #     self.position_loss = position_loss(opt.position_loss_weight, threshold=opt.position_loss_threshold)
+        # else:
+        #     self.position_loss = None
 
     def set_visual_names(self):
         n = self.opt.n_img_each_scene
@@ -158,8 +155,8 @@ class uorfNoGanTsamModel(BaseModel):
         dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
         self.loss_recon = 0
         self.loss_perc = 0
-        if self.position_loss is not None:
-            self.loss_pos = 0
+        # if self.position_loss is not None:
+        #     self.loss_pos = 0
         dev = self.x[0:1].device
         cam2world_viewer = self.cam2world[0]
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -181,14 +178,13 @@ class uorfNoGanTsamModel(BaseModel):
         K = attn.shape[0]
 
         # if epoch < self.opt.n_init_epoch, trunc the n_img_each_scene to init_n_img_each_scene_
-        if epoch < self.opt.init_n_epoch:
-            self.opt.n_img_each_scene = self.opt.init_n_img_each_scene
-            self.x = self.x[0:self.opt.init_n_img_each_scene]
-            self.cam2world = self.cam2world[0:self.opt.init_n_img_each_scene]
-            if not self.opt.fixed_locality:
-                self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
-            self.set_visual_names()
-            
+        # if epoch < self.opt.init_n_epoch:
+        #     self.opt.n_img_each_scene = self.opt.init_n_img_each_scene
+        #     self.x = self.x[0:self.opt.init_n_img_each_scene]
+        #     self.cam2world = self.cam2world[0:self.opt.init_n_img_each_scene]
+        #     if not self.opt.fixed_locality:
+        #         self.cam2world_azi = self.cam2world_azi[0:self.opt.init_n_img_each_scene]
+        #     self.set_visual_names()
 
         cam2world = self.cam2world
         N = cam2world.shape[0]
@@ -229,8 +225,8 @@ class uorfNoGanTsamModel(BaseModel):
         x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
         rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
         self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
-        if self.position_loss is not None:
-            self.loss_pos = self.position_loss(fg_slot_position)
+        # if self.position_loss is not None:
+        #     self.loss_pos = self.position_loss(fg_slot_position)
 
         with torch.no_grad():
             attn = attn.detach().cpu()  # KxN

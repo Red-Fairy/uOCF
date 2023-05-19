@@ -33,7 +33,8 @@ class uorfNoGanTSDModel(BaseModel):
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
         parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
         parser.add_argument('--supervision_size', type=int, default=64)
-        parser.add_argument('--obj_scale', type=float, default=4, help='Scale for locality on foreground objects')
+        parser.add_argument('--world_obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects in world coordinates')
+        parser.add_argument('--obj_scale', type=float, default=3.5, help='Scale for locality on foreground objects in object-centric coordinates')
         parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
         parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
         parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
@@ -109,7 +110,7 @@ class uorfNoGanTSDModel(BaseModel):
             SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter, learnable_pos=not opt.no_learnable_pos), gpu_ids=self.gpu_ids, init_type='normal')
         
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+                                                    locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
                                                     project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
                                                     ), gpu_ids=self.gpu_ids, init_type='xavier')
         self.L2_loss = nn.MSELoss()
@@ -229,9 +230,11 @@ class uorfNoGanTSDModel(BaseModel):
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
         sampling_coor_bg = frus_nss_coor  # Px3
 
+        locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale) if epoch >= self.opt.locality_in else None
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        # raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, locality_ratio=locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])

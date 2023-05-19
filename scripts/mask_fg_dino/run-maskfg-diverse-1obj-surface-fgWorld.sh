@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-1obj-manysize-trans-orange'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-1obj-each'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4  \
@@ -35,8 +35,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --coarse_epoch 600 --niter 600 --percept_in 10 \
     --attn_decay_steps 100000 --save_epoch_freq 10 --fg_in_world --surface_loss \
     --transparent  --mask_in 0 --bg_color -1 --world_obj_scale 4.5 --obj_scale 3 --locality_in 10 --locality_full 40 \
-    --exp_id '0517-DINO/maskfg-1obj' \
-    --dummy_info 'moving FG position, global attention, locality out, vitb, locality decay to 3' \
+    --exp_id '0517-DINO/maskfg-1obj-fgWorld' \
+    --dummy_info 'fixed FG position, global attention, locality out, vitb, locality decay to 3' \
     
 
 # can try the following to list out which GPU you have access to

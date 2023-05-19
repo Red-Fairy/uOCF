@@ -36,14 +36,17 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
         parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
         parser.add_argument('--supervision_size', type=int, default=64)
-        parser.add_argument('--obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects')
+        parser.add_argument('--world_obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects in world coordinates')
+        parser.add_argument('--obj_scale', type=float, default=3.5, help='Scale for locality on foreground objects in object-centric coordinates')
         parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
         parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
         parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
         parser.add_argument('--weight_percept', type=float, default=0.006)
         parser.add_argument('--percept_in', type=int, default=100)
         parser.add_argument('--mask_in', type=int, default=0)
-        parser.add_argument('--no_locality_epoch', type=int, default=300)
+        parser.add_argument('--no_locality_epoch', type=int, default=1000)
+        parser.add_argument('--locality_in', type=int, default=10)
+        parser.add_argument('--locality_full', type=int, default=10)
         parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
         parser.add_argument('--input_size', type=int, default=64)
         parser.add_argument('--frustum_size', type=int, default=64)
@@ -108,7 +111,7 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
             self.netSlotAttention = networks.init_net(
                 FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+                                                    locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
                                                     project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
                                                     ), gpu_ids=self.gpu_ids, init_type='xavier')
 
@@ -220,9 +223,10 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
 
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
+        locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale) if epoch >= self.opt.locality_in else None
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, locality_ratio=locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=10
+##SBATCH --cpus-per-task=10
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
@@ -28,15 +28,18 @@ python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_mask' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
-    --load_size 256 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
-    --model 'uorf_nogan_T_DINO_fgmask' --dataset_mode 'multiscenes' \
-    --num_slots 1 --attn_iter 3 --z_dim 64 --encoder_size 896 \
-    --project \
-    --coarse_epoch 60 --niter 60 --percept_in 5 --locality_in 5 --locality_full 15 \
-    --attn_decay_steps 100000 --save_epoch_freq 10 --surface_loss \
-    --transparent  --mask_in 0 --bg_color -1 --world_obj_scale 4.5 --obj_scale 3 \
-    --exp_id '0517-DINO/maskfg-1obj-r2' \
-    --dummy_info 'fixed FG position, global attention, locality out, vitb, locality decay to 3' \
+    --load_size 256 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
+    --model 'uorf_nogan_T_sam_fgmask' \
+    --num_slots 1 --attn_iter 3 \
+    --shape_dim 48 --color_dim 16 --world_obj_scale 4 --obj_scale 2.5 --locality_in 10 --locality_full 20 \
+    --bottom --project --feature_aggregate \
+    --sam_encoder --encoder_size 1024 \
+    --coarse_epoch 60 --niter 60 --percept_in 10 \
+    --attn_decay_steps 100000 \
+    --bg_color '-1' \
+    --exp_id '0518-DEBUG/dataset-aggregate' --mask_in 0 \
+    --save_epoch_freq 2 \
+    --dummy_info 'fixed FG position, global attention, surface loss, locality decay' \
     
 
 # can try the following to list out which GPU you have access to
