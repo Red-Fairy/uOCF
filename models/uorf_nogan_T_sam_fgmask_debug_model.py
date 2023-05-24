@@ -11,7 +11,7 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_fgmask import Decoder, FeatureAggregate
+from .model_T_sam_fgmask import FeatureAggregate, Decoder
 from .model_general import dualRouteEncoderSeparate, SAMViT, SlotAttentionFG
 from .utils import *
 from segment_anything import sam_model_registry
@@ -103,15 +103,14 @@ class uorfNoGanTsamFGMaskDEBUGModel(BaseModel):
 
         z_dim = opt.color_dim + opt.shape_dim
 
-        if not opt.preextract:
-            sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-            self.SAMViT = SAMViT(sam_model).cuda().eval()
+        sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
+        self.SAMViT = SAMViT(sam_model).cuda().eval()
 
         self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim,),
                                                 gpu_ids=self.gpu_ids, init_type='normal')
         if not opt.feature_aggregate:
             self.netSlotAttention = networks.init_net(
-                SlotAttentionFG(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+                SlotAttentionFG(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
         else:
             self.netSlotAttention = networks.init_net(
                 FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
@@ -157,10 +156,7 @@ class uorfNoGanTsamFGMaskDEBUGModel(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['img_data'].to(self.device) # N*3*H*W
-        if self.opt.preextract:
-            self.x_feats = input['img_feats'].to(self.device) # 1*H'*W'*C (H'=W'=64, C=1024)
-        else:
-            self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W (H=W=1024)
+        self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W (H=W=1024)
         self.cam2world = input['cam2world'].to(self.device)
         self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
         self.num_slots = self.masks.shape[0]
@@ -182,11 +178,8 @@ class uorfNoGanTsamFGMaskDEBUGModel(BaseModel):
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
-        if self.opt.preextract:
-            feature_map_sam = self.x_feats[0:1].to(dev)
-        else:
-            with torch.no_grad():
-                feature_map_sam = self.SAMViT(self.x_large[0:1].to(dev))  # BxC_vitxHxW, C_vit: 64
+        with torch.no_grad():
+            feature_map_sam = self.SAMViT(self.x_large[0:1].to(dev))  # BxC_vitxHxW, C_vit: 64
         # Encoder receives feature map from SAM and resized images as inputs
         feature_map_shape, feature_map_color = self.netEncoder(feature_map_sam,
             F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW, C: shape_dim+color_dim (z_dim+texture_dim)
@@ -216,8 +209,8 @@ class uorfNoGanTsamFGMaskDEBUGModel(BaseModel):
             self.z_vals, self.ray_dir = z_vals, ray_dir
         else:
             W, H, D = self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp
-            start_range = self.opt.frustum_size_fine - self.opt.render_size
-            rs = self.opt.render_size
+            start_range = self.opt.frustum_size_fine - self.opt.supervision_size
+            rs = self.opt.supervision_size
             frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world)
             # (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
             frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
@@ -233,8 +226,8 @@ class uorfNoGanTsamFGMaskDEBUGModel(BaseModel):
         locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
-        # raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, locality_ratio=locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        # raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, locality_ratio=locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])

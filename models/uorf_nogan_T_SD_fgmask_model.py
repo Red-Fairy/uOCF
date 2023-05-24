@@ -61,7 +61,6 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
         parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
         parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
         parser.add_argument('--use_SD_percept', action='store_true', help='use SD perceptual loss')
-        parser.add_argument('--log_sampling', action='store_true', help='log sampling for depth')
         parser.add_argument('--surface_loss', action='store_true', help='surface loss')
         parser.add_argument('--weight_surface', type=float, default=0.1)
         parser.add_argument('--surface_in', type=int, default=0)
@@ -203,7 +202,7 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
         cam2world = self.cam2world
         N = cam2world.shape[0]
         if self.opt.stage == 'coarse':
-            frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, log_sampling=self.opt.log_sampling)
+            frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
             # (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
             x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
             self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -211,7 +210,7 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
             W, H, D = self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp
             start_range = self.opt.frustum_size_fine - self.opt.supervision_size
             rs = self.opt.supervision_size
-            frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world, log_sampling=self.opt.log_sampling)
+            frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world)
             # (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
             frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
             H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
@@ -223,7 +222,7 @@ class uorfNoGanTSDFGMaskModel(BaseModel):
 
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
-        locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale) if epoch >= self.opt.locality_in else None
+        locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
         raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, locality_ratio=locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1

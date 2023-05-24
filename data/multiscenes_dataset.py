@@ -19,7 +19,6 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--n_scenes', type=int, default=1000, help='dataset length is #scenes')
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
-        parser.add_argument('--is_train', action='store_true')
         parser.add_argument('--transparent', action='store_true')
         parser.add_argument('--bg_color', type=float, default=-127/255, help='background color')
         parser.add_argument('--pre_feats', default='', type=str)
@@ -53,7 +52,7 @@ class MultiscenesDataset(BaseDataset):
             scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
             self.scenes.append(scene_filenames)
 
-        self.sam_encoder = opt.sam_encoder
+        self.encoder_type = opt.encoder_type
         self.bg_color = opt.bg_color
 
     def _transform(self, img):
@@ -62,10 +61,11 @@ class MultiscenesDataset(BaseDataset):
         img = TF.normalize(img, [0.5] * img.shape[0], [0.5] * img.shape[0])  # [0,1] -> [-1,1]
         return img
 
-    def _transform_encoder(self, img): # for ImageNet encoder
+    def _transform_encoder(self, img, normalize=True):
         img = TF.resize(img, (self.opt.encoder_size, self.opt.encoder_size))
         img = TF.to_tensor(img)
-        img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        if normalize:
+            img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         return img
 
     def _transform_mask(self, img):
@@ -88,12 +88,12 @@ class MultiscenesDataset(BaseDataset):
             filenames = scene_filenames[:self.n_img_each_scene]
         rets = []
         for rd, path in enumerate(filenames):
-            if self.opt.transparent:
-                img = Image.open(path).convert('RGB')
-                # white_bg = Image.new('RGBA', img.size, (255, 255, 255, 255))
-                # img = Image.alpha_composite(white_bg, img).convert('RGB')
-            else:
-                img = Image.open(path).convert('RGB')
+            # if self.opt.transparent:
+            #     img = Image.open(path).convert('RGB')
+            #     # white_bg = Image.new('RGBA', img.size, (255, 255, 255, 255))
+            #     # img = Image.alpha_composite(white_bg, img).convert('RGB')
+            # else:
+            img = Image.open(path).convert('RGB')
             img_data = self._transform(img)
             pose_path = path.replace('.png', '_RT.txt')
             try:
@@ -122,7 +122,8 @@ class MultiscenesDataset(BaseDataset):
                     assert os.path.isfile(feats_path)
                     ret['img_feats'] = torch.from_numpy(np.load(feats_path))
                 else:
-                    ret['img_data_large'] = self._transform_encoder(img)
+                    normalize = False if self.encoder_type == 'SD' else True
+                    ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
             mask_path = path.replace('.png', '_mask.png')
             if os.path.isfile(mask_path):
                 mask = Image.open(mask_path).convert('RGB')

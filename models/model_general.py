@@ -112,26 +112,60 @@ class dualRouteEncoder(nn.Module):
 		return torch.cat([feat_shape, feat_color], dim=1)
 
 class dualRouteEncoderSeparate(nn.Module):
-	def __init__(self, bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16):
+	def __init__(self, bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
 		super().__init__()
 
 		self.Encoder = Encoder(bottom=bottom, z_dim=color_dim, pos_emb=pos_emb, input_nc=input_nc)
 
-		vit_dim = 256
-		self.shallow_encoder = nn.Sequential(nn.Conv2d(vit_dim, vit_dim, 3, stride=1, padding=1),
+		self.shallow_encoder = nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
 											nn.ReLU(True),
-											nn.Conv2d(vit_dim, shape_dim, 3, stride=1, padding=1))
+											nn.Conv2d(hidden_dim, shape_dim, 3, stride=1, padding=1))
 
-	def forward(self, sam_feature, x):
+	def forward(self, input_feat, x):
 		'''
 		input:
-			sam_feature: (B, 256, 64, 64)
+			input_feat: (B, input_dim, 64, 64)
 			x: input images of size (B, 3, 64, 64) or (B, 3, 128, 128) if bottom is True
 		output:
 			spatial feature (B, shape_dim+color_dim, 64, 64)
 		'''
 		feat_color = self.Encoder(x)
-		feat_shape = self.shallow_encoder(sam_feature)
+		feat_shape = self.shallow_encoder(input_feat)
+
+		return feat_shape, feat_color
+
+class dualRouteEncoderSDSeparate(nn.Module):
+	def __init__(self, bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
+		super().__init__()
+
+		self.Encoder = Encoder(bottom=bottom, z_dim=color_dim, pos_emb=pos_emb, input_nc=input_nc)
+
+		self.conv1 = nn.Sequential(nn.Conv2d(512, 128, 1, stride=1, padding=0),
+								   nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+		self.conv2 = nn.Sequential(nn.Conv2d(640, 128, 1, stride=1, padding=0),
+									  nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+		self.conv3 = nn.Conv2d(512, 128, 1, stride=1, padding=0)
+
+		self.out = nn.Sequential(nn.Conv2d(128*3, 128, 3, stride=1, padding=1),
+									nn.ReLU(True),
+								nn.Conv2d(128, shape_dim, 3, stride=1, padding=1))
+
+	def forward(self, input_feat, x):
+		'''
+		input:
+			input_feat: list of Tensors: B*512*32*32, B*640*32*32, B*512*64*64
+			output: B*z_dim*64*64
+			x: input images of size (B, 3, 64, 64) or (B, 3, 128, 128) if bottom is True
+		output:
+			spatial feature (B, shape_dim+color_dim, 64, 64)
+		'''
+		feat_color = self.Encoder(x)
+
+		x1 = self.conv1(input_feat[0])
+		x2 = self.conv2(input_feat[1])
+		x3 = self.conv3(input_feat[2])
+		feat_shape = torch.cat([x1, x2, x3], dim=1)
+		feat_shape = self.out(feat_shape)
 
 		return feat_shape, feat_color
 
@@ -244,7 +278,12 @@ class EncoderPosEmbeddingFG(nn.Module):
 		return k, v # (b, n, h*w, d)
 
 class SlotAttentionFG(nn.Module):
-	def __init__(self, in_dim=64, slot_dim=64, iters=4, eps=1e-8, hidden_dim=128):
+	def __init__(self, in_dim=64, slot_dim=64, color_dim=16, iters=4, eps=1e-8, hidden_dim=64, centered=False):
+		'''
+		in_dim: dimension for input image feature (shape feature dim)
+		color_dim: dimension for color feature (color feature dim)
+		slot_dim: dimension for slot feature (output slot dim), final output dim is slot_dim + color_dim. Currently slot_dim == in_dim
+		'''
 		super().__init__()
 		# self.num_slots = num_slots
 		self.iters = iters
@@ -256,21 +295,23 @@ class SlotAttentionFG(nn.Module):
 		init.xavier_uniform_(self.slots_logsigma)
 		
 		self.to_kv = EncoderPosEmbeddingFG(in_dim, slot_dim)
+
 		self.to_q = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
 
 		self.gru_fg = nn.GRUCell(slot_dim, slot_dim)
 
 		hidden_dim = max(slot_dim, hidden_dim)
 
-		self.to_res_fg = nn.Sequential(
-			nn.LayerNorm(slot_dim),
-			nn.Linear(slot_dim, hidden_dim),
-			nn.ReLU(inplace=True),
-			nn.Linear(hidden_dim, slot_dim)
-		)
-
 		self.norm_feat = nn.LayerNorm(in_dim)
+		if color_dim != 0:
+			self.norm_feat_color = nn.LayerNorm(color_dim)
 		self.slot_dim = slot_dim
+
+		self.to_res_fg = nn.Sequential(nn.LayerNorm(slot_dim),
+										nn.Linear(slot_dim, slot_dim))
+		
+		self.centered = centered
+		
 
 	def get_fg_position(self, mask):
 		'''
@@ -306,11 +347,15 @@ class SlotAttentionFG(nn.Module):
 		sigma = self.slots_logsigma.exp().expand(B, K, -1)
 		slot_fg = mu + sigma * torch.randn_like(mu)
 		
-		fg_position = self.get_fg_position(mask) # Kx2
-		# fg_position = torch.rand(1, K, 2) * 2 - 1
-		fg_position = fg_position.expand(B, -1, -1).to(feat.device) # BxKx2
+		if self.centered:
+			fg_position = torch.zeros(B, K, 2, device=feat.device)
+		else:
+			fg_position = self.get_fg_position(mask) # Kx2
+			fg_position = fg_position.expand(B, -1, -1).to(feat.device) # BxKx2
 		
 		feat = self.norm_feat(feat)
+		if feat_color is not None:
+			feat_color = self.norm_feat_color(feat_color)
 
 		grid = build_grid(H, W, device=feat.device).flatten(1, 2).squeeze(0) # Nx2
 
@@ -335,7 +380,7 @@ class SlotAttentionFG(nn.Module):
 				attn_this_slot = attn_this_slot.softmax(dim=1) # BxN
 				updates_fg[:, i, :] = torch.einsum('bn,bnd->bd', attn_this_slot, v[:, i, :, :]) # BxC
 				# update the position of this slot (weighted mean of the grid points, with attention as weights)
-				fg_position[:, i, :] = torch.einsum('bn,nd->bd', attn_this_slot, grid) # Bx2
+				# fg_position[:, i, :] = torch.einsum('bn,nd->bd', attn_this_slot, grid) # Bx2
 				attn[:, i, :] = attn_this_slot
 				
 			if it != self.iters - 1: # do not update slot for the last iteration
@@ -348,10 +393,46 @@ class SlotAttentionFG(nn.Module):
 					slot_fg_color = torch.einsum('bkn,bnc->bkc', attn, feat_color.flatten(1, 2)) # BxKxC'
 					slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # BxKx(C+C')
 
-			# calculate attn for visualization
-			attn = (attn - attn.min(dim=2, keepdim=True)[0]) / (attn.max(dim=2, keepdim=True)[0] - attn.min(dim=2, keepdim=True)[0] + 1e-5)
+		# calculate attn for visualization
+		attn = (attn - attn.min(dim=2, keepdim=True)[0]) / (attn.max(dim=2, keepdim=True)[0] - attn.min(dim=2, keepdim=True)[0] + 1e-5)
 				
 		return slot_fg, fg_position, attn
+
+class FeatureAggregate(nn.Module):
+	def __init__(self, in_dim=64, out_dim=64):
+		super().__init__()
+		self.convs = nn.Sequential(nn.Conv2d(in_dim, in_dim, 3, 1, 1), 
+								nn.ReLU(inplace=True),
+								nn.Conv2d(in_dim, out_dim, 3, 1, 1))
+		self.pool = nn.AdaptiveAvgPool2d(1)
+
+	def get_fg_position(self, mask):
+		'''
+		Compute the weighted mean of the grid points as the position of foreground objects.
+		input:
+			mask: mask for foreground objects. shape: K*1*H*W, K: number of slots
+		output:
+			fg_position: position of foreground objects. shape: K*2
+		'''
+		K, _, H, W = mask.shape
+		grid = build_grid(H, W, device=mask.device) # 1*H*W*2
+		grid = grid.expand(K, -1, -1, -1).permute(0, 3, 1, 2) # K*2*H*W
+		grid = grid * mask # K*2*H*W
+
+		fg_position = grid.sum(dim=(2, 3)) / (mask.sum(dim=(2, 3)) + 1e-5) # K*2
+		return fg_position
+
+	def forward(self, x, mask, use_mask=True, x_color=None):
+		if x_color is not None:
+			x = torch.cat([x, x_color], dim=1)
+		x = self.convs(x)
+		if use_mask: # only aggregate foreground features
+			x = x * mask
+			x = x.sum(dim=(2, 3)) / (mask.sum(dim=(2, 3)) + 1e-5) # BxC
+		else: 
+			x = self.pool(x).squeeze(-1).squeeze(-1) # BxC
+		fg_position = self.get_fg_position(mask) # K*2
+		return x, fg_position
 
 						
 	

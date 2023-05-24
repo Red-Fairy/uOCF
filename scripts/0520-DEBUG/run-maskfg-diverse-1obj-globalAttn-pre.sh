@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-##SBATCH --cpus-per-task=10
+##SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:a5000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -38,10 +38,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 60 --niter 60 --percept_in 10 \
     --attn_decay_steps 100000 \
     --bg_color '-1' \
-    --exp_id '0521-DEBUG/simulate-0508-globalaggregate' \
+    --exp_id '0521-DEBUG/simulate-0508-globalAttn-dualfeat-pre' \
     --save_epoch_freq 2 \
-    --feature_aggregate \
-    --dummy_info 'mask fg scale-3.5, light, fixed FG position, global feature aggreate' \
+    --dummy_info 'mask fg scale-3.5, light, fixed FG position, global attention, calculate locality before transform' \
     
 
 # can try the following to list out which GPU you have access to

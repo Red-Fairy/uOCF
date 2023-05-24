@@ -42,7 +42,7 @@ def pixel2world(slot_pixel_coord, cam2world):
 
 class Projection(object):
     def __init__(self, focal_ratio=(350. / 320., 350. / 240.),
-                 near=5, far=16, frustum_size=[128, 128, 128], device='cpu',
+                 near=1, far=4, frustum_size=[128, 128, 128], device='cpu',
                  nss_scale=7, render_size=(64, 64)):
         self.render_size = render_size
         self.device = device
@@ -67,30 +67,16 @@ class Projection(object):
         self.cam2spixel = intrinsic_mat.to(self.device)
         self.spixel2cam = intrinsic_mat.inverse().to(self.device) 
         
-    def construct_frus_coor(self, z_vals=None, partial_render=None, log_sampling=False):
-        '''
-        partial_render: three ints, render_size, W_idx, H_idx
-        '''
-        if partial_render is not None:
-            x = torch.arange(partial_render[1], partial_render[1] + partial_render[0])
-            y = torch.arange(partial_render[2], partial_render[2] + partial_render[0])
-        else:
-            x = torch.arange(self.frustum_size[0])
-            y = torch.arange(self.frustum_size[1])
+    def construct_frus_coor(self, z_vals=None):
+        x = torch.arange(self.frustum_size[0])
+        y = torch.arange(self.frustum_size[1])
         z = torch.arange(self.frustum_size[2])
         x, y, z = torch.meshgrid([x, y, z])
         x_frus = x.flatten().to(self.device)
         y_frus = y.flatten().to(self.device)
         z_frus = z.flatten().to(self.device)
         # project frustum points to vol coord
-        if z_vals is None:
-            if log_sampling: # emphasize the near part
-                temp = torch.linspace(0, 1, self.frustum_size[2]).to(self.device)
-                depth_range = self.near + (torch.log(temp * (self.far - self.near) + 1) / math.log(self.far - self.near + 1)) * (self.far - self.near)
-            else:
-                depth_range = torch.linspace(self.near, self.far, self.frustum_size[2]).to(self.device)
-        else:
-            depth_range = self.near + (self.far - self.near) * z_vals
+        depth_range = torch.linspace(self.near, self.far, self.frustum_size[2]).to(self.device)
         z_cam = depth_range[z_frus].to(self.device)
 
         # print('z_cam', z_cam.shape, x_frus.shape)
@@ -100,7 +86,7 @@ class Projection(object):
         pixel_coor = torch.stack([x_unnorm_pix, y_unnorm_pix, z_unnorm_pix, torch.ones_like(x_unnorm_pix)])
         return pixel_coor # 4x(WxHxD)
 
-    def construct_sampling_coor(self, cam2world, partitioned=False, log_sampling=False):
+    def construct_sampling_coor(self, cam2world, partitioned=False):
         """
         construct a sampling frustum coor in NSS space, and generate z_vals/ray_dir
         input:
@@ -112,7 +98,7 @@ class Projection(object):
         """
         N = cam2world.shape[0]
         W, H, D = self.frustum_size
-        pixel_coor = self.construct_frus_coor(log_sampling=log_sampling)
+        pixel_coor = self.construct_frus_coor()
         frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float())  # 4x(WxHxD)
 
         frus_world_coor = torch.matmul(cam2world, frus_cam_coor)  # Nx4x(WxHxD)
@@ -143,6 +129,10 @@ class Projection(object):
         else:
             z_vals = z_vals.view(N, W, H, D).permute([0, 2, 1, 3]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
 
+        # infer ray_origin from cam2world
+        # ray_origin = cam2world[:, :3, 3]  # Nx3
+        # ray_origin = ray_origin.unsqueeze(1).unsqueeze(1).expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
+
         # construct cam coord for ray_dir
         x = torch.arange(self.frustum_size[0])
         y = torch.arange(self.frustum_size[1])
@@ -164,8 +154,10 @@ class Projection(object):
             ray_dir = ray_dir.expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
         return frus_nss_coor, z_vals, ray_dir
 
-    def sample_pdf(self, bins, weights, N_samples, det=False):
+    def sample_pdf(self, bins, weights, N_samples, det=True):
         # Get pdf
+        # bins: [N_rays, N_samples_coarse-1]
+        # weights: [N_rays, N_samples_coarse-2]
         weights = weights + 1e-5 # prevent nans
         pdf = weights / torch.sum(weights, -1, keepdim=True)
         cdf = torch.cumsum(pdf, -1)
@@ -198,55 +190,41 @@ class Projection(object):
 
         return samples
 
-    def sample_importance(self, z_vals, weights, N_samples, ray_origin, ray_dir, partial_render=None):
+    def sample_importance(self, cam2world, z_vals, ray_dir, weights, N_inportance, size=(64, 64)):
         '''
-        :param z_vals: (NxHxW)xD
-        :param weights: (NxHxW)xD
+        :param cam2world: (N, 4, 4)
+        :param z_vals: (NxHxW)xN_corase in range [0, 1]
+        :param weights: (NxHxW)xN_corase
         :param N_samples: int
-        :param ray_origin: (NxHxW)x3, in world coord
-        :param ray_dir: (NxHxW)x3, in world coord, not normalized
-        :param partial_render: if specified, only sample from the partial rendered region, (three integers)
-        :output z_samples: (batch, N_samples, 1), batch=NxHxW
+        :param ray_dir: (NxHxW)x3, in camera space
+        :param size: (H, W), supervision size
+        :output z_vals: (NxHxW)x(N_inportance+N_coarse)
+        :output pixel_coor: (NxHxW)x(N_inportance+N_coarse)x3 in world space
         '''
-        # Sample depth points
-        z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
-        z_samples = self.sample_pdf(z_vals_mid, weights[...,1:-1], N_samples)  # (NxHxW)xN_samples
-        z_samples = z_samples.detach()
-        # print('z_samples:', z_samples.shape)
 
-        z_vals = torch.sort(torch.cat([z_vals, z_samples], -1), -1)[0]  # (NxHxW)x(N_samples+D)
-        # print('z_vals:', z_vals.shape)
-
-        # Construct pixel coordinates
-        # normalize ray_dir
-        ray_dir = ray_dir / torch.norm(ray_dir, dim=-1, keepdim=True) # (NxHxW)x3
-        # print('ray_dir:', ray_dir.shape)
-        # now we have ray_dir in world coord, construct pixel coor
-        pixel_coor = ray_origin.unsqueeze(1) + ray_dir.unsqueeze(1) * z_vals.unsqueeze(-1).repeat(1, 1, 3)  # (NxHxW)x(N_samples+D)x3
-        # convert to homogeneous coord
-        pixel_coor = torch.cat([pixel_coor, torch.ones_like(pixel_coor[..., :1])], -1)  # (NxHxW)x(N_samples+D)x4
-        
-        return pixel_coor, z_vals
-        
-    def construct_importance_sampling_coor(self, cam2world, z_vals, weights, N_samples, ray_dir, partial_render=None):
-        '''
-        cam2world: Nx4x4
-        partial_render: three ints, render_size, W_idx, H_idx
-        ray_dir: (NxHxW)x3
-        '''
         N = cam2world.shape[0]
-        W, H, _ = self.frustum_size
-        D = N_samples + z_vals.shape[-1]
-        ray_origin = cam2world[:, :3, 3] # Nx3
-        ray_origin = ray_origin.unsqueeze(1).expand(N, H*W, 3).flatten(start_dim=0, end_dim=1) # (NxHxW)x3
-        pixel_coor, z_vals = self.sample_importance(z_vals, weights, N_samples, ray_origin, ray_dir, partial_render=partial_render) # (NxHxW)x(N_samples+D)x4
-        # print(pixel_coor.shape, z_vals.shape)
-        # here pixel_coor is in world coord, convert to nss coord
-        frus_nss_coor = torch.matmul(pixel_coor, self.world2nss) # (NxHxW)x(N_samples+D)x4
-        frus_nss_coor = frus_nss_coor[..., :3] / frus_nss_coor[..., 3:4] # (NxHxW)x(N_samples+D)x3
-        frus_nss_coor = frus_nss_coor.flatten(start_dim=0, end_dim=1) # ((NxHxW)x(N_samples+D))x3
+        N_coarse = z_vals.shape[-1]
+        z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1]) # (NxHxW)x(N_coarse-1)
+        z_samples = self.sample_pdf(z_vals_mid, weights[...,1:-1], N_inportance)  # (NxHxW)xN_inportance
+        z_samples = z_samples.detach()
 
-        return frus_nss_coor, z_vals
+        z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)  # (NxHxW)x(N_inportance+N_coarse)
+
+        z_pos = z_vals * (self.far - self.near) + self.near  # (NxHxW)x(N_inportance+N_coarse)
+
+        # constuct pixel coor, first in camera space, camera origin is (0, 0, 0)
+        pixel_coor = torch.einsum('ij,ikj->ikj', ray_dir, z_pos.unsqueeze(-1).expand(-1, -1, 3)) # (NxHxW)x(N_inportance+N_coarse)x3
+        # convert to world space, first reshape to (N, 3, ((N_inportance+N_coarse)*H*W), then multiply cam2world
+        pixel_coor = pixel_coor.reshape(N, *size, N_inportance+N_coarse, 3).permute(0, 4, 3, 1, 2).reshape(N, 3, -1) # Nx3x((N_inportance+N_coarse)*H*W)
+        pixel_coor = torch.cat([pixel_coor, torch.ones(N, 1, pixel_coor.shape[-1]).to(pixel_coor.device)], dim=1) # Nx4x((N_inportance+N_coarse)*H*W)
+        pixel_coor = torch.bmm(cam2world, pixel_coor) # Nx4x((N_inportance+N_coarse)*H*W)
+        pixel_coor = pixel_coor[:, :3, :] # Nx3x((N_inportance+N_coarse)*H*W)
+        pixel_coor = pixel_coor.permute(0, 2, 1).flatten(0, 1) # ((NxHxW)x(N_inportance+N_coarse))x3
+
+        # transform to nss space
+        pixel_coor = pixel_coor / self.nss_scale
+
+        return pixel_coor, z_vals
     
 
 if __name__ == '__main__':

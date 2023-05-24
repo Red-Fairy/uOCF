@@ -67,6 +67,7 @@ class BaseOptions():
         parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
         parser.add_argument('--not_strict', action='store_true', help='not strict load')
         parser.add_argument('--preextract', action='store_true', help='preextract features from encoder')
+        parser.add_argument('--encoder_type', type=str, default='SAM', help='SAM, DINO, or SD')
 
         self.initialized = True
         return parser
