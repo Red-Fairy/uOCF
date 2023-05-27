@@ -1,4 +1,5 @@
 from itertools import chain
+from pickle import FALSE
 
 import torch
 import torch.nn.functional as F
@@ -7,8 +8,12 @@ from . import networks
 import os
 import time
 from .projection import Projection, pixel2world
-from .model_T_sam_fgmask import Decoder, SlotAttention, FeatureAggregate
-from .model_general import dualRouteEncoder, sam_encoder
+from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
+from .model_general import SlotAttentionFG as SlotAttention
+from .model_general import DecoderFG as Decoder
+from .utils import *
+from segment_anything import sam_model_registry
+from .SD.ldm_extractor import LdmExtractor
 from segment_anything import sam_model_registry
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
@@ -18,7 +23,7 @@ from piq import ssim as compute_ssim
 from piq import psnr as compute_psnr
 
 
-class uorfEvalTsamFGMaskModel(BaseModel):
+class uorfGeneralMaskEvalModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -37,7 +42,8 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 		parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
 		parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
 		parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
-		parser.add_argument('--obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects')
+		parser.add_argument('--obj_scale', type=float, default=4.5, help='slot-centric locality constraint')
+		parser.add_argument('--world_obj_scale', type=float, default=4.5, help='locality constraint in world space')
 		parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
 		parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
 		parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
@@ -51,6 +57,7 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
 		parser.add_argument('--use_mask', action='store_true', help='use mask to filter out background')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
+		parser.add_argument('--centered', action='store_true', help='object at center of world')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -81,22 +88,34 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 
 		z_dim = opt.color_dim + opt.shape_dim
 
-		if not opt.preextract:
+		if opt.encoder_type == 'SAM':
 			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-			self.sam_encoder = sam_encoder(sam_model).cuda().eval()
-
-		self.netEncoder = networks.init_net(dualRouteEncoder(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim,),
+			self.pretrained_encoder = SAMViT(sam_model).to(self.device).eval()
+			vit_dim = 256
+			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=vit_dim),
+													gpu_ids=self.gpu_ids, init_type='normal')
+		elif opt.encoder_type == 'DINO':
+			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
+			dino_dim = 768
+			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
+				       								gpu_ids=self.gpu_ids, init_type='normal')
+		elif opt.encoder_type == 'SD':
+			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
+			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
 												gpu_ids=self.gpu_ids, init_type='normal')
+		else:
+			assert False
+
 		if not opt.feature_aggregate:
 			self.netSlotAttention = networks.init_net(
-				SlotAttention(in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
 		else:
+			assert False
 			self.netSlotAttention = networks.init_net(
 				FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
-			
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
+													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world, locality=False,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
@@ -151,25 +170,28 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
 		# Encoding images
-		if self.opt.preextract:
-			feature_map_sam = self.x_feats[0:1].to(dev)
-		else:
+		if self.opt.encoder_type == 'SAM':
 			with torch.no_grad():
-				feature_map_sam = self.sam_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-		# Encoder receives feature map from SAM and resized images as inputs
-		feature_map = self.netEncoder(feature_map_sam,
-			F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW, C: shape_dim+color_dim (z_dim+texture_dim)
+				feature_map = self.pretrained_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
+		elif self.opt.encoder_type == 'DINO':
+			with torch.no_grad():
+				feat_size = 64
+				feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
+		elif self.opt.encoder_type == 'SD':
+			with torch.no_grad():
+				feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
+		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+		feature_map_shape, feature_map_color = self.netEncoder(feature_map,
+				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
-		feat = feature_map.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		# self.masks = F.interpolate(self.masks, size=feat_shape.shape[1:3], mode='nearest')  # Kx1xHxW
 		# self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW
 
 		# Slot Attention
-		use_mask = self.opt.use_mask
-		if not self.opt.feature_aggregate:
-			z_slots, fg_slot_position, attn = self.netSlotAttention(feat, self.masks_fg, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN
-			z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
-		else:
-			z_slots, fg_slot_position = self.netSlotAttention(feat, self.masks_fg, use_mask=use_mask)  # KxC, Kx2
+		z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape, feat_color)  # 1xKxC, 1xKx2, 1xKxN
+		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
 
 		K = z_slots.shape[0]
@@ -202,7 +224,6 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
 
-		
 		if not self.opt.no_loss:
 			x_recon_novel, x_novel = x_recon[1:], x[1:]
 			self.loss_recon = self.L2_loss(x_recon_novel, x_novel)
@@ -254,7 +275,7 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
 			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, self.z_slots, self.z_slots_texture, nss2cam0, self.fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, self.z_slots, nss2cam0, self.fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
@@ -274,11 +295,11 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 
    
-	def forward_position(self, fg_slot_image_position=None, fg_slot_nss_position=None, z_slots_texture=None, z_slots=None):
+	def forward_position(self, fg_slot_image_position=None, fg_slot_nss_position=None, z_slots=None):
 		assert fg_slot_image_position is None or fg_slot_nss_position is None
 		x = self.x
 		dev = x.device
-		K = self.attn.shape[0]
+		K = 1
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -291,11 +312,6 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 			fg_slot_nss_position = fg_slot_nss_position.to(dev)
 		else:
 			fg_slot_nss_position = self.fg_slot_nss_position.to(dev)
-
-		if z_slots_texture is not None:
-			z_slots_texture = z_slots_texture.to(dev)
-		else:
-			z_slots_texture = self.z_slots_texture.to(dev)
 
 		if z_slots is not None:
 			z_slots = z_slots.to(dev)
@@ -311,10 +327,9 @@ class uorfEvalTsamFGMaskModel(BaseModel):
 		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
+			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K, -1, -1)  # KxPx3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, z_slots_texture, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_fg_, z_slots, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])

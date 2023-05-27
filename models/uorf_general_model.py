@@ -11,17 +11,16 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_fgmask import Decoder
 # SlotAttention
-from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
-from .model_general import SlotAttentionFG as SlotAttention
+from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDSeparate
+from .model_general import SlotAttention, Decoder
 from .utils import *
 from segment_anything import sam_model_registry
 from .SD.ldm_extractor import LdmExtractor
 
 import torchvision
 
-class uorfSAM0512Model(BaseModel):
+class uorfGeneralModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -56,6 +55,8 @@ class uorfSAM0512Model(BaseModel):
 		parser.add_argument('--frustum_size', type=int, default=64)
 		parser.add_argument('--frustum_size_fine', type=int, default=128)
 		parser.add_argument('--attn_decay_steps', type=int, default=2e5)
+		parser.add_argument('--freezeInit_ratio', type=float, default=0.2)
+		parser.add_argument('--freezeInit_steps', type=int, default=0)
 		parser.add_argument('--coarse_epoch', type=int, default=600)
 		parser.add_argument('--near_plane', type=float, default=8)
 		parser.add_argument('--far_plane', type=float, default=18)
@@ -63,8 +64,8 @@ class uorfSAM0512Model(BaseModel):
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
-		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
-		parser.add_argument('--centered', action='store_true', help='object at center of world')
+		parser.add_argument('--load_pretrain', action='store_true', help='load partrained model')
+		parser.add_argument('--load_pretrain_path', type=str, default=None)
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -97,6 +98,7 @@ class uorfSAM0512Model(BaseModel):
 										  frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 
 		z_dim = opt.color_dim + opt.shape_dim
+		self.num_slots = opt.num_slots
 
 		if opt.encoder_type == 'SAM':
 			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
@@ -108,7 +110,7 @@ class uorfSAM0512Model(BaseModel):
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
 			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
-				       								gpu_ids=self.gpu_ids, init_type='normal')
+					   								gpu_ids=self.gpu_ids, init_type='normal')
 		elif opt.encoder_type == 'SD':
 			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
 			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
@@ -116,22 +118,12 @@ class uorfSAM0512Model(BaseModel):
 		else:
 			assert False
 
-		if not opt.feature_aggregate:
-			self.netSlotAttention = networks.init_net(
-				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
-		else:
-			self.netSlotAttention = networks.init_net(
-				FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
+		self.netSlotAttention = networks.init_net(
+				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
 													), gpu_ids=self.gpu_ids, init_type='xavier')
-
-		if self.isTrain:  # only defined during training time
-			requires_grad = lambda x: x.requires_grad
-			params = chain(self.netEncoder.parameters(),self.netSlotAttention.parameters(), self.netDecoder.parameters())
-			self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
-			self.optimizers = [self.optimizer]
 
 		self.L2_loss = nn.MSELoss()
 
@@ -142,8 +134,7 @@ class uorfSAM0512Model(BaseModel):
 							['x_rec{}'.format(i) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
-		if not self.opt.feature_aggregate:
-			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
+		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -151,10 +142,39 @@ class uorfSAM0512Model(BaseModel):
 			opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
 		"""
 		if self.isTrain:
-			self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
-		if not self.isTrain or opt.continue_train:
+			if opt.load_pretrain: # load pretraine models, e.g., object NeRF decoder
+				assert opt.load_pretrain_path is not None
+				param_names1 = self.load_pretrain_networks(opt.load_pretrain_path, opt.epoch)
+				# define two optimizers, one for keys in imcompatible.missing_keys, the other for the rest of the model
+				param_names2 = [name for name, _ in self.netEncoder.named_parameters() if name not in param_names1] + \
+								[name for name, _ in self.netSlotAttention.named_parameters() if name not in param_names1] + \
+								[name for name, _ in self.netDecoder.named_parameters() if name not in param_names1]
+				
+				print('New params:', param_names1, '\n', 'Length:', len(param_names1))
+				print('Loaded params:', param_names2, '\n', 'Length:', len(param_names2))
+				
+				# get corresponding parameters, may exist in either of the three models
+				params1 = [v for k, v in self.netEncoder.named_parameters() if k in param_names1] + \
+							[v for k, v in self.netSlotAttention.named_parameters() if k in param_names1] + \
+							[v for k, v in self.netDecoder.named_parameters() if k in param_names1]
+				params2 = [v for k, v in self.netEncoder.named_parameters() if k not in param_names1] + \
+							[v for k, v in self.netSlotAttention.named_parameters() if k not in param_names1] + \
+							[v for k, v in self.netDecoder.named_parameters() if k not in param_names1]
+				print('Length:', len(params1), len(params2))
+				self.optimizers = [optim.Adam(params1, lr=opt.lr), optim.Adam(params2, lr=opt.lr)]
+				self.schedulers = [networks.get_scheduler(self.optimizers[0], opt), networks.get_freezeInit_scheduler(self.optimizers[1], opt)]
+
+			else:
+				requires_grad = lambda x: x.requires_grad
+				params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())
+				self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
+				self.optimizers = [self.optimizer]
+				self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
+
+		if not self.isTrain or opt.continue_train: # resume
 			load_suffix = 'iter_{}'.format(opt.load_iter) if opt.load_iter > 0 else opt.epoch
 			self.load_networks(load_suffix)
+		
 		self.print_networks(opt.verbose)
 
 	def set_input(self, input):
@@ -162,17 +182,9 @@ class uorfSAM0512Model(BaseModel):
 		Parameters:
 			input: a dictionary that contains the data itself and its metadata information.
 		"""
-		self.x = input['img_data'].to(self.device) # N*3*H*W
-		assert 'img_data_large' in input or 'img_feats' in input
-		if 'img_data_large' in input:
-			self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W
-		else:
-			self.x_large = None
-			self.x_feats = input['img_feats'].to(self.device) # 1*H'*W'*C (H'=W'=64, C=1024)
+		self.x = input['img_data'].to(self.device)
+		self.x_large = input['img_data_large'].to(self.device)
 		self.cam2world = input['cam2world'].to(self.device)
-		self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
-		self.num_slots = self.masks.shape[0]
-		self.bg_mask = input['bg_mask'].float().to(self.device) # N*1*H*W
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 
@@ -205,19 +217,14 @@ class uorfSAM0512Model(BaseModel):
 
 		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		self.masks = F.interpolate(self.masks, size=feat_shape.shape[1:3], mode='nearest')  # Kx1xHxW
 	
 		# Slot Attention
-		use_mask = epoch < self.opt.mask_in
-		if not self.opt.feature_aggregate:
-			z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape, self.masks, use_mask=use_mask, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
-			z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
-		else:
-			z_slots, fg_slot_position = self.netSlotAttention(feat_shape.permute([0,3,1,2]), self.masks, use_mask, feat_color.permute([0,3,1,2]))  # KxC, Kx2
-			# z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, Kx2
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
+		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
+
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
 		
-		K = z_slots.shape[0]
+		K = attn.shape[0]
 			
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
@@ -240,12 +247,13 @@ class uorfSAM0512Model(BaseModel):
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 
-		sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
+		sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
+		sampling_coor_bg = frus_nss_coor  # Px3
 
 		local_locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
 		invariant = epoch >= self.opt.invariant_in
-		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 		raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 		masked_raws = masked_raws.view([K, N, D, H, W, 4])
 		unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
@@ -260,13 +268,12 @@ class uorfSAM0512Model(BaseModel):
 		self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
 
 		with torch.no_grad():
-			if not self.opt.feature_aggregate:
-				attn = attn.detach().cpu()  # KxN
-				H_, W_ = feature_map_shape.shape[2], feature_map_shape.shape[3]
-				attn = attn.view(self.opt.num_slots, 1, H_, W_)
-				if H_ != H:
-					attn = F.interpolate(attn, size=[H, W], mode='bilinear')
-				setattr(self, 'attn', attn)
+			attn = attn.detach().cpu()  # KxN
+			H_, W_ = feature_map_shape.shape[2], feature_map_shape.shape[3]
+			attn = attn.view(self.opt.num_slots, 1, H_, W_)
+			if H_ != H:
+				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+			setattr(self, 'attn', attn)
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 				setattr(self, 'x{}'.format(i), x[i])
@@ -295,8 +302,7 @@ class uorfSAM0512Model(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(self.opt.n_img_each_scene):
 					setattr(self, 'unmasked_slot{}_view{}'.format(k, i), x_recon[i])
-				if not self.opt.feature_aggregate:
-					setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
 			for k in range(self.num_slots, self.opt.num_slots):
 				# add dummy images

@@ -185,12 +185,12 @@ class BaseModel(ABC):
                 load_filename = '%s_net_%s.pth' % (epoch, name)
                 load_path = os.path.join(load_root, load_filename)
                 net = getattr(self, 'net' + name)
-                if self.opt.only_decoder and name != 'Decoder':
+                if isinstance(net, torch.nn.DataParallel):
+                    net = net.module
+                if name == 'SlotAttention':
                     for key, _ in net.named_parameters():
                         missing_keys.append(key)
                     continue
-                if isinstance(net, torch.nn.DataParallel):
-                    net = net.module
                 try:
                     print('loading the model from %s' % load_path)
                     if not os.path.isfile(load_path):

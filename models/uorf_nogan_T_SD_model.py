@@ -62,7 +62,6 @@ class uorfNoGanTSDModel(BaseModel):
         parser.add_argument('--surface_in', type=int, default=0)
         parser.add_argument('--load_pretrain', action='store_true', help='load partrained model')
         parser.add_argument('--load_pretrain_path', type=str, default=None)
-        parser.add_argument('--only_decoder', action='store_true', help='')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -230,7 +229,7 @@ class uorfNoGanTSDModel(BaseModel):
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
         sampling_coor_bg = frus_nss_coor  # Px3
 
-        locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale) if epoch >= self.opt.locality_in else None
+        locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         invariant = epoch >= self.opt.invariant_in
         # raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1

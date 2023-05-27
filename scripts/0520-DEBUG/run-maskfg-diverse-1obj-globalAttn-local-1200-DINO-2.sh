@@ -35,12 +35,12 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1200 --n_img_each_sc
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --coarse_epoch 240 --niter 240 --percept_in 40 --no_locality_epoch 60 --centered \
-    --world_obj_scale 3 --obj_scale 3 --near_plane 6 --far_plane 20 \
+    --world_obj_scale 3 --obj_scale 3 --near_plane 8 --far_plane 18 \
     --attn_decay_steps 100000 \
     --bg_color '-1' \
-    --exp_id '0522-TRAILS/attn-dualfeat-local-centered-DINO-noProject' \
+    --exp_id '0522-TRAILS/attn-dualfeat-local-centered-DINO-noProject-near8far18' \
     --save_epoch_freq 2 \
-    --dummy_info 'scale 3, near 6, far 20' \
+    --dummy_info 'scale 3, near 8, far 18' \
     
 
 # can try the following to list out which GPU you have access to
