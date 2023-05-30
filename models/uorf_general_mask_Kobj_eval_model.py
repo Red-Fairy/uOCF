@@ -9,7 +9,7 @@ import os
 import time
 from .projection import Projection, pixel2world
 from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
-from .model_general import SlotAttentionFG as SlotAttention
+from .model_general import SlotAttentionFGKobj as SlotAttention
 from .model_general import DecoderFG as Decoder
 from .utils import *
 from segment_anything import sam_model_registry
@@ -20,7 +20,7 @@ from piq import ssim as compute_ssim
 from piq import psnr as compute_psnr
 
 
-class uorfGeneralMaskEvalModel(BaseModel):
+class uorfGeneralMaskKobjEvalModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -54,7 +54,6 @@ class uorfGeneralMaskEvalModel(BaseModel):
 		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
 		parser.add_argument('--use_mask', action='store_true', help='use mask to filter out background')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
-		parser.add_argument('--centered', action='store_true', help='object at center of world')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -84,6 +83,7 @@ class uorfGeneralMaskEvalModel(BaseModel):
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 
 		z_dim = opt.color_dim + opt.shape_dim
+		self.num_slots = opt.num_slots
 
 		if opt.encoder_type == 'SAM':
 			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
@@ -106,7 +106,7 @@ class uorfGeneralMaskEvalModel(BaseModel):
 
 		if not opt.feature_aggregate:
 			self.netSlotAttention = networks.init_net(
-				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
+				SlotAttention(num_slots=self.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 		else:
 			assert False
 			self.netSlotAttention = networks.init_net(

@@ -22,25 +22,22 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-1obj-1200'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-1obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 1200 --n_img_each_scene 4  \
-    --checkpoints_dir 'checkpoints' --name 'room_diverse_mask' \
-    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
-    --load_size 256 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
-    --model 'uorf_general_mask' \
-    --num_slots 1 --attn_iter 3 \
+python test.py --dataroot $DATAROOT --n_scenes 20 --n_img_each_scene 4  \
+    --checkpoints_dir 'checkpoints' --name 'room_diverse_bg' \
+    --display_port $PORT --display_ncols 4 \
+    --load_size 128 --n_samp 128 --input_size 128 --render_size 32 --frustum_size 128 \
+    --model 'uorf_general_eval' \
+    --num_slots 2 --attn_iter 4 \
     --shape_dim 48 --color_dim 16 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --coarse_epoch 240 --niter 240 --percept_in 40 --no_locality_epoch 60 --centered \
-    --world_obj_scale 3 --obj_scale 3 --near_plane 6 --far_plane 20 \
-    --attn_decay_steps 100000 \
+    --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
     --bg_color '-1' \
-    --exp_id '0522-TRAILS/attn-dualfeat-local-centered-DINO-noProject' \
-    --save_epoch_freq 2 \
-    --dummy_info 'scale 3, near 6, far 20' \
+    --exp_id '0528-ProofOfConcepts/load-DINO-learn1obj-pos-freeze' \
+    --dummy_info 'regular test' --testset_name 'regular' \
     
 
 # can try the following to list out which GPU you have access to

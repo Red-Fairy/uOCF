@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:a5000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,19 +22,18 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-# DATAROOT=${1:-'/viscam/u/redfairy/room_diverse_generation/image_generation/datasets/1200shape_nobg-5000'}
-DATAROOT=${1:-'/viscam/u/redfairy/room_diverse_generation/image_generation/datasets/1200shape_nobg-5000'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_bg/train-4obj-manysize-orange'}
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_4obj' \
-    --display_port $PORT --display_ncols 4 --print_freq 200 --display_freq 200 --display_grad \
+    --display_port $PORT --display_ncols 4 --print_freq 50 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120  --niter 240 \
     --z_dim 64 --num_slots 5 --attn_iter 4 \
-    --exp_id 'uORF' \
+    --exp_id 'uORF-r2' \
     --model 'uorf_nogan' --bottom \
-    --lr 3e-4 \
-    --seed 2023 \
+    --lr '3e-4' \
+    --seed 12345 \
 # done
 echo "Done"

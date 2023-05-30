@@ -187,7 +187,7 @@ class BaseModel(ABC):
                 net = getattr(self, 'net' + name)
                 if isinstance(net, torch.nn.DataParallel):
                     net = net.module
-                if name == 'SlotAttention':
+                if name == 'SlotAttention' or name == 'Encoder':
                     for key, _ in net.named_parameters():
                         missing_keys.append(key)
                     continue

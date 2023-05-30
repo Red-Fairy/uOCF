@@ -17,7 +17,6 @@ from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, d
 from .model_general import SlotAttentionFG as SlotAttention
 from .utils import *
 from segment_anything import sam_model_registry
-from .SD.ldm_extractor import LdmExtractor
 
 import torchvision
 
@@ -110,6 +109,7 @@ class uorfGeneralMaskModel(BaseModel):
 			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
 				       								gpu_ids=self.gpu_ids, init_type='normal')
 		elif opt.encoder_type == 'SD':
+			from .SD.ldm_extractor import LdmExtractor
 			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
 			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
 												gpu_ids=self.gpu_ids, init_type='normal')

@@ -295,7 +295,7 @@ class EncoderPosEmbedding(nn.Module):
 		return k_bg, v_bg # (b, 1, h*w, d)
 
 class SlotAttention(nn.Module):
-	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128, learnable_pos=True):
+	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128, learnable_pos=True, n_feats=64*64):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
@@ -309,11 +309,12 @@ class SlotAttention(nn.Module):
 		self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
 		init.xavier_uniform_(self.slots_logsigma_bg)
 
-		if learnable_pos:
-			self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 2 - 1)
-		else:
-			self.fg_position = None
-		
+		self.learnable_pos = learnable_pos
+		self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 1.5 - 0.75)
+		if self.learnable_pos:
+			self.attn_to_pos_bias = nn.Linear(n_feats, 2, bias=False)
+			self.attn_to_pos_bias.weight.data.zero_()
+
 		self.to_kv = EncoderPosEmbedding(in_dim, slot_dim)
 		self.to_q = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
 		self.to_q_bg = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
@@ -387,6 +388,8 @@ class SlotAttention(nn.Module):
 			# update slot position
 			# print(attn_weights_fg.shape, grid.shape, fg_position.shape)
 			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+			if self.learnable_pos: # add a bias term
+				fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
 			
 			if it != self.iters - 1:
 			
@@ -424,6 +427,136 @@ class SlotAttention(nn.Module):
 		slots = torch.cat([slots_bg, slots_fg], dim=1) # (B,K,C+C')
 				
 		return slots, attn, fg_position
+
+class Decoder(nn.Module):
+	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
+					project=False, rel_pos=True, fg_in_world=False):
+		"""
+		freq: raised frequency
+		input_dim: pos emb dim + slot dim
+		z_dim: network latent dim
+		n_layers: #layers before/after skip connection.
+		locality: if True, for each obj slot, clamp sigma values to 0 outside obj_scale.
+		locality_ratio: if locality, what value is the boundary to clamp?
+		fixed_locality: if True, compute locality in world space instead of in transformed view space
+		"""
+		super().__init__()
+		super().__init__()
+		self.n_freq = n_freq
+		self.locality = locality
+		self.locality_ratio = locality_ratio
+		self.fixed_locality = fixed_locality
+		self.out_ch = 4
+		self.z_dim = z_dim
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers-1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		self.f_before = nn.Sequential(*before_skip)
+		self.f_after = nn.Sequential(*after_skip)
+		self.f_after_latent = nn.Linear(z_dim, z_dim)
+		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
+		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
+									 nn.ReLU(True),
+									 nn.Linear(z_dim//4, 3))
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers - 1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		after_skip.append(nn.Linear(z_dim, self.out_ch))
+		self.b_before = nn.Sequential(*before_skip)
+		self.b_after = nn.Sequential(*after_skip)
+
+		if project:
+			self.position_project = nn.Linear(2, self.z_dim)
+			self.position_project.weight.data.zero_()
+			self.position_project.bias.data.zero_()
+		else:
+			self.position_project = None
+		self.rel_pos = rel_pos
+		self.fg_in_world = fg_in_world
+
+	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, local_locality_ratio=None):
+		"""
+		1. pos emb by Fourier
+		2. for each slot, decode all points from coord and slot feature
+		input:
+			sampling_coor_bg: Px3, P = #points, typically P = NxDxHxW
+			sampling_coor_fg: (K-1)xPx3
+			z_slots: KxC, K: #slots, C: #feat_dim
+			z_slots_texture: KxC', K: #slots, C: #texture_dim
+			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
+			fg_slot_position: (K-1)x3 in nss space
+			dens_noise: Noise added to density
+		"""
+		K, C = z_slots.shape
+		P = sampling_coor_bg.shape[0]
+
+		if self.fixed_locality:
+			# first compute the originallocality constraint
+			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
+			if self.rel_pos and invariant:
+				# then compute the transformed locality constraint
+				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
+			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
+			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
+			if local_locality_ratio is not None:
+				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
+		else:
+			# currently do not support fg_in_world
+			# first compute the original locality constraint
+			sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3
+			outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+			# relative position with fg slot position
+			if self.rel_pos and invariant:
+				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3
+			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3
+			if local_locality_ratio is not None:
+				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
+
+		z_bg = z_slots[0:1, :]  # 1xC
+		z_fg = z_slots[1:, :]  # (K-1)xC
+
+		if self.position_project is not None and invariant:
+			z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # (K-1)xC
+
+		query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
+		input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
+
+		sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
+		query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
+		z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
+		input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
+
+		tmp = self.b_before(input_bg)
+		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px5 -> 1xPx5
+		tmp = self.f_before(input_fg)
+		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # ((K-1)xP)x64
+		latent_fg = self.f_after_latent(tmp)  # ((K-1)xP)x64
+		fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
+		fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
+		if self.locality:
+			fg_raw_shape[outsider_idx] *= 0
+		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
+
+		all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # KxPx4
+		raw_masks = F.relu(all_raws[:, :, -1:], True)  # KxPx1
+		masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # KxPx1
+		raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
+		raw_sigma = raw_masks + dens_noise * torch.randn_like(raw_masks)
+
+		unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # KxPx4
+		masked_raws = unmasked_raws * masks
+		raws = masked_raws.sum(dim=0)
+
+		return raws, masked_raws, unmasked_raws, masks
 
 class EncoderPosEmbeddingFG(nn.Module):
 	def __init__(self, dim, slot_dim, hidden_dim=128):
@@ -579,15 +712,121 @@ class SlotAttentionFG(nn.Module):
 			if it != self.iters - 1: # do not update slot for the last iteration
 				slot_fg = self.gru_fg(updates_fg.reshape(-1, self.slot_dim), slot_fg.reshape(-1, self.slot_dim)).reshape(B, K, self.slot_dim) # BxKxC
 				slot_fg = self.to_res_fg(slot_fg) + slot_prev_fg # BxKx2
-				# normalize attn for visualization (min-max normalization along the N dimension)
 			else: # last iteration, compute the slots' color feature if feat_color is not None
 				if feat_color is not None:
 					# weighted mean of the color feature, with attention as weights
 					slot_fg_color = torch.einsum('bkn,bnc->bkc', attn, feat_color.flatten(1, 2)) # BxKxC'
 					slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # BxKx(C+C')
 
-		# calculate attn for visualization
+		# normalize attn for visualization (min-max normalization along the N dimension)
 		attn = (attn - attn.min(dim=2, keepdim=True)[0]) / (attn.max(dim=2, keepdim=True)[0] - attn.min(dim=2, keepdim=True)[0] + 1e-5)
+				
+		return slot_fg, fg_position, attn
+
+
+class SlotAttentionFGKobj(nn.Module):
+	def __init__(self, in_dim=64, slot_dim=64, color_dim=16, iters=4, eps=1e-8, hidden_dim=64, num_slots=3, n_feats=64*64):
+		'''
+		in_dim: dimension for input image feature (shape feature dim)
+		color_dim: dimension for color feature (color feature dim)
+		slot_dim: dimension for slot feature (output slot dim), final output dim is slot_dim + color_dim. Currently slot_dim == in_dim
+		'''
+		super().__init__()
+		# self.num_slots = num_slots
+		self.iters = iters
+		self.eps = eps
+		self.scale = slot_dim ** -0.5
+
+		self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
+		self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
+		init.xavier_uniform_(self.slots_logsigma)
+		
+		self.to_kv = EncoderPosEmbeddingFG(in_dim, slot_dim)
+
+		self.to_q = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
+
+		self.gru_fg = nn.GRUCell(slot_dim, slot_dim)
+
+		self.norm_feat = nn.LayerNorm(in_dim)
+		if color_dim != 0:
+			self.norm_feat_color = nn.LayerNorm(color_dim)
+		self.slot_dim = slot_dim
+
+		self.to_res_fg = nn.Sequential(nn.LayerNorm(slot_dim),
+										nn.Linear(slot_dim, slot_dim))
+
+		self.num_slots = num_slots # foreground slots
+		self.fg_position = nn.Parameter(torch.rand(1, num_slots, 2) * 1.5 - 0.75) # initialize the position of foreground slots to [-0.75, 0.75]
+		# map the attention map of a slot to its position from H*W to 2
+		self.attn_to_pos_bias = nn.Linear(n_feats, 2, bias=False)
+		self.attn_to_pos_bias.weight.data.zero_()
+
+	def forward(self, feat, feat_color=None):
+		"""
+		input:
+			feat: visual feature with position information, BxHxWxC
+			mask: mask for foreground objects, KxHxW, K: number of foreground objects (exclude background)
+			feat_color: color feature, BxHxWxC'
+		output:
+			slot_feat: slot feature, BxKx(C+C') if feat_color is not None else BxKxC
+		"""
+		B, H, W, _ = feat.shape
+		N = H * W
+		feat = feat.flatten(1, 2) # (B, N, C)
+		K = self.num_slots
+
+		mu = self.slots_mu.expand(B, K, -1)
+		sigma = self.slots_logsigma.exp().expand(B, K, -1)
+		slot_fg = mu + sigma * torch.randn_like(mu)
+		
+		fg_position = self.fg_position.expand(B, -1, -1).to(feat.device) # BxKx2
+		
+		feat = self.norm_feat(feat)
+		if feat_color is not None:
+			feat_color = self.norm_feat_color(feat_color)
+
+		grid = build_grid(H, W, device=feat.device).flatten(1, 2) # (1,N,2)
+
+		# attn = None
+		for it in range(self.iters):
+			slot_prev_fg = slot_fg
+			q_fg = self.to_q(slot_fg)
+			
+			attn = torch.empty(B, K, N, device=feat.device)
+			
+			k, v = self.to_kv(feat, H, W, fg_position) # (B,K,N,C)
+
+			updates_fg = torch.empty(B, K, self.slot_dim, device=feat.device)
+			
+			for i in range(K):
+				attn[:, i] = torch.einsum('bd,bnd->bn', q_fg[:, i, :], k[:, i, :, :]) * self.scale # BxN
+			
+			if K != 1:
+				attn = attn.softmax(dim=1) # BxKxN, first normalize along the slot dimension
+				attn_weights = attn / attn.sum(dim=2, keepdim=True) # BxKxN, then normalize along the N dimension
+			else:
+				attn = attn.softmax(dim=-1) # BxKxN, only one slot, directly normalize along the N dimension
+				attn_weights = attn
+
+			for i in range(K):
+				updates_fg[:, i, :] = torch.einsum('bn,bnd->bd', attn_weights[:, i, :], v[:, i, :, :]) # BxC
+			
+			# update position, fg_position: BxKx2
+			# compute the weighted mean of the attention map of a slot, with attention as weights
+			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights, grid) # BxKx2
+			fg_position = self.attn_to_pos_bias(attn_weights) / 5 + fg_position # BxKx2
+
+			if it != self.iters - 1: # do not update slot for the last iteration
+				slot_fg = self.gru_fg(updates_fg.reshape(-1, self.slot_dim), slot_fg.reshape(-1, self.slot_dim)).reshape(B, K, self.slot_dim) # BxKxC
+				slot_fg = self.to_res_fg(slot_fg) + slot_prev_fg # BxKx2
+			else: # last iteration, compute the slots' color feature if feat_color is not None
+				if feat_color is not None:
+					# weighted mean of the color feature, with attention as weights
+					slot_fg_color = torch.einsum('bkn,bnc->bkc', attn_weights, feat_color.flatten(1, 2)) # BxKxC'
+					slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # BxKx(C+C')
+		
+		if K == 1: # normalize attn for visualization (min-max normalization along the N dimension), when K==1
+			attn = (attn - attn.min(dim=2, keepdim=True)[0]) / (attn.max(dim=2, keepdim=True)[0] - attn.min(dim=2, keepdim=True)[0] + 1e-5)
 				
 		return slot_fg, fg_position, attn
 
@@ -679,10 +918,7 @@ class DecoderFG(nn.Module):
 		z_fg = z_slots
 
 		if self.position_project is not None and invariant:
-			# w/ and w/o residual connection
 			z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # KxC
-			# slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2
-			# z_slots = self.position_project(slot_position) + z_slots # KxC
 
 		sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # (KxP)x3
 		query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # (KxP)x60
@@ -745,136 +981,6 @@ class FeatureAggregate(nn.Module):
 			x = self.pool(x).squeeze(-1).squeeze(-1) # BxC
 		fg_position = self.get_fg_position(mask) # K*2
 		return x, fg_position
-
-class Decoder(nn.Module):
-	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
-					project=False, rel_pos=True, fg_in_world=False):
-		"""
-		freq: raised frequency
-		input_dim: pos emb dim + slot dim
-		z_dim: network latent dim
-		n_layers: #layers before/after skip connection.
-		locality: if True, for each obj slot, clamp sigma values to 0 outside obj_scale.
-		locality_ratio: if locality, what value is the boundary to clamp?
-		fixed_locality: if True, compute locality in world space instead of in transformed view space
-		"""
-		super().__init__()
-		super().__init__()
-		self.n_freq = n_freq
-		self.locality = locality
-		self.locality_ratio = locality_ratio
-		self.fixed_locality = fixed_locality
-		self.out_ch = 4
-		self.z_dim = z_dim
-		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
-		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
-		for i in range(n_layers-1):
-			before_skip.append(nn.Linear(z_dim, z_dim))
-			before_skip.append(nn.ReLU(True))
-			after_skip.append(nn.Linear(z_dim, z_dim))
-			after_skip.append(nn.ReLU(True))
-		self.f_before = nn.Sequential(*before_skip)
-		self.f_after = nn.Sequential(*after_skip)
-		self.f_after_latent = nn.Linear(z_dim, z_dim)
-		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
-		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
-									 nn.ReLU(True),
-									 nn.Linear(z_dim//4, 3))
-		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
-		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
-		for i in range(n_layers - 1):
-			before_skip.append(nn.Linear(z_dim, z_dim))
-			before_skip.append(nn.ReLU(True))
-			after_skip.append(nn.Linear(z_dim, z_dim))
-			after_skip.append(nn.ReLU(True))
-		after_skip.append(nn.Linear(z_dim, self.out_ch))
-		self.b_before = nn.Sequential(*before_skip)
-		self.b_after = nn.Sequential(*after_skip)
-
-		if project:
-			self.position_project = nn.Linear(2, self.z_dim)
-			self.position_project.weight.data.zero_()
-			self.position_project.bias.data.zero_()
-		else:
-			self.position_project = None
-		self.rel_pos = rel_pos
-		self.fg_in_world = fg_in_world
-
-	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, local_locality_ratio=None):
-		"""
-		1. pos emb by Fourier
-		2. for each slot, decode all points from coord and slot feature
-		input:
-			sampling_coor_bg: Px3, P = #points, typically P = NxDxHxW
-			sampling_coor_fg: (K-1)xPx3
-			z_slots: KxC, K: #slots, C: #feat_dim
-			z_slots_texture: KxC', K: #slots, C: #texture_dim
-			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
-			fg_slot_position: (K-1)x3 in nss space
-			dens_noise: Noise added to density
-		"""
-		K, C = z_slots.shape
-		P = sampling_coor_bg.shape[0]
-
-		if self.fixed_locality:
-			# first compute the originallocality constraint
-			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
-			if self.rel_pos and invariant:
-				# then compute the transformed locality constraint
-				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
-			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
-			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
-			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
-			if local_locality_ratio is not None:
-				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
-		else:
-			# currently do not support fg_in_world
-			# first compute the original locality constraint
-			sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3
-			outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
-			# relative position with fg slot position
-			if self.rel_pos and invariant:
-				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3
-			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3
-			if local_locality_ratio is not None:
-				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
-
-		z_bg = z_slots[0:1, :]  # 1xC
-		z_fg = z_slots[1:, :]  # (K-1)xC
-
-		if self.position_project is not None and invariant:
-			z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # (K-1)xC
-
-		query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
-		input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
-
-		sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
-		query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
-		z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
-		input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
-
-		tmp = self.b_before(input_bg)
-		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px5 -> 1xPx5
-		tmp = self.f_before(input_fg)
-		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # ((K-1)xP)x64
-		latent_fg = self.f_after_latent(tmp)  # ((K-1)xP)x64
-		fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
-		fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
-		if self.locality:
-			fg_raw_shape[outsider_idx] *= 0
-		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
-
-		all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # KxPx4
-		raw_masks = F.relu(all_raws[:, :, -1:], True)  # KxPx1
-		masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # KxPx1
-		raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
-		raw_sigma = raw_masks + dens_noise * torch.randn_like(raw_masks)
-
-		unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # KxPx4
-		masked_raws = unmasked_raws * masks
-		raws = masked_raws.sum(dim=0)
-
-		return raws, masked_raws, unmasked_raws, masks
-
+	
 						
 	

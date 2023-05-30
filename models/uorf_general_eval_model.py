@@ -9,8 +9,8 @@ import os
 import time
 from .projection import Projection, pixel2world
 from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
-from .model_general import SlotAttentionFG as SlotAttention
-from .model_general import DecoderFG as Decoder
+from .model_general import SlotAttention
+from .model_general import Decoder
 from .utils import *
 from segment_anything import sam_model_registry
 from util.util import AverageMeter
@@ -20,7 +20,7 @@ from piq import ssim as compute_ssim
 from piq import psnr as compute_psnr
 
 
-class uorfGeneralMaskEvalModel(BaseModel):
+class uorfGeneralEvalModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -52,9 +52,7 @@ class uorfGeneralMaskEvalModel(BaseModel):
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--no_loss', action='store_true')
 		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
-		parser.add_argument('--use_mask', action='store_true', help='use mask to filter out background')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
-		parser.add_argument('--centered', action='store_true', help='object at center of world')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -84,6 +82,7 @@ class uorfGeneralMaskEvalModel(BaseModel):
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 
 		z_dim = opt.color_dim + opt.shape_dim
+		self.num_slots = opt.num_slots
 
 		if opt.encoder_type == 'SAM':
 			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
@@ -104,16 +103,11 @@ class uorfGeneralMaskEvalModel(BaseModel):
 		else:
 			assert False
 
-		if not opt.feature_aggregate:
-			self.netSlotAttention = networks.init_net(
-				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
-		else:
-			assert False
-			self.netSlotAttention = networks.init_net(
-				FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
+		self.netSlotAttention = networks.init_net(
+				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world, locality=False,
+													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
@@ -126,8 +120,7 @@ class uorfGeneralMaskEvalModel(BaseModel):
 							['input_image'] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 							# ['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
-		if not self.opt.feature_aggregate:
-			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
+		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -159,7 +152,6 @@ class uorfGeneralMaskEvalModel(BaseModel):
 		self.fg_idx = input['fg_idx']
 		self.obj_idxs = input['obj_idxs']  # (K+1)x1xHxW
 		self.masks_fg = input['obj_idxs_fg'].to(self.device)  # Kx1xHxW
-		self.num_slots = self.masks_fg.shape[0]
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -184,12 +176,11 @@ class uorfGeneralMaskEvalModel(BaseModel):
 
 		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		# self.masks = F.interpolate(self.masks, size=feat_shape.shape[1:3], mode='nearest')  # Kx1xHxW
-		# self.masks = F.interpolate(self.masks, size=feat.shape[1:3], mode='nearest')  # Kx1xHxW
-
+	
 		# Slot Attention
-		z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape, feat_color)  # 1xKxC, 1xKx2, 1xKxN
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
+
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
 
 		K = z_slots.shape[0]
@@ -207,9 +198,10 @@ class uorfGeneralMaskEvalModel(BaseModel):
 		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K, -1, -1)  # KxPx3
+			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
+			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_fg_, z_slots, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0, fg_slot_nss_position)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
@@ -367,8 +359,7 @@ class uorfGeneralMaskEvalModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(self.opt.n_img_each_scene):
 					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-				if not self.opt.feature_aggregate:
-					setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
 			# for k in range(self.num_slots):
 			# 	raws = unmasked_raws[k]  # NxDxHxWx4
