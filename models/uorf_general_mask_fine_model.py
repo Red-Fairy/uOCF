@@ -20,7 +20,7 @@ from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfSAM0512FineModel(BaseModel):
+class uorfGeneralMaskFineModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -49,8 +49,8 @@ class uorfSAM0512FineModel(BaseModel):
 		parser.add_argument('--percept_in', type=int, default=100)
 		parser.add_argument('--mask_in', type=int, default=0)
 		parser.add_argument('--no_locality_epoch', type=int, default=600)
-		parser.add_argument('--locality_in', type=int, default=10)
-		parser.add_argument('--locality_full', type=int, default=10)
+		parser.add_argument('--locality_in', type=int, default=1000)
+		parser.add_argument('--locality_full', type=int, default=0)
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
 		parser.add_argument('--frustum_size', type=int, default=64)
@@ -64,6 +64,7 @@ class uorfSAM0512FineModel(BaseModel):
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
 		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
+		parser.add_argument('--centered', action='store_true', help='object at center of world')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -118,10 +119,11 @@ class uorfSAM0512FineModel(BaseModel):
 			
 		if not opt.feature_aggregate:
 			self.netSlotAttention = networks.init_net(
-				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
 		else:
 			self.netSlotAttention = networks.init_net(
 				FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
+			
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
