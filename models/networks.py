@@ -859,7 +859,7 @@ def get_freezeInit_scheduler(optimizer, opt=None, params=None):
     if opt is not None:
         freezeInit_ratio, freezeInit_steps, num_warmup_steps, num_decay_steps = opt.freezeInit_ratio, opt.freezeInit_steps, opt.warmup_steps, opt.attn_decay_steps
     elif params is not None:
-        num_freeze_steps, num_warmup_steps, num_decay_steps = params
+        freezeInit_ratio, freezeInit_steps, num_warmup_steps, num_decay_steps = params
     else:
         assert False
     decay_base = 0.5

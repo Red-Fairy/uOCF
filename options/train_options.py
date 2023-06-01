@@ -28,6 +28,12 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--lr', type=float, default=0.0003, help='initial learning rate for adam')
         parser.add_argument('--lr_policy', type=str, default='linear', help='learning rate policy. [linear | step | plateau | cosine]')
         parser.add_argument('--lr_decay_iters', type=int, default=50, help='multiply by a gamma every lr_decay_iters iterations')
+        # load pretrained networks
+        parser.add_argument('--load_pretrain', action='store_true', help='load the pretrained model from the specified location')
+        parser.add_argument('--load_pretrain_path', type=str, default=None, help='load the pretrained model from the specified location')
+        parser.add_argument('--load_decoder', type=str, default='unload', help='load decoder')
+        parser.add_argument('--load_encoder', type=str, default='unload', help='load encoder')
+        parser.add_argument('--load_slotattention', type=str, default='unload', help='load slotattention')
         
 
         self.isTrain = True

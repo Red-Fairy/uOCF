@@ -1,3 +1,4 @@
+from json import load
 import os
 import torch
 from collections import OrderedDict
@@ -179,34 +180,77 @@ class BaseModel(ABC):
         load pretrained networks, some network may not exist,
         and keys in the pretrained networks may be fewer than current networks
         """
-        missing_keys = []
+        unloaded_keys = []
+        loaded_keys_frozen = []
+        loaded_keys_trainable = []
+
+        def load_module(module_name, load_method='unload'):
+            # unload, load and freeze, load and train
+            load_filename = '%s_net_%s.pth' % (epoch, module_name)
+            load_path = os.path.join(load_root, load_filename)
+            net = getattr(self, 'net' + module_name)
+            if isinstance(net, torch.nn.DataParallel):
+                net = net.module
+            if load_method == 'unload':
+                for key, _ in net.named_parameters():
+                    unloaded_keys.append(key)
+            else:
+                assert os.path.isfile(load_path), 'Pretrained network %s not exist' % load_path
+                print('loading the model from %s' % load_path)
+                state_dict = torch.load(load_path, map_location=str(self.device))
+                if 'fg_position' in state_dict:
+                    del state_dict['fg_position'] 
+                incompatible = net.load_state_dict(state_dict, strict=False)
+                if incompatible.missing_keys:
+                    for key in incompatible.missing_keys:
+                        unloaded_keys.append(key)
+                if incompatible.unexpected_keys:
+                    assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
+                    # add loaded keys to loaded_keys_frozen
+                for key, _ in net.named_parameters():
+                    if key not in incompatible.missing_keys:
+                        if load_method == 'load_freeze':
+                            loaded_keys_frozen.append(key)
+                        elif load_method == 'load_train':
+                            loaded_keys_trainable.append(key)
+
         for name in self.model_names:
-            if isinstance(name, str):
-                load_filename = '%s_net_%s.pth' % (epoch, name)
-                load_path = os.path.join(load_root, load_filename)
-                net = getattr(self, 'net' + name)
-                if isinstance(net, torch.nn.DataParallel):
-                    net = net.module
-                if name == 'SlotAttention' or name == 'Encoder':
-                    for key, _ in net.named_parameters():
-                        missing_keys.append(key)
-                    continue
-                try:
-                    print('loading the model from %s' % load_path)
-                    if not os.path.isfile(load_path):
-                        print(f'{load_path} not exist, skip')
-                        continue
-                    state_dict = torch.load(load_path, map_location=str(self.device))
-                    incompatible = net.load_state_dict(state_dict, strict=False)
-                    if incompatible.missing_keys:
-                        print(f'missing keys in state_dict: {incompatible.missing_keys}')
-                        missing_keys.extend(incompatible.missing_keys)
-                    if incompatible.unexpected_keys:
-                        print(f'Found unexpected keys in state_dict: {incompatible.unexpected_keys}, failed to load')
-                        assert False
-                except:
-                    print('Pretrained network %s not found. Keep training with initialized weights' % load_path)
-        return missing_keys
+            load_type = getattr(self.opt, 'load_' + name.lower()) if hasattr(self.opt, 'load_' + name.lower()) else 'unload'
+            load_module(name, load_type)
+        
+        return unloaded_keys, loaded_keys_frozen, loaded_keys_trainable
+        # missing_names = ['SlotAttention']
+        # if not self.opt.load_encoder and 'Encoder' in self.model_names:
+        #     missing_names.append('Encoder')
+        # if not self.opt.load_decoder and 'Decoder' in self.model_names:
+        #     missing_names.append('Decoder')
+        # for name in self.model_names:
+        #     if isinstance(name, str):
+        #         load_filename = '%s_net_%s.pth' % (epoch, name)
+        #         load_path = os.path.join(load_root, load_filename)
+        #         net = getattr(self, 'net' + name)
+        #         if isinstance(net, torch.nn.DataParallel):
+        #             net = net.module
+        #         if name in missing_names:
+        #             for key, _ in net.named_parameters():
+        #                 missing_keys.append(key)
+        #             continue
+        #         try:
+        #             print('loading the model from %s' % load_path)
+        #             if not os.path.isfile(load_path):
+        #                 print(f'{load_path} not exist, skip')
+        #                 continue
+        #             state_dict = torch.load(load_path, map_location=str(self.device))
+        #             incompatible = net.load_state_dict(state_dict, strict=False)
+        #             if incompatible.missing_keys:
+        #                 print(f'missing keys in state_dict: {incompatible.missing_keys}')
+        #                 missing_keys.extend(incompatible.missing_keys)
+        #             if incompatible.unexpected_keys:
+        #                 print(f'Found unexpected keys in state_dict: {incompatible.unexpected_keys}, failed to load')
+        #                 assert False
+        #         except:
+        #             print('Pretrained network %s not found. Keep training with initialized weights' % load_path)
+        # return missing_keys
 
     def load_networks(self, epoch):
         """Load all the networks from the disk.

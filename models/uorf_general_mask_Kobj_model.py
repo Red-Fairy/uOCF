@@ -48,8 +48,8 @@ class uorfGeneralMaskKobjModel(BaseModel):
 		parser.add_argument('--percept_in', type=int, default=100)
 		parser.add_argument('--mask_in', type=int, default=0)
 		parser.add_argument('--no_locality_epoch', type=int, default=600)
-		parser.add_argument('--locality_in', type=int, default=10)
-		parser.add_argument('--locality_full', type=int, default=10)
+		parser.add_argument('--locality_in', type=int, default=1000)
+		parser.add_argument('--locality_full', type=int, default=0)
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
 		parser.add_argument('--frustum_size', type=int, default=64)
@@ -65,8 +65,6 @@ class uorfGeneralMaskKobjModel(BaseModel):
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
 		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
-		parser.add_argument('--load_pretrain', action='store_true', help='load partrained model')
-		parser.add_argument('--load_pretrain_path', type=str, default=None)
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
@@ -111,7 +109,7 @@ class uorfGeneralMaskKobjModel(BaseModel):
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
 			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
-				       								gpu_ids=self.gpu_ids, init_type='normal')
+					   								gpu_ids=self.gpu_ids, init_type='normal')
 		elif opt.encoder_type == 'SD':
 			from .SD.ldm_extractor import LdmExtractor
 			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
@@ -145,33 +143,56 @@ class uorfGeneralMaskKobjModel(BaseModel):
 			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 	def setup(self, opt):
-		"""Load and print networks; create schedulers
+		"""
+		Load and print networks; create schedulers
 		Parameters:
 			opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
 		"""
 		if self.isTrain:
 			if opt.load_pretrain: # load pretraine models, e.g., object NeRF decoder
 				assert opt.load_pretrain_path is not None
-				param_names1 = self.load_pretrain_networks(opt.load_pretrain_path, opt.epoch)
-				# define two optimizers, one for keys in imcompatible.missing_keys, the other for the rest of the model
-				param_names2 = [name for name, _ in self.netEncoder.named_parameters() if name not in param_names1] + \
-								[name for name, _ in self.netSlotAttention.named_parameters() if name not in param_names1] + \
-								[name for name, _ in self.netDecoder.named_parameters() if name not in param_names1]
-				
-				print('New params:', param_names1, '\n', 'Length:', len(param_names1))
-				print('Loaded params:', param_names2, '\n', 'Length:', len(param_names2))
-				
-				# get corresponding parameters, may exist in either of the three models
-				params1 = [v for k, v in self.netEncoder.named_parameters() if k in param_names1] + \
-							[v for k, v in self.netSlotAttention.named_parameters() if k in param_names1] + \
-							[v for k, v in self.netDecoder.named_parameters() if k in param_names1]
-				params2 = [v for k, v in self.netEncoder.named_parameters() if k not in param_names1] + \
-							[v for k, v in self.netSlotAttention.named_parameters() if k not in param_names1] + \
-							[v for k, v in self.netDecoder.named_parameters() if k not in param_names1]
-				print('Length:', len(params1), len(params2))
-				self.optimizers = [optim.Adam(params1, lr=opt.lr), optim.Adam(params2, lr=opt.lr)]
-				self.schedulers = [networks.get_scheduler(self.optimizers[0], opt), networks.get_freezeInit_scheduler(self.optimizers[1], opt)]
+				unloaded_keys, loaded_keys_frozen, loaded_keys_trainable = self.load_pretrain_networks(opt.load_pretrain_path, opt.epoch)
+				def get_params(keys):
+					params = [v for k, v in self.netEncoder.named_parameters() if k in keys] + \
+							 [v for k, v in self.netSlotAttention.named_parameters() if k in keys] + \
+							 [v for k, v in self.netDecoder.named_parameters() if k in keys]
+					return params
 
+				unloaded_params, loaded_params_frozen, loaded_params_trainable = get_params(unloaded_keys), get_params(loaded_keys_frozen), get_params(loaded_keys_trainable)
+				print('Unloaded params:', unloaded_keys, '\n', 'Length:', len(unloaded_keys))
+				print('Loaded params (frozen):', loaded_keys_frozen, '\n', 'Length:', len(loaded_keys_frozen))
+				print('Loaded params (trainable):', loaded_keys_trainable, '\n', 'Length:', len(loaded_keys_trainable))
+				self.optimizers, self.schedulers = [], []
+				if len(unloaded_params) > 0:
+					self.optimizers.append(optim.Adam(unloaded_params, lr=opt.lr))
+					self.schedulers.append(networks.get_scheduler(self.optimizers[-1], opt))
+				if len(loaded_params_frozen) > 0:
+					self.optimizers.append(optim.Adam(loaded_params_frozen, lr=opt.lr))
+					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, opt.warmup_steps, opt.attn_decay_steps)
+					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
+				if len(loaded_params_trainable) > 0:
+					self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
+					configs = (opt.freezeInit_ratio, 0, opt.warmup_steps, opt.attn_decay_steps)
+					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
+				# param_names1 = self.load_pretrain_networks(opt.load_pretrain_path, opt.epoch)
+				# define two optimizers, one for keys in imcompatible.missing_keys, the other for the rest of the model
+				# param_names2 = [name for name, _ in self.netEncoder.named_parameters() if name not in param_names1] + \
+				# 				[name for name, _ in self.netSlotAttention.named_parameters() if name not in param_names1] + \
+				# 				[name for name, _ in self.netDecoder.named_parameters() if name not in param_names1]
+				
+				# print('New params:', param_names1, '\n', 'Length:', len(param_names1))
+				# print('Loaded params:', param_names2, '\n', 'Length:', len(param_names2))
+				
+				# # get corresponding parameters, may exist in either of the three models
+				# params1 = [v for k, v in self.netEncoder.named_parameters() if k in param_names1] + \
+				# 			[v for k, v in self.netSlotAttention.named_parameters() if k in param_names1] + \
+				# 			[v for k, v in self.netDecoder.named_parameters() if k in param_names1]
+				# params2 = [v for k, v in self.netEncoder.named_parameters() if k not in param_names1] + \
+				# 			[v for k, v in self.netSlotAttention.named_parameters() if k not in param_names1] + \
+				# 			[v for k, v in self.netDecoder.named_parameters() if k not in param_names1]
+				# print('Length:', len(params1), len(params2))
+				# self.optimizers = [optim.Adam(params1, lr=opt.lr), optim.Adam(params2, lr=opt.lr)]
+				# self.schedulers = [networks.get_scheduler(self.optimizers[0], opt), networks.get_freezeInit_scheduler(self.optimizers[1], opt)]
 			else:
 				requires_grad = lambda x: x.requires_grad
 				params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())

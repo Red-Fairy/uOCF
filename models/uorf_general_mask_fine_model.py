@@ -217,9 +217,9 @@ class uorfGeneralMaskFineModel(BaseModel):
 		self.masks = F.interpolate(self.masks, size=feat_shape.shape[1:3], mode='nearest')  # Kx1xHxW
 	
 		# Slot Attention
-		use_mask = epoch < self.opt.mask_in
+		use_mask = False
 		if not self.opt.feature_aggregate:
-			z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape, self.masks, use_mask=use_mask, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
+			z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape,  feat_color=feat_color, mask=self.masks, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN
 			z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 		else:
 			z_slots, fg_slot_position = self.netSlotAttention(feat_shape.permute([0,3,1,2]), self.masks, use_mask, feat_color.permute([0,3,1,2]))  # KxC, Kx2

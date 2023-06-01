@@ -512,8 +512,9 @@ class Decoder(nn.Module):
 		else:
 			# currently do not support fg_in_world
 			# first compute the original locality constraint
-			sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3
-			outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+			if self.locality:
+				sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3
+				outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
 			# relative position with fg slot position
 			if self.rel_pos and invariant:
 				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3
@@ -903,8 +904,9 @@ class DecoderFG(nn.Module):
 		else:
 			# currently do not support fg_in_world
 			# first compute the original locality constraint
-			sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3
-			outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+			if self.locality:
+				sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3
+				outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
 			# relative position with fg slot position
 			if self.rel_pos and invariant:
 				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3

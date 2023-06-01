@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-##SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=10
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
@@ -22,25 +22,23 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-1obj-1000'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_nobg/train-4obj-manysize-trans'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4  \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4 \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_mask' \
-    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
-    --load_size 256 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
-    --model 'uorf_general_mask' \
-    --num_slots 1 --attn_iter 3 \
-    --shape_dim 48 --color_dim 16 \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 2 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
+    --model 'uorf_general_mask_Kobj' \
+    --attn_decay_steps 100000 --freezeInit_ratio 1 --freezeInit_steps 50000  \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --coarse_epoch 240 --niter 240 --percept_in 40 --no_locality_epoch 60 --centered \
-    --world_obj_scale 3 --obj_scale 3 --near_plane 6 --far_plane 20 \
-    --attn_decay_steps 100000 \
-    --bg_color '-1' \
-    --exp_id '0522-TRAILS/attn-dualfeat-local-centered-DINO-noProject' \
-    --save_epoch_freq 2 \
-    --dummy_info 'scale 3, near 6, far 20' \
+    --num_slots 4 --attn_iter 4 --shape_dim 48 --color_dim 16 \
+    --coarse_epoch 0 --niter 100 --percept_in 10 --no_locality_epoch 0 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_mask/0522-TRAILS/attn-dualfeat-local-centered-DINO-noProject' \
+    --load_encoder --load_decoder \
+    --exp_id '0531-4obj/load-DINO-learn4obj-pos-freeze-loadboth-frus128' \
+    --dummy_info 'load DINO, frozen decoder for 100000 steps' \
     
 
 # can try the following to list out which GPU you have access to
