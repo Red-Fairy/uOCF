@@ -499,6 +499,7 @@ class Decoder(nn.Module):
 		P = sampling_coor_bg.shape[0]
 
 		if self.fixed_locality:
+			assert False
 			# first compute the originallocality constraint
 			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 			if self.rel_pos and invariant:
@@ -891,6 +892,7 @@ class DecoderFG(nn.Module):
 		P = sampling_coor_fg.shape[1]
 
 		if self.fixed_locality:
+			assert False
 			# first compute the originallocality constraint
 			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 			if self.rel_pos and invariant:

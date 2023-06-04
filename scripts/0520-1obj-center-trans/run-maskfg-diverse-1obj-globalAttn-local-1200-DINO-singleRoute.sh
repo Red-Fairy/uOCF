@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-##SBATCH --cpus-per-task=10
+##SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
@@ -29,18 +29,17 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1200 --n_img_each_sc
     --checkpoints_dir 'checkpoints' --name 'room_diverse_mask' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
     --load_size 256 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
-    --model 'uorf_general_mask' \
+    --model 'uorf_nogan_T_DINO_fgmask' \
     --num_slots 1 --attn_iter 3 \
-    --shape_dim 48 --color_dim 16 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --coarse_epoch 240 --niter 240 --percept_in 40 --no_locality_epoch 60 --centered \
-    --world_obj_scale 3 --obj_scale 3 \
+    --coarse_epoch 500 --niter 500 --percept_in 40 --no_locality_epoch 60 --centered \
+    --world_obj_scale 3 --obj_scale 3 --near_plane 6 --far_plane 20 \
     --attn_decay_steps 100000 \
     --bg_color '-1' \
-    --exp_id '0602-1obj-mask-DINO' \
-    --save_epoch_freq 2 \
-    --dummy_info 'scale 3' \
+    --exp_id '0522-TRAILS/attn-singleRoute-DINO-1' \
+    --save_epoch_freq 5 \
+    --dummy_info 'scale 3, near 6, far 20' \
     
 
 # can try the following to list out which GPU you have access to

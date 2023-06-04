@@ -65,8 +65,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
-							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
-							sam_encoder=True)
+							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
 
 		parser.set_defaults(exp_id='run-{}'.format(time.strftime('%Y-%m-%d-%H-%M-%S')))
 
@@ -165,25 +164,6 @@ class uorfGeneralModel(BaseModel):
 					self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
 					configs = (opt.freezeInit_ratio, 0, opt.warmup_steps, opt.attn_decay_steps)
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
-				# param_names1 = self.load_pretrain_networks(opt.load_pretrain_path, opt.epoch)
-				# define two optimizers, one for keys in imcompatible.missing_keys, the other for the rest of the model
-				# param_names2 = [name for name, _ in self.netEncoder.named_parameters() if name not in param_names1] + \
-				# 				[name for name, _ in self.netSlotAttention.named_parameters() if name not in param_names1] + \
-				# 				[name for name, _ in self.netDecoder.named_parameters() if name not in param_names1]
-				
-				# print('New params:', param_names1, '\n', 'Length:', len(param_names1))
-				# print('Loaded params:', param_names2, '\n', 'Length:', len(param_names2))
-				
-				# # get corresponding parameters, may exist in either of the three models
-				# params1 = [v for k, v in self.netEncoder.named_parameters() if k in param_names1] + \
-				# 			[v for k, v in self.netSlotAttention.named_parameters() if k in param_names1] + \
-				# 			[v for k, v in self.netDecoder.named_parameters() if k in param_names1]
-				# params2 = [v for k, v in self.netEncoder.named_parameters() if k not in param_names1] + \
-				# 			[v for k, v in self.netSlotAttention.named_parameters() if k not in param_names1] + \
-				# 			[v for k, v in self.netDecoder.named_parameters() if k not in param_names1]
-				# print('Length:', len(params1), len(params2))
-				# self.optimizers = [optim.Adam(params1, lr=opt.lr), optim.Adam(params2, lr=opt.lr)]
-				# self.schedulers = [networks.get_scheduler(self.optimizers[0], opt), networks.get_freezeInit_scheduler(self.optimizers[1], opt)]
 			else:
 				requires_grad = lambda x: x.requires_grad
 				params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())

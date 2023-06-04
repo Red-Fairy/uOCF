@@ -175,7 +175,7 @@ class Decoder(nn.Module):
 		return raws, masked_raws, unmasked_raws, masks
 
 class SlotAttention(nn.Module):
-	def __init__(self, in_dim=64, slot_dim=64, iters=4, eps=1e-8, hidden_dim=128):
+	def __init__(self, in_dim=64, slot_dim=64, iters=4, eps=1e-8, hidden_dim=128, centered=False):
 		super().__init__()
 		# self.num_slots = num_slots
 		self.iters = iters
@@ -208,6 +208,8 @@ class SlotAttention(nn.Module):
 
 		self.norm_feat = nn.LayerNorm(in_dim)
 		self.slot_dim = slot_dim
+
+		self.centered = centered
 
 		# self.to_res_fg = nn.Sequential(nn.LayerNorm(slot_dim),
 		# 							nn.Linear(slot_dim, slot_dim))
@@ -245,10 +247,12 @@ class SlotAttention(nn.Module):
 		mu = self.slots_mu.expand(B, K, -1)
 		sigma = self.slots_logsigma.exp().expand(B, K, -1)
 		slot_fg = mu + sigma * torch.randn_like(mu)
-		
-		fg_position = self.get_fg_position(mask) # Kx2
-		# fg_position = torch.rand(1, K, 2) * 2 - 1
-		fg_position = fg_position.expand(B, -1, -1).to(feat.device) # BxKx2
+
+		if self.centered:
+			fg_position = torch.zeros(B, K, 2, device=feat.device)
+		else:
+			fg_position = self.get_fg_position(mask) # Kx2
+			fg_position = fg_position.expand(B, -1, -1).to(feat.device) # BxKx2
 		
 		feat = self.norm_feat(feat)
 

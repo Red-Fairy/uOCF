@@ -67,8 +67,7 @@ class uorfGeneralMaskKobjModel(BaseModel):
 		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
-							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
-							sam_encoder=True)
+							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',)
 
 		parser.set_defaults(exp_id='run-{}'.format(time.strftime('%Y-%m-%d-%H-%M-%S')))
 

@@ -45,7 +45,7 @@ class uorfGeneralMaskModel(BaseModel):
 		parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
 		parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
 		parser.add_argument('--weight_percept', type=float, default=0.006)
-		parser.add_argument('--percept_in', type=int, default=100)
+		parser.add_argument('--percept_in', type=int, default=10)
 		parser.add_argument('--mask_in', type=int, default=0)
 		parser.add_argument('--no_locality_epoch', type=int, default=600)
 		parser.add_argument('--locality_in', type=int, default=1000)
@@ -56,8 +56,8 @@ class uorfGeneralMaskModel(BaseModel):
 		parser.add_argument('--frustum_size_fine', type=int, default=128)
 		parser.add_argument('--attn_decay_steps', type=int, default=2e5)
 		parser.add_argument('--coarse_epoch', type=int, default=600)
-		parser.add_argument('--near_plane', type=float, default=8)
-		parser.add_argument('--far_plane', type=float, default=18)
+		parser.add_argument('--near_plane', type=float, default=6)
+		parser.add_argument('--far_plane', type=float, default=20)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
@@ -66,8 +66,7 @@ class uorfGeneralMaskModel(BaseModel):
 		parser.add_argument('--centered', action='store_true', help='object at center of world')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
-							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup',
-							sam_encoder=True)
+							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
 
 		parser.set_defaults(exp_id='run-{}'.format(time.strftime('%Y-%m-%d-%H-%M-%S')))
 

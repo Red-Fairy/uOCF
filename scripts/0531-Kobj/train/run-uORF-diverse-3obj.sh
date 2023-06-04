@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=viscam --partition=viscam --qos=normal
+#SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
@@ -33,7 +33,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --z_dim 64 --num_slots 4 --attn_iter 3 \
     --exp_id 'uORF-3obj' \
     --model 'uorf_nogan' --bottom \
-    --continue_train --epoch_cound 72 \
+    --continue_train --epoch_count 72 \
     --lr '3e-4' \
 # done
 echo "Done"
