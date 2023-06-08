@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,27 +22,22 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/clevr_nobg/train-1obj-centered'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_bg/train-4obj-test'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4  \
-    --checkpoints_dir 'checkpoints' --name 'clevr_bg' \
-    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
-    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
-    --model 'uorf_general_mask' \
-    --num_slots 1 --attn_iter 3 \
-    --shape_dim 24 --color_dim 8 \
+python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
+    --checkpoints_dir 'checkpoints' --name 'room_diverse_bg' \
+    --display_port $PORT --display_ncols 4 \
+    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
+    --model 'uorf_general_eval' \
+    --num_slots 5 --attn_iter 4 \
+    --shape_dim 48 --color_dim 16 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --coarse_epoch 200 --niter 200 --percept_in 40 --no_locality_epoch 60 --centered \
-    --world_obj_scale 3 --obj_scale 3 \
-    --attn_decay_steps 100000 \
-    --bg_color '-1' \
-    --exp_id '1obj-mask' \
-    --continue_train --epoch 80 --epoch_count 81 \
-    --save_epoch_freq 5 \
-    --dummy_info 'scale 3, near 6, far 20' \
-    
+    --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 8 --far_plane 18 \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_bg/0531-Kobj/load-DINO-4obj-ttf-r2' \
+    --dummy_info 'regular test' --testset_name 'regular-256' \
+
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

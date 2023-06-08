@@ -22,18 +22,17 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_bg/train-3obj-manysize-orange'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/clevr_bg/train-4obj'}
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
-    --checkpoints_dir 'checkpoints' --name 'room_diverse_bg' \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 1200 --n_img_each_scene 4  \
+    --checkpoints_dir 'checkpoints' --name 'clevr_bg' \
     --display_port $PORT --display_ncols 4 --print_freq 50 \
-    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
-    --coarse_epoch 120  --niter 240 --percept_in 30 --no_locality_epoch 60 \
-    --z_dim 64 --num_slots 4 --attn_iter 3 \
-    --exp_id 'uORF-3obj' \
-    --model 'uorf_nogan' --bottom \
-    --continue_train --epoch_count 84 \
+    --load_size 128 --n_samp 64 --input_size 64 --supervision_size 64 \
+    --coarse_epoch 600  --niter 1200 --percept_in 30 --no_locality_epoch 60 \
+    --z_dim 32 --num_slots 8 --attn_iter 3 \
+    --exp_id 'uORF' \
+    --model 'uorf_nogan' \
     --lr '3e-4' \
 # done
 echo "Done"

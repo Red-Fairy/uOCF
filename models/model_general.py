@@ -328,10 +328,11 @@ class SlotAttention(nn.Module):
 										nn.Linear(slot_dim, slot_dim))
 
 		self.norm_feat = nn.LayerNorm(in_dim)
-		self.norm_feat_color = nn.LayerNorm(color_dim)
+		if color_dim != 0:
+			self.norm_feat_color = nn.LayerNorm(color_dim)
 		self.slot_dim = slot_dim
 
-	def forward(self, feat, feat_color, num_slots=None):
+	def forward(self, feat, feat_color=None, num_slots=None):
 		"""
 		input:
 			feat: visual feature with position information, BxHxWxC
@@ -355,7 +356,8 @@ class SlotAttention(nn.Module):
 		slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
 
 		feat = self.norm_feat(feat)
-		feat_color = self.norm_feat_color(feat_color)
+		if feat_color is not None:
+			feat_color = self.norm_feat_color(feat_color)
 
 		k_bg, v_bg = self.to_kv.forward_bg(feat, H, W) # (B,1,N,C)
 
@@ -417,14 +419,16 @@ class SlotAttention(nn.Module):
 				slot_fg = slot_fg + self.to_res_fg(slot_fg)
 
 			else:
-				# calculate slot texture feature
-				feat_color = feat_color.flatten(1, 2) # (B,N,C')
-				slot_fg_color = torch.einsum('bkn,bnd->bkd', attn_weights_fg, feat_color) # (B,K-1,N) * (B,N,C') -> (B,K-1,C')
-				slot_bg_color = torch.einsum('bn,bnd->bd', attn_weights_bg.squeeze(1), feat_color).unsqueeze(1) # (B,N) * (B,N,C') -> (B,C'), (B,1,C')
+				if feat_color is not None:
+					# calculate slot color feature
+					feat_color = feat_color.flatten(1, 2) # (B,N,C')
+					slot_fg_color = torch.einsum('bkn,bnd->bkd', attn_weights_fg, feat_color) # (B,K-1,N) * (B,N,C') -> (B,K-1,C')
+					slot_bg_color = torch.einsum('bn,bnd->bd', attn_weights_bg.squeeze(1), feat_color).unsqueeze(1) # (B,N) * (B,N,C') -> (B,C'), (B,1,C')
 
-		slots_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # (B,K-1,C+C')
-		slots_bg = torch.cat([slot_bg, slot_bg_color], dim=-1) # (B,1,C+C')
-		slots = torch.cat([slots_bg, slots_fg], dim=1) # (B,K,C+C')
+		if feat_color is not None:
+			slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # (B,K-1,C+C')
+			slot_bg = torch.cat([slot_bg, slot_bg_color], dim=-1) # (B,1,C+C')
+		slots = torch.cat([slot_bg, slot_fg], dim=1) # (B,K,C+C')
 				
 		return slots, attn, fg_position
 

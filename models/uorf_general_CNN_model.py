@@ -19,7 +19,7 @@ from segment_anything import sam_model_registry
 
 import torchvision
 
-class uorfGeneralModel(BaseModel):
+class uorfGeneralCNNModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -96,27 +96,8 @@ class uorfGeneralModel(BaseModel):
 		z_dim = opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
 
-		if opt.encoder_type == 'SAM':
-			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-			self.pretrained_encoder = SAMViT(sam_model).to(self.device).eval()
-			vit_dim = 256
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=vit_dim),
-													gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'DINO':
-			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
-			dino_dim = 768
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
-					   								gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'SD':
-			from .SD.ldm_extractor import LdmExtractor
-			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
-			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
+		self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom),
 												gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'CNN':
-			self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
-									gpu_ids=self.gpu_ids, init_type='normal')
-		else:
-			assert False
 
 		self.netSlotAttention = networks.init_net(
 				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
@@ -186,7 +167,7 @@ class uorfGeneralModel(BaseModel):
 			input: a dictionary that contains the data itself and its metadata information.
 		"""
 		self.x = input['img_data'].to(self.device)
-		self.x_large = input['img_data_large'].to(self.device) if self.opt.encoder_type != 'CNN' else None
+		self.x_large = input['img_data_large'].to(self.device)
 		self.cam2world = input['cam2world'].to(self.device)
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
@@ -204,27 +185,22 @@ class uorfGeneralModel(BaseModel):
 			nss2cam0 = torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2)
 
 		# Encoding images
-		if not self.opt.encoder_type == 'CNN':
-			if self.opt.encoder_type == 'SAM':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-			elif self.opt.encoder_type == 'DINO':
-				with torch.no_grad():
-					feat_size = 64
-					feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
-			elif self.opt.encoder_type == 'SD':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
-			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+		if self.opt.encoder_type == 'SAM':
+			with torch.no_grad():
+				feature_map = self.pretrained_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
+		elif self.opt.encoder_type == 'DINO':
+			with torch.no_grad():
+				feat_size = 64
+				feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
+		elif self.opt.encoder_type == 'SD':
+			with torch.no_grad():
+				feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
+		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+		feature_map_shape, feature_map_color = self.netEncoder(feature_map,
+				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
-			feat_color = None
+		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 	
 		# Slot Attention
 		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN

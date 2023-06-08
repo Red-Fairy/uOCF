@@ -116,7 +116,7 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
-            if rd == 0:
+            if rd == 0 and self.encoder_type != 'CNN':
                 if self.opt.preextract:
                     feats_path = path.replace('.png', f'{self.opt.pre_feats}.npy')
                     assert os.path.isfile(feats_path)
