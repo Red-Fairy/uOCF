@@ -5,7 +5,7 @@
 #SBATCH --mem=20G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:titanrtx:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -36,7 +36,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --world_obj_scale 3.5  --obj_scale 3.5 \
     --num_slots 2 --attn_iter 4 --shape_dim 32 --color_dim 0 \
     --coarse_epoch 500 --niter 500 --percept_in 50 --no_locality_epoch 100 \
-    --exp_id '1obj-bg-scratch-CNN' \
+    --exp_id '0609/1obj-bg-scratch-CNN' \
     --dummy_info 'from scratch locality 50epoch' \
     
 

@@ -312,8 +312,10 @@ class SlotAttention(nn.Module):
 		self.learnable_pos = learnable_pos
 		self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 1.5 - 0.75)
 		if self.learnable_pos:
-			self.attn_to_pos_bias = nn.Linear(n_feats, 2, bias=False)
-			self.attn_to_pos_bias.weight.data.zero_()
+			self.attn_to_pos_bias = nn.Sequential(nn.Linear(n_feats, 2), nn.Tanh()) # range (-1, 1)
+			# nn.Linear(n_feats, 2, bias=False)
+			self.attn_to_pos_bias[0].weight.data.zero_()
+			self.attn_to_pos_bias[0].bias.data.zero_()
 
 		self.to_kv = EncoderPosEmbedding(in_dim, slot_dim)
 		self.to_q = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))

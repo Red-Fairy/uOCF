@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,24 +22,24 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_bg/train-4obj-manysize-orange'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/clevr_bg/train-4obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4 \
-    --checkpoints_dir 'checkpoints' --name 'room_diverse_bg' \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4 \
+    --checkpoints_dir 'checkpoints' --name 'clevr_bg' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 2 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
-    --model 'uorf_general' \
     --lr '1e-4' \
-    --attn_decay_steps 100000 --freezeInit_ratio 1 --freezeInit_steps 100000  \
+    --model 'uorf_general' \
+    --attn_decay_steps 150000 --freezeInit_ratio 1 --freezeInit_steps 50000  \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 5 --attn_iter 4 --shape_dim 48 --color_dim 16 \
-    --coarse_epoch 80 --niter 160 --percept_in 10 --no_locality_epoch 10 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_bg/1obj-scratch' \
+    --num_slots 8 --attn_iter 4 --shape_dim 24 --color_dim 8 \
+    --coarse_epoch 400 --niter 800 --percept_in 50 --no_locality_epoch 50 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/0609/1obj-load-uuf' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --exp_id '0531-Kobj/load-DINO-4obj-ttf-1objScratch' \
-    --dummy_info 'load DINO (directly 1 obj bg), frozen decoder for 100000 steps' \
+    --exp_id '0609/load-DINO-567obj-ttf-r3' \
+    --dummy_info 'load DINO from 1 obj (uuf, 280epoch), frozen decoder for 50000 steps, lr 3e-4' \
     
 
 # can try the following to list out which GPU you have access to

@@ -33,7 +33,6 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --model 'uorf_general' \
     --attn_decay_steps 200000 \
     --encoder_type 'CNN' \
-    --world_obj_scale 3.5  --obj_scale 3.5 \
     --num_slots 8 --attn_iter 4 --shape_dim 32 --color_dim 0 \
     --coarse_epoch 300 --niter 600 --percept_in 50 --no_locality_epoch 100 \
     --exp_id '567obj-bg-scratch-CNN' \

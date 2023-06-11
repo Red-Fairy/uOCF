@@ -5,7 +5,7 @@
 #SBATCH --mem=20G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -35,8 +35,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 24 --color_dim 8 \
     --coarse_epoch 500 --niter 500 --percept_in 50 --no_locality_epoch 100 \
-    --exp_id '1obj-bg-scratch-DINO' \
-    --dummy_info 'from scratch locality 50epoch' \
+    --exp_id '0609/1obj-bg-scratch-DINO' \
+    --dummy_info 'from scratch' \
     
 
 # can try the following to list out which GPU you have access to
