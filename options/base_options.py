@@ -57,7 +57,6 @@ class BaseOptions():
         parser.add_argument('--relative_position', action='store_false', help='disable relative position with slot position')
         parser.add_argument('--pos_emb', action='store_true', help='apply position embedding on encoder')
         parser.add_argument('--emb_path', type=str, default='', help='path to pretrained embedding')
-        parser.add_argument('--imagenet_encoder', action='store_true', help='use imagenet pretrained encoder, resnet18')
         parser.add_argument('--no_learnable_pos', action='store_true', help='disable learnable position embedding')
         parser.add_argument('--sam_encoder', action='store_true', help='use sam encoder')
         parser.add_argument('--sam_type', type=str, default='vit_l', help='sam type')

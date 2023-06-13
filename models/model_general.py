@@ -7,7 +7,6 @@ from torch.nn import init
 from torchvision.models import vgg16
 from torch import autograd
 
-from models.resnet import resnet34, resnet18
 from .utils import PositionalEncoding, sin_emb, build_grid
 
 class Encoder(nn.Module):
