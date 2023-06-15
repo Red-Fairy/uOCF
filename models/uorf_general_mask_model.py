@@ -16,6 +16,9 @@ from .model_T_sam_fgmask import Decoder
 from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
 from .model_general import SlotAttentionFG as SlotAttention
 from .utils import *
+from matplotlib import cm
+import matplotlib.pyplot as plt
+import numpy as np
 from segment_anything import sam_model_registry
 
 import torchvision
@@ -106,7 +109,7 @@ class uorfGeneralMaskModel(BaseModel):
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
 			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
-				       								gpu_ids=self.gpu_ids, init_type='normal')
+					   								gpu_ids=self.gpu_ids, init_type='normal')
 		elif opt.encoder_type == 'SD':
 			from .SD.ldm_extractor import LdmExtractor
 			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
@@ -223,6 +226,19 @@ class uorfGeneralMaskModel(BaseModel):
 		if self.opt.stage == 'coarse':
 			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
+			frus_nss_coor_debug = frus_nss_coor.reshape(N, -1, 3).cpu().numpy()
+			fig = plt.figure(figsize=(20, 40))
+			# create a subplot for each camera
+			colors = cm.rainbow(np.linspace(0, 1, N))
+			cam2world_debug = cam2world.cpu().numpy()
+			for i in range(N):
+				ax = plt.subplot(2, 4, i+1, projection='3d')
+				# visualize the frustum
+				ax.scatter(frus_nss_coor_debug[i,:,0], frus_nss_coor_debug[i,:,1], frus_nss_coor_debug[i,:,2], c=colors[i], marker='o', s=1)
+				# visualize the camera origin
+				ax.scatter(cam2world_debug[i,0,3], cam2world_debug[i,1,3], cam2world_debug[i,2,3], c=colors[i], marker='o', s=10)
+			fig.savefig('frus_nss_coor.png')
+			exit()
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:

@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import math
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
 def pixel2world(slot_pixel_coord, cam2world):
     '''
@@ -100,7 +102,18 @@ class Projection(object):
         W, H, D = self.frustum_size
         pixel_coor = self.construct_frus_coor()
         frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float())  # 4x(WxHxD)
-
+        # debug
+        # frus_cam_coor_debug = frus_cam_coor.reshape(1, 4, -1).permute(0, 2, 1).cpu().numpy()
+        # colors = cm.rainbow(np.linspace(0, 1, 1))
+        # cam2world_debug = cam2world.cpu().numpy()
+        # fig = plt.figure(figsize=(40, 20))
+        # for i in range(1):
+        #     ax = plt.subplot(2, 4, i+1, projection='3d')
+        #     # visualize the frustum
+        #     ax.scatter(frus_cam_coor_debug[i,:,0], frus_cam_coor_debug[i,:,1], frus_cam_coor_debug[i,:,2], c=colors[i], marker='o', s=3)
+        #     # visualize the camera origin
+        #     ax.scatter(0, 0, 0, c='r', marker='o', s=20)
+        # fig.savefig('frus_cam_coor.png')
         frus_world_coor = torch.matmul(cam2world, frus_cam_coor)  # Nx4x(WxHxD)
         frus_nss_coor = torch.matmul(self.world2nss, frus_world_coor)  # Nx4x(WxHxD)
         frus_nss_coor = frus_nss_coor.view(N, 4, W, H, D).permute([0, 4, 3, 2, 1])  # NxDxHxWx4
