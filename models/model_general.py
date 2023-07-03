@@ -294,7 +294,7 @@ class EncoderPosEmbedding(nn.Module):
 		return k_bg, v_bg # (b, 1, h*w, d)
 
 class SlotAttention(nn.Module):
-	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128, learnable_pos=True, n_feats=64*64):
+	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128, learnable_pos=True, n_feats=64*64, global_feat=False):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
@@ -332,6 +332,8 @@ class SlotAttention(nn.Module):
 		if color_dim != 0:
 			self.norm_feat_color = nn.LayerNorm(color_dim)
 		self.slot_dim = slot_dim
+
+		self.global_feat = global_feat
 
 	def forward(self, feat, feat_color=None, num_slots=None):
 		"""
@@ -423,8 +425,12 @@ class SlotAttention(nn.Module):
 				if feat_color is not None:
 					# calculate slot color feature
 					feat_color = feat_color.flatten(1, 2) # (B,N,C')
-					slot_fg_color = torch.einsum('bkn,bnd->bkd', attn_weights_fg, feat_color) # (B,K-1,N) * (B,N,C') -> (B,K-1,C')
-					slot_bg_color = torch.einsum('bn,bnd->bd', attn_weights_bg.squeeze(1), feat_color).unsqueeze(1) # (B,N) * (B,N,C') -> (B,C'), (B,1,C')
+					if not self.global_feat:
+						slot_fg_color = torch.einsum('bkn,bnd->bkd', attn_weights_fg, feat_color) # (B,K-1,N) * (B,N,C') -> (B,K-1,C')
+						slot_bg_color = torch.einsum('bn,bnd->bd', attn_weights_bg.squeeze(1), feat_color).unsqueeze(1) # (B,N) * (B,N,C') -> (B,C'), (B,1,C')
+					else:
+						slot_fg_color = feat_color.repeat(1, K-1, 1) # (B,K-1,C')
+						slot_bg_color = feat_color
 
 		if feat_color is not None:
 			slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # (B,K-1,C+C')
@@ -990,6 +996,3 @@ class FeatureAggregate(nn.Module):
 			x = self.pool(x).squeeze(-1).squeeze(-1) # BxC
 		fg_position = self.get_fg_position(mask) # K*2
 		return x, fg_position
-	
-						
-	

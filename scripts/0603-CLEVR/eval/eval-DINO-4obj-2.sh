@@ -35,7 +35,7 @@ python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 8 --far_plane 18 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/0609/567obj-bg-scratch-DINO' \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/0609/load-DINO-567obj-fft-best' \
     --dummy_info 'regular test' --testset_name 'regular-800full' \
 
 

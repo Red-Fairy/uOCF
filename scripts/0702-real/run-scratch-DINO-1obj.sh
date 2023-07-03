@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-##SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=10
+#SBATCH --mem=20G
 
 # only use the following on partition with GPUs
 #SBATCH --gres=gpu:3090:1
@@ -22,22 +22,24 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/clevr_bg/test-567obj'}
+DATAROOT=${1:-'/viscam/redfairy/image_generation/datasets/ABO-chairs-1obj-r2'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
-    --checkpoints_dir 'checkpoints' --name 'clevr_bg' \
-    --display_port $PORT --display_ncols 4 \
-    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
-    --model 'uorf_general_eval' \
-    --num_slots 8 --attn_iter 4 \
-    --shape_dim 24 --color_dim 8 \
+CUDA_VISIBLE_DEVICES=3 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_scene 2 \
+    --checkpoints_dir 'checkpoints' --name 'real_chairs' \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 20 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
+    --model 'uorf_general' \
+    --attn_decay_steps 200000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 8 --far_plane 18 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/0609/567obj-bg-scratch-DINO' \
-    --dummy_info 'regular test' --testset_name 'regular-800full' \
-
+    --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
+    --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 --seed 2023 \
+    --position_loss \
+    --continue_train --epoch 100 --epoch_count 101 \
+    --exp_id '0628/1obj-scratch-posLoss-72-24' \
+    --dummy_info 'DINO from scratch 1 obj with BG, position loss' \
+    
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery
