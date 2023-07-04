@@ -34,8 +34,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1200 --n_img_each_sc
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 48 --color_dim 16 \
-    --coarse_epoch 500 --niter 500 --percept_in 20 --no_locality_epoch 40 \
-    --exp_id '0609/1obj-scratch' \
+    --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 \
+    --exp_id '0703/1obj-scratch' \
     --dummy_info 'DINO from scratch 1 obj with BG' \
     
 

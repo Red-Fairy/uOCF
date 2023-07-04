@@ -67,7 +67,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
 		parser.add_argument('--position_loss', action='store_true', help='use the position loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
-		parser.add_argument('--weight_position', type=float, default=0.05, help='weight of the position loss')
+		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -221,8 +221,9 @@ class uorfGeneralModel(BaseModel):
 				with torch.no_grad():
 					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
 			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+			print(self.x[idx:idx+1].shape, self.x_large[idx:idx+1].shape)
 			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
@@ -310,8 +311,9 @@ class uorfGeneralModel(BaseModel):
 			feat_shape_, _ = self.encode(1)
 			_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None)  # 1xKx2
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
+			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1])
 			# calculate the position loss (L2 loss between the two inferred positions)
-			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_position, fg_slot_position_)
+			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_nss_position, fg_slot_nss_position_)
 			# print('position loss: {}'.format(self.loss_position.item()))
 
 		with torch.no_grad():

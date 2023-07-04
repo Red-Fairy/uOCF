@@ -85,7 +85,10 @@ class MultiscenesDataset(BaseDataset):
         if self.opt.isTrain and not self.opt.no_shuffle:
             filenames = random.sample(scene_filenames, self.n_img_each_scene)
         else:
-            filenames = scene_filenames[:self.n_img_each_scene]
+            if self.opt.visual_only:
+                filenames = scene_filenames[self.opt.visual_idx:self.opt.visual_idx + 1]
+            else:
+                filenames = scene_filenames[:self.n_img_each_scene]
         rets = []
         for rd, path in enumerate(filenames):
             # if self.opt.transparent:
@@ -116,7 +119,8 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
-            if rd == 0 and self.encoder_type != 'CNN':
+            if (rd == 0 or self.opt.position_loss) and self.encoder_type != 'CNN':
+                # position loss requires multiple input views to be encoded
                 if self.opt.preextract:
                     feats_path = path.replace('.png', f'{self.opt.pre_feats}.npy')
                     assert os.path.isfile(feats_path)

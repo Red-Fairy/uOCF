@@ -35,8 +35,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 \
-    --exp_id '0703/1obj-scratch' \
-    --dummy_info 'DINO from scratch 1 obj with BG' \
+    --position_loss \
+    --exp_id '0703/1obj-scratch_posLoss' \
+    --dummy_info 'DINO from scratch 1 obj with BG, position loss' \
     
 
 # can try the following to list out which GPU you have access to
