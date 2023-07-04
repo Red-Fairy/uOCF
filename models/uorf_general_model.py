@@ -221,7 +221,6 @@ class uorfGeneralModel(BaseModel):
 				with torch.no_grad():
 					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
 			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-			print(self.x[idx:idx+1].shape, self.x_large[idx:idx+1].shape)
 			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
 					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
