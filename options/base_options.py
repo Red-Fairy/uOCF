@@ -67,6 +67,7 @@ class BaseOptions():
         parser.add_argument('--not_strict', action='store_true', help='not strict load')
         parser.add_argument('--preextract', action='store_true', help='preextract features from encoder')
         parser.add_argument('--encoder_type', type=str, default='SAM', help='SAM, DINO, or SD')
+        parser.add_argument('--random_init_pos', action='store_true', help='randomly initialize foreground position')
 
         self.initialized = True
         return parser

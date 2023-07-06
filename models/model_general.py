@@ -294,7 +294,8 @@ class EncoderPosEmbedding(nn.Module):
 		return k_bg, v_bg # (b, 1, h*w, d)
 
 class SlotAttention(nn.Module):
-	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128, learnable_pos=True, n_feats=64*64, global_feat=False):
+	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, 
+	      hidden_dim=128, learnable_pos=True, n_feats=64*64, global_feat=False, random_init_pos=False):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
@@ -334,6 +335,7 @@ class SlotAttention(nn.Module):
 		self.slot_dim = slot_dim
 
 		self.global_feat = global_feat
+		self.random_init_pos = random_init_pos
 
 	def forward(self, feat, feat_color=None, num_slots=None):
 		"""
@@ -351,7 +353,7 @@ class SlotAttention(nn.Module):
 		sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
 		slot_fg = mu + sigma * torch.randn_like(mu)
 		
-		fg_position = self.fg_position if self.fg_position is not None else torch.rand(1, K-1, 2) * 2 - 1
+		fg_position = self.fg_position if (self.fg_position is not None and not self.random_init_pos) else torch.rand(1, K-1, 2) * 1.5 - 0.75
 		fg_position = fg_position.expand(B, -1, -1).to(feat.device) # Bx(K-1)x2
 		
 		mu_bg = self.slots_mu_bg.expand(B, 1, -1)
