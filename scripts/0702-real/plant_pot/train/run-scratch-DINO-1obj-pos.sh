@@ -36,6 +36,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 938 --n_img_each_sce
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 --seed 2023 \
     --position_loss --position_in 100 \
+    --continue_train --epoch_count 100 \
     --exp_id '1obj-scratch-pos' \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1' \
     

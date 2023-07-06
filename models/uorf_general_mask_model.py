@@ -11,10 +11,11 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
-from .model_T_sam_fgmask import Decoder
+# from .model_T_sam_fgmask import Decoder
 # SlotAttention
 from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
 from .model_general import SlotAttentionFG as SlotAttention
+from .model_general import DecoderFG as Decoder
 from .utils import *
 from matplotlib import cm
 import matplotlib.pyplot as plt
@@ -59,8 +60,8 @@ class uorfGeneralMaskModel(BaseModel):
 		parser.add_argument('--frustum_size_fine', type=int, default=128)
 		parser.add_argument('--attn_decay_steps', type=int, default=2e5)
 		parser.add_argument('--coarse_epoch', type=int, default=600)
-		parser.add_argument('--near_plane', type=float, default=6)
-		parser.add_argument('--far_plane', type=float, default=20)
+		parser.add_argument('--near_plane', type=float, default=8)
+		parser.add_argument('--far_plane', type=float, default=18)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
@@ -186,14 +187,17 @@ class uorfGeneralMaskModel(BaseModel):
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
-		dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
+		# dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
+		dens_noise = 0
 		self.loss_recon = 0
 		self.loss_perc = 0
 		dev = self.x[0:1].device
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 		if self.opt.fixed_locality: # divide the translation part by self.opt.nss_scale
-			nss2cam0 = torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2)
+			nss2cam0 = torch.cat([torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2), 
+									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
+			
 
 		# Encoding images
 		if self.opt.encoder_type == 'SAM':
@@ -223,10 +227,14 @@ class uorfGeneralMaskModel(BaseModel):
 		else:
 			z_slots, fg_slot_position = self.netSlotAttention(feat_shape.permute([0,3,1,2]), self.masks, use_mask, feat_color.permute([0,3,1,2]))  # KxC, Kx2
 			# z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, Kx2
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
+
+		if not self.opt.centered:
+			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
+		else:
+			fg_slot_nss_position = torch.zeros(fg_slot_position.shape[0], 3).to(fg_slot_position.device)
 		
 		K = z_slots.shape[0]
-			
+
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 		if self.opt.stage == 'coarse':

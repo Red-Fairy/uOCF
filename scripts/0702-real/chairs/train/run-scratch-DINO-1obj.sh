@@ -5,7 +5,7 @@
 #SBATCH --mem=20G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:titanrtx:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,11 +22,11 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/redfairy/image_generation/datasets/ABO-chairs-1obj-r2'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/train-1obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=3 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_scene 2 \
-    --checkpoints_dir 'checkpoints' --name 'real_chairs' \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_scene 2 \
+    --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 20 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
     --model 'uorf_general' \
@@ -35,9 +35,8 @@ CUDA_VISIBLE_DEVICES=3 python train_without_gan.py --dataroot $DATAROOT --n_scen
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 --seed 2023 \
-    --position_loss \
-    --continue_train --epoch 100 --epoch_count 101 \
-    --exp_id '0628/1obj-scratch-posLoss-72-24' \
+    --exp_id '1obj-scratch-1296-72-24' \
+    --continue_train --epoch_count 357 \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss' \
     
 

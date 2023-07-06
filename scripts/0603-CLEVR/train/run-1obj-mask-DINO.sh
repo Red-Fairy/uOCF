@@ -25,17 +25,17 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/clevr_nobg/train-1obj-centered'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 20  \
-    --checkpoints_dir 'checkpoints' --name 'DEBUG' \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4  \
+    --checkpoints_dir 'checkpoints' --name 'clevr_bg' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 \
-    --load_size 128 --n_samp 16 --input_size 128 --supervision_size 2 --frustum_size 2 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
     --model 'uorf_general_mask' \
     --num_slots 1 --attn_iter 3 \
     --shape_dim 24 --color_dim 8 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --coarse_epoch 200 --niter 200 --percept_in 40 --no_locality_epoch 60 --centered \
-    --world_obj_scale 3 --obj_scale 3 \
+    --coarse_epoch 100 --niter 100 --percept_in 25 --no_locality_epoch 50 --centered \
+    --world_obj_scale 4.5 --obj_scale 4.5 \
     --attn_decay_steps 100000 \
     --bg_color '-1' \
     --exp_id '1obj-mask' \

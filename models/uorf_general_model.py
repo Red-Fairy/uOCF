@@ -65,7 +65,6 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
 		parser.add_argument('--sfs_loss', action='store_true', help='use the Slot-Feature-Slot loss')
 		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
-		parser.add_argument('--position_loss', action='store_true', help='use the position loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
 
@@ -236,7 +235,8 @@ class uorfGeneralModel(BaseModel):
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
-		dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
+		# dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
+		dens_noise = 0
 		self.loss_recon = 0
 		self.loss_perc = 0
 		self.loss_sfs = 0
@@ -245,7 +245,8 @@ class uorfGeneralModel(BaseModel):
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 		if self.opt.fixed_locality: # divide the translation part by self.opt.nss_scale
-			nss2cam0 = torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2)
+			nss2cam0 = torch.cat([torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2), 
+									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
 
 		# Encoding images
 		feat_shape, feat_color = self.encode(0)

@@ -395,6 +395,8 @@ class SlotAttention(nn.Module):
 			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
 			if self.learnable_pos: # add a bias term
 				fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
+				fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
+
 			
 			if it != self.iters - 1:
 			
@@ -510,7 +512,6 @@ class Decoder(nn.Module):
 		P = sampling_coor_bg.shape[0]
 
 		if self.fixed_locality:
-			assert False
 			# first compute the originallocality constraint
 			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 			if self.rel_pos and invariant:
@@ -519,8 +520,8 @@ class Decoder(nn.Module):
 			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
 			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
 			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
-			if local_locality_ratio is not None:
-				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
+			# if local_locality_ratio is not None:
+			# 	outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
 		else:
 			# currently do not support fg_in_world
 			# first compute the original locality constraint
@@ -828,6 +829,7 @@ class SlotAttentionFGKobj(nn.Module):
 			# compute the weighted mean of the attention map of a slot, with attention as weights
 			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights, grid) # BxKx2
 			fg_position = self.attn_to_pos_bias(attn_weights) / 5 + fg_position # BxKx2
+			fg_position = fg_position.clamp(-1, 1) # BxKx2
 
 			if it != self.iters - 1: # do not update slot for the last iteration
 				slot_fg = self.gru_fg(updates_fg.reshape(-1, self.slot_dim), slot_fg.reshape(-1, self.slot_dim)).reshape(B, K, self.slot_dim) # BxKxC
@@ -903,7 +905,6 @@ class DecoderFG(nn.Module):
 		P = sampling_coor_fg.shape[1]
 
 		if self.fixed_locality:
-			assert False
 			# first compute the originallocality constraint
 			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 			if self.rel_pos and invariant:
@@ -933,7 +934,10 @@ class DecoderFG(nn.Module):
 		z_fg = z_slots
 
 		if self.position_project is not None and invariant:
+			# w/ and w/o residual connection
 			z_fg = z_fg + self.position_project(fg_slot_position[:, :2]) # KxC
+			# slot_position = torch.cat([torch.zeros_like(fg_slot_position[0:1,]), fg_slot_position], dim=0)[:,:2] # Kx2
+			# z_slots = self.position_project(slot_position) + z_slots # KxC
 
 		sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # (KxP)x3
 		query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # (KxP)x60
