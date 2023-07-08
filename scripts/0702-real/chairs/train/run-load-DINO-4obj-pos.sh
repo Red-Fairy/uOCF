@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:a6000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -38,7 +38,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 50 --seed 2023 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/1obj-scratch-posLoss-nss' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --exp_id '0709/4obj-loadPos-ttf-r2' \
+    --exp_id '0709/4obj-loadPos-ttf-r3' \
+    --continue_train --epoch_count 55 \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (~250 epoch)' \
     
 

@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -38,7 +38,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/0703/1obj-uuf-pos' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
     --exp_id '0703/load-567obj-ttf-pos' \
-    --dummy_info 'load DINO from 1 obj (uuf, ~180epoch), frozen decoder for 50000 steps,' \
+    --dummy_info 'load DINO from 1 obj (uuf, ~200epoch), frozen decoder for 50000 steps,' \
     
 
 # can try the following to list out which GPU you have access to

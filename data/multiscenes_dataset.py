@@ -119,13 +119,13 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
-            if (rd == 0 or self.opt.position_loss) and self.encoder_type != 'CNN':
+            if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.encoder_type != 'CNN':
                 # position loss requires multiple input views to be encoded
-                if self.opt.preextract:
-                    feats_path = path.replace('.png', f'{self.opt.pre_feats}.npy')
-                    assert os.path.isfile(feats_path)
-                    ret['img_feats'] = torch.from_numpy(np.load(feats_path))
-                else:
+                # if self.opt.preextract:
+                #     feats_path = path.replace('.png', f'{self.opt.pre_feats}.npy')
+                #     assert os.path.isfile(feats_path)
+                #     ret['img_feats'] = torch.from_numpy(np.load(feats_path))
+                # else:
                     normalize = False if self.encoder_type == 'SD' else True
                     ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
             mask_path = path.replace('.png', '_mask.png')

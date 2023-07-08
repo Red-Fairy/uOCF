@@ -5,7 +5,7 @@
 #SBATCH --mem=20G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -34,12 +34,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --attn_decay_steps 100000 --freezeInit_ratio 1 --freezeInit_steps 50000 \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 24 --color_dim 8 \
-    --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 \
+    --coarse_epoch 300 --niter 300 --percept_in 25 --no_locality_epoch 50 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/1obj-mask' \
     --load_encoder 'unload' --load_slotattention 'unload' --load_decoder 'load_freeze' \
     --exp_id '0703/1obj-uuf-pos' \
+    --continue_train --epoch_count 207 \
     --position_loss --weight_position 0.1 \
-    --dummy_info 'from scratch locality 200 epoch' \
+    --dummy_info 'load 1obj mask' \
     
 
 # can try the following to list out which GPU you have access to

@@ -36,7 +36,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --num_slots 2 --attn_iter 4 --shape_dim 24 --color_dim 8 \
     --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 \
     --position_loss --weight_position 0.1 \
-    --continue_train --epoch 100 --epoch_count 101 \
+    --continue_train --epoch_count 207 \
     --exp_id '0703/1obj-scratch-pos' \
     --dummy_info 'from scratch' \
     
