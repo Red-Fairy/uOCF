@@ -24,11 +24,11 @@ def pixel2world(slot_pixel_coord, cam2world, intrinsics=None, nss_scale=7.):
                                 [0, 0, 0, 1]]).to(device)
     else:
         focal_x, focal_y = intrinsics[0, 0], intrinsics[1, 1]
-        bias_x, bias_y = intrinsics[0, 2] + 1 / 2., intrinsics[1, 2] + 1 / 2. # convert to [0, 1]
+        bias_x, bias_y = intrinsics[0, 2] / 2 + 1 / 2., intrinsics[1, 2] / 2 + 1 / 2. # convert to [0, 1]
         intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
                                 [0, focal_y, bias_y, 0],
                                 [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).to(device)
+                                [0, 0, 0, 1]]).to(torch.float32).to(device)
     spixel2cam = intrinsic.inverse()
     world2nss = torch.tensor([[1/nss_scale, 0, 0],
                                 [0, 1/nss_scale, 0],

@@ -21,11 +21,8 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
-delay=$((10 * 60))
-sleep $delay
-
 # process start
-DATAROOT=${1:-'/svl/u/redfairy/datasets/CLEVR/train-4obj'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/CLEVR/train-567obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4 \
@@ -40,7 +37,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --coarse_epoch 400 --niter 800 --percept_in 100 --no_locality_epoch 200 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/0703/1obj-uuf' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --continue_train --epoch 260 --epoch_count 261 \
+    --continue_train --epoch 610 --epoch_count 611 \
     --exp_id '0703/load-567obj-ttf-r2' \
     --dummy_info 'load DINO from 1 obj (uuf, 250epoch), frozen decoder for 50000 steps' \
     

@@ -21,13 +21,13 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/clevr_bg/test-567obj'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/CLEVR/test-567obj'}
 PORT=${2:-12783}
 python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
     --checkpoints_dir 'checkpoints' --name 'clevr_bg' --results_dir 'results' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --input_size 64 --render_size 8 --frustum_size 128 \
-    --n_samp 256 --z_dim 32 --num_slots 8 \
+    --n_samp 256 --z_dim 32 --num_slots 8 --near 6 --far 20 \
     --model 'uorf_eval' \
     --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/uORF' \
     --attn_iter 3 --testset_name 'regular_test' \

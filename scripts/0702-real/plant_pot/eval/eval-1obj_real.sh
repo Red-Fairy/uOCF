@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-##SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/test_imgs'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/test_imgs/orange_pot'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 3  \
@@ -34,11 +34,11 @@ python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 3  \
     --shape_dim 96 --color_dim 32 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 4 --far_plane 14 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/1obj-scratch-nofoot-fixed-viewrange-4555' \
+    --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 4 --far_plane 16 \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/1obj-scratch-nofoot-fixed-large-range4055' \
     --fixed_locality --recon_only --load_intrinsics \
-    --nss_scale 5 \
-    --dummy_info 'test_real' --testset_name 'test_real' --epoch 135 \
+    --nss_scale 6 \
+    --dummy_info 'test_real' --testset_name 'test_real_orange_pot' \
 
 
 # can try the following to list out which GPU you have access to
