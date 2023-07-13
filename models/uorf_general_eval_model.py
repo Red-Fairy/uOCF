@@ -17,6 +17,7 @@ from sklearn.metrics import adjusted_rand_score
 import lpips
 from piq import ssim as compute_ssim
 from piq import psnr as compute_psnr
+import numpy as np
 
 
 class uorfGeneralEvalModel(BaseModel):
@@ -71,15 +72,16 @@ class uorfGeneralEvalModel(BaseModel):
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
 		self.loss_names = ['psnr', 'ssim', 'lpips']
-		if not opt.visual_only:
+		if not opt.recon_only or opt.video:
 			self.loss_names += ['ari', 'fgari', 'nvari']
 		n = opt.n_img_each_scene
 		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
+		self.intrinsics = np.loadtxt(os.path.join(opt.dataroot, 'intrinsics.txt')) if opt.load_intrinsics else None
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
-									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
+									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=self.intrinsics)
 
 		z_dim = opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
@@ -149,7 +151,7 @@ class uorfGeneralEvalModel(BaseModel):
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 		self.image_paths = input['paths']
 
-		if not self.opt.visual_only:
+		if not self.opt.recon_only or self.opt.video:
 			self.gt_masks = input['masks']
 			self.mask_idx = input['mask_idx']
 			self.fg_idx = input['fg_idx']
@@ -161,6 +163,9 @@ class uorfGeneralEvalModel(BaseModel):
 		dev = self.x[0:1].device
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
+		if self.opt.fixed_locality: # divide the translation part by self.opt.nss_scale
+			nss2cam0 = torch.cat([torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2), 
+									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
 
 		# Encoding images
 		if self.opt.encoder_type == 'SAM':
@@ -184,7 +189,7 @@ class uorfGeneralEvalModel(BaseModel):
 		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
+		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
 
 		K = z_slots.shape[0]
 
@@ -297,7 +302,7 @@ class uorfGeneralEvalModel(BaseModel):
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 		
 		if fg_slot_image_position is not None:
-			fg_slot_nss_position = pixel2world(fg_slot_image_position.to(dev), self.cam2world[0])
+			fg_slot_nss_position = pixel2world(fg_slot_image_position.to(dev), self.cam2world[0], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
 		elif fg_slot_nss_position is not None:
 			if fg_slot_nss_position.shape[1] == 2:
 				fg_slot_nss_position = torch.cat([fg_slot_nss_position, torch.zeros_like(fg_slot_nss_position[:, :1])], dim=1)
@@ -378,7 +383,7 @@ class uorfGeneralEvalModel(BaseModel):
 			# 	for i in range(self.opt.n_img_each_scene):
 			# 		setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
 
-			if not self.opt.visual_only:
+			if not self.opt.recon_only or self.opt.video:
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW
 				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
 				predefined_colors = []

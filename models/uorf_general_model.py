@@ -152,7 +152,7 @@ class uorfGeneralModel(BaseModel):
 		if self.isTrain:
 			if opt.load_pretrain: # load pretraine models, e.g., object NeRF decoder
 				assert opt.load_pretrain_path is not None
-				unloaded_keys, loaded_keys_frozen, loaded_keys_trainable = self.load_pretrain_networks(opt.load_pretrain_path, opt.epoch)
+				unloaded_keys, loaded_keys_frozen, loaded_keys_trainable = self.load_pretrain_networks(opt.load_pretrain_path, opt.load_epoch)
 				def get_params(keys):
 					params = [v for k, v in self.netEncoder.named_parameters() if k in keys] + \
 							 [v for k, v in self.netSlotAttention.named_parameters() if k in keys] + \

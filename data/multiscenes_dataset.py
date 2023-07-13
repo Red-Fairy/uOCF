@@ -85,7 +85,7 @@ class MultiscenesDataset(BaseDataset):
         if self.opt.isTrain and not self.opt.no_shuffle:
             filenames = random.sample(scene_filenames, self.n_img_each_scene)
         else:
-            if self.opt.visual_only:
+            if self.opt.video:
                 filenames = scene_filenames[self.opt.visual_idx:self.opt.visual_idx + 1]
             else:
                 filenames = scene_filenames[:self.n_img_each_scene]

@@ -5,7 +5,7 @@ import math
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-def pixel2world(slot_pixel_coord, cam2world):
+def pixel2world(slot_pixel_coord, cam2world, intrinsics=None, nss_scale=7.):
     '''
     slot_pixel_coord: (K-1) * 2 on the image plane, x and y coord are in range [-1, 1]
     cam2world: 4 * 4
@@ -14,15 +14,22 @@ def pixel2world(slot_pixel_coord, cam2world):
             finally convert to NSS coord
     '''
     device = slot_pixel_coord.device
-    focal_ratio = (350. / 320., 350. / 240.)
-    focal_x, focal_y = focal_ratio[0], focal_ratio[1]
-    bias_x, bias_y = 1 / 2., 1 / 2.
-    intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
-                              [0, focal_y, bias_y, 0],
-                              [0, 0, 1, 0],
-                              [0, 0, 0, 1]]).to(device)
+    if intrinsics is None:
+        focal_ratio = (350. / 320., 350. / 240.)
+        focal_x, focal_y = focal_ratio[0], focal_ratio[1]
+        bias_x, bias_y = 1 / 2., 1 / 2.
+        intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
+                                [0, focal_y, bias_y, 0],
+                                [0, 0, 1, 0],
+                                [0, 0, 0, 1]]).to(device)
+    else:
+        focal_x, focal_y = intrinsics[0, 0], intrinsics[1, 1]
+        bias_x, bias_y = intrinsics[0, 2] + 1 / 2., intrinsics[1, 2] + 1 / 2. # convert to [0, 1]
+        intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
+                                [0, focal_y, bias_y, 0],
+                                [0, 0, 1, 0],
+                                [0, 0, 0, 1]]).to(device)
     spixel2cam = intrinsic.inverse()
-    nss_scale = 7
     world2nss = torch.tensor([[1/nss_scale, 0, 0],
                                 [0, 1/nss_scale, 0],
                                 [0, 0, 1/nss_scale]]).to(device)
@@ -45,7 +52,7 @@ def pixel2world(slot_pixel_coord, cam2world):
 class Projection(object):
     def __init__(self, focal_ratio=(350. / 320., 350. / 240.),
                  near=1, far=4, frustum_size=[128, 128, 128], device='cpu',
-                 nss_scale=7, render_size=(64, 64)):
+                 nss_scale=7, render_size=(64, 64), intrinsics=None):
         self.render_size = render_size
         self.device = device
         self.focal_ratio = focal_ratio
@@ -58,14 +65,20 @@ class Projection(object):
                                         [0, 1/nss_scale, 0, 0],
                                         [0, 0, 1/nss_scale, 0],
                                         [0, 0, 0, 1]]).unsqueeze(0).to(device)
-        self.focal_x = self.focal_ratio[0] * self.frustum_size[0]
-        self.focal_y = self.focal_ratio[1] * self.frustum_size[1]
-        bias_x = (self.frustum_size[0] - 1.) / 2.
-        bias_y = (self.frustum_size[1] - 1.) / 2.
+        if intrinsics is None:
+            self.focal_x = self.focal_ratio[0] * self.frustum_size[0]
+            self.focal_y = self.focal_ratio[1] * self.frustum_size[1]
+            bias_x = (self.frustum_size[0] - 1.) / 2.
+            bias_y = (self.frustum_size[1] - 1.) / 2.
+        else: # intrinsics stores focal_ratio and principal point
+            self.focal_x = intrinsics[0, 0] * self.frustum_size[0]
+            self.focal_y = intrinsics[1, 1] * self.frustum_size[1]
+            bias_x = ((intrinsics[0, 2] + 1) * self.frustum_size[0] - 1.) / 2.
+            bias_y = ((intrinsics[1, 2] + 1) * self.frustum_size[1] - 1.) / 2.
         intrinsic_mat = torch.tensor([[self.focal_x, 0, bias_x, 0],
                                       [0, self.focal_y, bias_y, 0],
                                       [0, 0, 1, 0],
-                                      [0, 0, 0, 1]])
+                                      [0, 0, 0, 1]]).to(torch.float32)
         self.cam2spixel = intrinsic_mat.to(self.device)
         self.spixel2cam = intrinsic_mat.inverse().to(self.device) 
         
@@ -102,20 +115,11 @@ class Projection(object):
         W, H, D = self.frustum_size
         pixel_coor = self.construct_frus_coor()
         frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float())  # 4x(WxHxD)
-        # debug
-        # frus_cam_coor_debug = frus_cam_coor.reshape(1, 4, -1).permute(0, 2, 1).cpu().numpy()
-        # colors = cm.rainbow(np.linspace(0, 1, 1))
-        # cam2world_debug = cam2world.cpu().numpy()
-        # fig = plt.figure(figsize=(40, 20))
-        # for i in range(1):
-        #     ax = plt.subplot(2, 4, i+1, projection='3d')
-        #     # visualize the frustum
-        #     ax.scatter(frus_cam_coor_debug[i,:,0], frus_cam_coor_debug[i,:,1], frus_cam_coor_debug[i,:,2], c=colors[i], marker='o', s=3)
-        #     # visualize the camera origin
-        #     ax.scatter(0, 0, 0, c='r', marker='o', s=20)
-        # fig.savefig('frus_cam_coor.png')
+        # debug(frus_cam_coor, save_name='frus_cam_coor')
         frus_world_coor = torch.matmul(cam2world, frus_cam_coor)  # Nx4x(WxHxD)
+        # debug(frus_world_coor, save_name='frus_world_coor', cam2world=cam2world)
         frus_nss_coor = torch.matmul(self.world2nss, frus_world_coor)  # Nx4x(WxHxD)
+        # debug(frus_nss_coor, save_name='frus_nss_coor', cam2world=cam2world/self.nss_scale)
         frus_nss_coor = frus_nss_coor.view(N, 4, W, H, D).permute([0, 4, 3, 2, 1])  # NxDxHxWx4
         frus_nss_coor = frus_nss_coor[..., :3] / frus_nss_coor[..., 3:]  # NxDxHxWx3
         scale = H // self.render_size[0]
@@ -239,6 +243,21 @@ class Projection(object):
 
         return pixel_coor, z_vals
     
+def debug(coordinates, cam2world=None, save_name='debug'):
+    coordinates = coordinates.reshape(1, 4, -1).permute(0, 2, 1).cpu().numpy()
+    colors = cm.rainbow(np.linspace(0, 1, 1))
+    fig = plt.figure(figsize=(40, 20))
+    for i in range(1):
+        ax = plt.subplot(2, 4, i+1, projection='3d')
+        # visualize the frustum
+        ax.scatter(coordinates[i,:,0], coordinates[i,:,1], coordinates[i,:,2], c=colors[i], marker='o', s=3)
+        # visualize the camera origin
+        if cam2world is not None:
+            cam2world = cam2world.cpu().numpy()
+            ax.scatter(cam2world[0,0,3], cam2world[0,1,3], cam2world[0,2,3], c='r', marker='o', s=20)
+        else:
+            ax.scatter(0, 0, 0, c='r', marker='o', s=20)
+    fig.savefig(f'{save_name}.png')
 
 if __name__ == '__main__':
     pass

@@ -68,6 +68,7 @@ class BaseOptions():
         parser.add_argument('--preextract', action='store_true', help='preextract features from encoder')
         parser.add_argument('--encoder_type', type=str, default='SAM', help='SAM, DINO, or SD')
         parser.add_argument('--random_init_pos', action='store_true', help='randomly initialize foreground position')
+        parser.add_argument('--load_intrinsics', action='store_true', help='load camera intrinsics')
 
         self.initialized = True
         return parser
