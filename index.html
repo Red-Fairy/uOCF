@@ -1,124 +1,347 @@
-<!DOCTYPE HTML>
-<html class="no-js">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
-    <title>SACC (MM-22)</title>
-    <meta name="description" content="Lithium Description" />
+<!DOCTYPE html>
+<html lang="en">
 
-    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
-    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Similarity Min-Max: Zero-Shot Day-Night Domain Adaptation</title>
+  <!-- Bootstrap -->
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link href="css/bootstrap-4.4.1.css" rel="stylesheet">
+  <link href="css/main.css" rel="stylesheet">
+  <!-- <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css"> -->
+  <style>
+    body {
+      background: rgb(255, 255, 255) no-repeat fixed top left;
+      font-family: "Inter", 'Open Sans', sans-serif;
+    }
+  </style>
 
-    <link href="css/plugins.css" media="screen" rel="stylesheet" type="text/css" />
-    <link href="css/application.css" media="screen" rel="stylesheet" type="text/css" />
-  </head>
+</head>
 
-<body>
+<!-- cover -->
+<section>
+  <div class="jumbotron text-center mt-0">
+    <div class="container-fluid">
+      <div class="row">
+        <div class="col">
+          <h2 style="font-size:30px;">Similarity Min-Max: Zero-Shot Day-Night Domain Adaptation</h2>
+          <h4 style="color:#6e6e6e;"> ICCV 2023 </h4>
+          <hr>
+          <h6>
+            <a class="a2" href="https://red-fairy.github.io/" target="_blank">Rundong Luo</a>&nbsp; &nbsp;
+            <a class="a2" href="https://daooshee.github.io/website/" target="_blank">Wenjing Wang</a>&nbsp; &nbsp;
+            <a class="a2" href="https://flyywh.github.io/" target="_blank">Wenhan Yang</a>&nbsp; &nbsp;
+            <a class="a2" href="http://39.96.165.147/people/liujiaying.html" target="_blank">Jiaying Liu</a>*&nbsp;
+            &nbsp;
+            <br>
+            <br>
 
-    <!-- ABOUT -->
+            <!-- <p>
+              <sup>1</sup>Wangxuan Institute of Computer Science, Peking University&nbsp; &nbsp;
+              <sup>2</sup>School of EECS, Peking University&nbsp; &nbsp;
+              <sup>3</sup>Beijing Academy of Artificial Intelligence&nbsp; &nbsp;
+            </p> -->
+            <p> <sup>*</sup> Corresponding author &nbsp;
+              <br>
+            </p>
+          </h6>
+          <!-- <p> <a class="btn btn-secondary btn-lg" href="" role="button">Paper</a> 
+                <a class="btn btn-secondary btn-lg" href="" role="button">Code</a> 
+                <a class="btn btn-secondary btn-lg" href="" role="button">Data</a> </p> -->
 
-    <section id="page-about" class="section">
-      <div align="center" style="padding-bottom: 100px;">
-        <p class="copy-02">ACM MM 2022</p>
-        <p class="heading h-01">Self-Aligned Concave Curve: Illumination <br> Enhancement for Unsupervised Adaptation</p>
-
-        <p class="copy-02">
-          <a href="https://daooshee.github.io/website/">Wenjing Wang</a> &nbsp;&nbsp;&nbsp;
-          <a href="https://iceyxxx.github.io/">Zhengbo Xu</a> &nbsp;&nbsp;&nbsp;
-          <a href="https://huangerbai.github.io/">Haofeng Huang</a> &nbsp;&nbsp;&nbsp;
-          <a href="https://www.icst.pku.edu.cn/struct/people/liujiaying.html">Jiaying Liu</a>
-        </p>
-      </div>
-
-      <div class="site-inner">
-        <h3 class="heading h-03">Abstract</h3>
-            <p class="copy-02">Low light conditions not only degrade human visual experience, but also reduce the performance of downstream machine analytics. Although many works have been designed for low-light enhancement or domain adaptive machine analytics, the former considers less on high-level vision, while the latter neglects the potential of image-level signal adjustment. How to restore underexposed images/videos from the perspective of machine vision has long been overlooked. In this paper, we are the first to propose a learnable illumination enhancement model for high-level vision. Inspired by real camera response functions, we assume that the illumination enhancement function should be a concave curve, and propose to satisfy this concavity through discrete integral. With the intention of adapting illumination from the perspective of machine vision without task-specific annotated data, we design an asymmetric cross-domain self-supervised training strategy. Our model architecture and training designs mutually benefit each other, forming a powerful unsupervised normal-to-low light adaptation framework. Comprehensive experiments demonstrate that our method surpasses existing low-light enhancement and adaptation methods and shows superior generalization on various low-light vision tasks, including classification, detection, action recognition, and optical flow estimation. All of our data, code, and results will be available online upon publication of the paper.</p>
-      </div>
-
-      <br>
-
-      <div class="site-inner">
-        <h3 class="heading h-03">Video Introduction (YouTube)</h3>
-        <br>
-        <p class='copy-02'>
-          <div align="center">
-          <iframe width="720" height="405" src="https://www.youtube.com/embed/sm7vlPpqsBo" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          <div class="row justify-content-center">
+            <div class="column">
+              <p class="mb-5">
+                <a class="btn btn-large btn-light" href="https://github.com/Red-Fairy/ZeroShotDayNightDA" role="button"
+                  target="_blank">
+                  <i class="fa fa-file"></i> Paper </a>
+              </p>
+            </div>
+            <div class="column">
+              <p class="mb-5">
+                <a class="btn btn-large btn-light" href="https://github.com/Red-Fairy/ZeroShotDayNightDA" role="button"
+                  target="_blank">
+                  <i class="fa fa-github-alt"></i> Code </a>
+              </p>
+            </div>
+            <!-- <div class="column">
+                  <p class="mb-5">
+                    <a class="btn btn-large btn-light" href="./index.html" role="button" target="_blank" style="pointer-events: none">
+                <i class="fa fa-github-alt"></i> Dataset (Coming soon) </a> </p>
+              </div> -->
+            <!-- <div class="column">
+                  <p class="mb-5"><a class="btn btn-large btn-light" href="./index.html" role="button" target="_blank" style="pointer-events: none">
+                <i class="fa fa-github-alt"></i> Dataset (Coming soon) </a> </p>
+              </div> -->
           </div>
-          </p>
-      </div>
 
-      <br>
-
-      <div class="site-inner" style="padding-top: 50px;">
-        <h3 class="heading h-03">Framework</h3>
-        <div align="center" style="padding-top:20px;padding-bottom:10px">
-          <img src="framework-new.jpg" width=90%> <br>
         </div>
-        <p class='copy-02'>The framework of our model. Our model first predicts a non-negative minus second derivative, and then integrates and normalizes it into a concave curve g, which controls the illumination of the enhanced result. The model is trained in an asymmetric self-supervised way. Based on a pretrained and fixed-weight feature extractor, we first train a pretext head on normal light images, and then train our model with the fixed-weight pretext head on low-light images.
-        </p>
       </div>
+    </div>
+  </div>
+</section>
 
-      <div class="site-inner" style="padding-top: 50px;">
-        <h3 class="heading h-03">Selected Experimental Results</h3>
-
-        <div align="center" style="padding-top:20px;padding-bottom:10px">
-          <img src="face.jpg" width=90%> <br>
-        </div>
-        <p class='copy-02'>Subjective comparison results for dark face detection. The color of the bounding boxes represents the confidence of recognition, with yellow indicating higher confidence.
-
-        <br> <br>
-
-        <div align="center" style="padding-top:20px;padding-bottom:10px">
-          <img src="flow.jpg" width=90%> <br>
-        </div>
-        <p class='copy-02'>Optical flow estimation results of the same scene under different illumination levels.
-        </p>
-
-        <br> <br>
-
-        <div align="center" style="padding-top:20px;padding-bottom:10px">
-          <img src="action.jpg" width=90%> <br>
-        </div>
-        <p class='copy-02'>Subjective results for video action recognition.
-        </p>
-
-
-        
-
-
-
-      </div>
-
-      <div class="site-inner" style="padding-top:50px;">
-        <p class="heading h-03"> Resources </p> 
-          <ul style="line-height:1.5; padding-left: 50px; padding-right: 50px">
-             <li class="copy-02"> Paper: <a href="https://arxiv.org/abs/2210.03792">arXiv</a> </li>
-             <li class="copy-02"> Code: Coming Soon </li>
-             <li class="copy-02"> Supplementary Material: <a href="https://github.com/daooshee/SACC-Website/blob/main/Supplementary-Material.pdf">PDF</a></li>
-          </ul>
-      </div>
-      
-
-      <div class="site-inner" style="padding-top:50px;">
-        <p class='heading h-03'> Citation</p>
-        <p class="copy-02"> @InProceedings{SACC_2022_ACMMM, <br>
-        &nbsp; &nbsp; author = {Wang, Wenjing and Xu, Zhengbo and Huang, Haofeng and Liu, Jiaying}, <br>
-        &nbsp; &nbsp; title = {Self-Aligned Concave Curve: Illumination Enhancement for Unsupervised Adaptation}, <br>
-        &nbsp; &nbsp; booktitle = {Proceedings of the ACM International Conference on Multimedia}, <br>
-        &nbsp; &nbsp; month = {October}, <br>
-        &nbsp; &nbsp; year = {2022} <br>
-        } <br> 
-        </p>
-      </div>
-
-<!--       <div class="site-inner" style="padding-top:50px;">
-        <p class="heading h-03"> Resources </p> 
-          <p class="copy-02"> [1] Jian Li, Yabiao Wang, Changan Wang, Ying Tai, Jianjun Qian, Jian Yang, Chengjie Wang, Jilin Li, Feiyue Huang: DSFD: Dual Shot Face Detector. CVPR 2019: 5060-5069</p>
+<section>
+  <div class="container">
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="images/teaser.jpg" alt="input" class="img-responsive graph" width="95%" />
           <br>
-          <p class="copy-02"> [2] Xiaojie Guo, Yu Li, Haibin Ling: LIME: Low-Light Image Enhancement via Illumination Map Estimation. IEEE Trans. Image Process. 26(2): 982-993 (2017)</p>
+        </div>
+        <p class="text-justify">
+          In this work, we present a novel similarity min-max framework for zero-shot day-night domain adaptation.
+          On the image level, we generate a synthetic nighttime domain that shares minimum feature similarity with the
+          daytime domain to enlarge the domain gap. On the model level, we learn illumination-robust representations by
+          maximizing the feature similarity of images from the two domains for better model adaptation. Our framework
+          can serve as a plug-and-play remedy to existing daytime models. To verify its effectiveness, we conduct
+          extensive experiments on multiple high-level nighttime vision tasks, including classification, semantic
+          segmentation, visual place recognition, and video action recognition. Results on various benchmarks
+          demonstrate our superiority over the state-of-the-art.
+        </p>
+        <!-- </div> -->
       </div>
- -->
-    <section id="page-about" class="section">
+    </div>
+  </div>
+</section>
+<br>
 
+<!-- <section>
+    <div class="container">
+      <div class="row">
+        <div class="col-12">
+          <h2><strong>Video</strong></h2>
+            <hr style="margin-top:0px">
+            <div class="row justify-content-center" style="align-items:center; display:flex;">
+              <video width="80%" playsinline="" preload="" muted="" controls>
+                <source src="videos/supp_video.mp4" type="video/mp4">
+              </video>
+            </div>  
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <br>
+  <br> -->
+
+<!-- abstract -->
+<section>
+  <div class="container">
+    <div class="row">
+      <div class="col-12">
+        <h2><strong>Abstract</strong></h2>
+        <hr style="margin-top:0px">
+        <p class="text-justify">
+          Low-light conditions not only hamper human visual experience but also degrade the model's performance on
+          downstream vision tasks. While existing works make remarkable progress on day-night domain adaptation, they
+          rely heavily on domain knowledge derived from the task-specific nighttime dataset. This paper challenges a
+          more complicated scenario with border applicability, <i>i.e.</i>, zero-shot day-night domain adaptation, which
+          eliminates reliance on any nighttime data. Unlike prior zero-shot adaptation approaches emphasizing either
+          image-level translation or model-level adaptation, we propose a similarity min-max paradigm that considers
+          them under a unified framework. On the image level, we darken images towards minimum feature similarity to
+          enlarge the domain gap. Then on the model level, we maximize the feature similarity between the darkened
+          images and their normal-light counterparts for better model adaptation. To the best of our knowledge, this
+          work represents the pioneering effort in jointly optimizing both aspects, resulting in a significant
+          improvement of model generalizability. Extensive experiments demonstrate our method's effectiveness and broad
+          applicability on various nighttime vision tasks, including classification, semantic segmentation, visual place
+          recognition, and video action recognition.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+<br>
+
+<section>
+  <div class="container">
+    <div class="row">
+      <div class="col-12">
+        <h2><strong>Method</strong></h2>
+        <hr style="margin-top:0px">
+        <!-- <h3 style="margin-top:20px; margin-bottom:20px; color:#717980"><b>Full pipeline</b></h3> -->
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="images/pipe.jpg" alt="input" class="img-responsive graph" width="95%" />
+        </div>
+        <p class="text-justify">
+          We propose a similarity min-max framework for zero-shot day-night domain adaptation.
+          (a) We first train a darkening module $D$ with a fixed feature extractor to generate <i>synthesized</i>
+          nighttime images that share minimum similarity with their daytime counterparts.
+          (b) After obtaining $D$, we freeze its weights and maximize the day-night feature similarity to adapt the
+          model to nighttime.
+        </p>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<section>
+  <div>
+    <div class="container">
+      <div class="row">
+        <div class="col-12">
+          <h2><strong>Selected Experimental Results</strong></h2>
+          <hr style="margin-top:0px">
+          <div class="row justify-content-center" style="align-items:center; display:flex;">
+            <img src="images/segmentation.jpg" alt="input" class="img-responsive graph" width="95%" />
+          </div>
+          <p class="text-justify">
+            <b>Nighttime Semantic Segmentation</b> Qualitative comparison results for semantic segmentation on
+            Dark-Zurich.
+            Low-light enhancement methods perform poorly on nighttime street scenes. Our method better extracts
+            information hidden by darkness and thus generates more accurate semantic maps.
+          </p>
+          <div class="row justify-content-center" style="align-items:center; display:flex;">
+            <img src="images/retrieval.jpg" alt="input" class="img-responsive graph" width="95%" />
+          </div>
+          <p class="text-justify">
+            <b>Visual Place Recognition</b> For each group, the query image is shown on the left; the first two images
+            (\ie, two images that have the highest similarity with the query image) are shown on the right. Compared
+            with the baseline model GeM that often gets deceived by the nighttime appearance,
+            our model can extract features more robust to illumination and thus retrieve the correct daytime image
+            showing the same scene as the query image.
+          </p>
+          <div class="row justify-content-center" style="align-items:center; display:flex;">
+            <img src="images/action_recognition.jpg" alt="input" class="img-responsive graph" width="95%" />
+          </div>
+          <p class="text-justify">
+            <b>Low-Light Video Action Recognition</b> Qualitative comparison results for low-light video action
+            recognition on ARID.
+            All video enhancement methods perform poorly and therefore mislead the classifier, while our adapted model
+            correctly classifies the video with more than 99% confidence.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<br>
+<br>
+
+<!--   
+  <section>
+    <div class="container">
+      <div class="row">
+        <div class="col-12">
+          <h2><strong>Language-guided Dexterous Grasping</strong></h2>
+            <hr style="margin-top:0px">
+              <div class="row justify-content-center" style="align-items:center; display:flex;">
+                <img src="images/language.png" alt="input" class="img-responsive graph" width="60%"/>
+              </div>
+              <p class="text-justify">
+                <b>Qualitative results of language-guided grasp proposal selection</b>.
+                CLIP can select proposals complying with the language instruction, 
+                allowing goal-conditioned policy to execute potentially functional grasps.
+              </p>
+            <br>
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <br>
+  <br>
+
+  <section>
+    <div class="container">
+      <div class="row">
+        <div class="col-12">
+          <h2><strong>Qualitative results</strong></h2>
+          <hr style="margin-top:0px">
+          <div class="row justify-content-center" style="align-items:center; display:flex;">
+            <img src="images/gallery2.png" alt="input" class="img-responsive graph" width="60%"/>
+          </div>
+          <div class="row justify-content-center" style="align-items:center; display:flex;">
+            <img src="images/gallery.png" alt="input" class="img-responsive graph" width="100%"/>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <br>
+  <br> -->
+
+<!-- citing -->
+<div class="container">
+  <div class="row ">
+    <div class="col-12">
+      <h2><strong>Citation</strong></h2>
+      <hr style="margin-top:0px">
+      <pre style="background-color: #e9eeef;padding: 0 1.5em">
+        <code>
+@article{luo2023similarity,
+  title={Similarity Min-Max: Zero-Shot Day-Night Domain Adaptation},
+  author={Luo, Rundong and Wang, Wenjing and Yang, Wenhan and Liu, Jiaying},
+  booktitle={ICCV},
+  year={2023},
+}
+        </code>
+      </pre>
+    </div>
+  </div>
+</div>
+<br>
+
+<!-- Contact -->
+<div class="container">
+  <div class="row ">
+    <div class="col-12">
+      <h2><strong>Contact</strong></h2>
+      <hr style="margin-top:0px">
+      <p>If you have any questions, please feel free to contact us:
+      <ul>
+        <li><b>Rundong Luo</b>&colon; rundong_luo<span style="display:none">Prevent spamming</span>@<span
+            style="display:none">Prevent spamming</span>stu.pku.edu.cn </li>
+      </ul>
+      </p>
+      </pre>
+    </div>
+  </div>
+</div>
+
+
+<a href="https://hits.seeyoufarm.com">
+  <img id="myImage"
+    src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fpku-epic.github.io%2FUniDexGrasp%2B%2B%2F&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false" />
+  <script>
+    function hideImage() {
+      document.getElementById("myImage").style.display = "none";
+    }
+    window.onload = hideImage;
+  </script>
+</a>
+<!-- <a href="https://hits.seeyoufarm.com">
+      <img id="myImage" src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fpku-epic.github.io%2FPartManip%2F&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false"/>
+      <script>
+        function hideImage() {
+            document.getElementById("myImage").style.display = "none";
+        }
+        window.onload = hideImage;
+      </script>
+    </a> -->
+
+<footer class="text-center" style="margin-bottom:10px; font-size: medium;">
+  <hr>
+  Thanks to <a href="https://lioryariv.github.io/" target="_blank">Lior Yariv</a> for the <a
+    href="https://lioryariv.github.io/idr/" target="_blank">website template</a>.
+</footer>
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      macros: {
+        bm: ["{\\boldsymbol #1}", 1],
+      }
+    }
+  };
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
 </body>
+
 </html>
