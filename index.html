@@ -1,0 +1,124 @@
+<!DOCTYPE HTML>
+<html class="no-js">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+    <title>SACC (MM-22)</title>
+    <meta name="description" content="Lithium Description" />
+
+    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+
+    <link href="css/plugins.css" media="screen" rel="stylesheet" type="text/css" />
+    <link href="css/application.css" media="screen" rel="stylesheet" type="text/css" />
+  </head>
+
+<body>
+
+    <!-- ABOUT -->
+
+    <section id="page-about" class="section">
+      <div align="center" style="padding-bottom: 100px;">
+        <p class="copy-02">ACM MM 2022</p>
+        <p class="heading h-01">Self-Aligned Concave Curve: Illumination <br> Enhancement for Unsupervised Adaptation</p>
+
+        <p class="copy-02">
+          <a href="https://daooshee.github.io/website/">Wenjing Wang</a> &nbsp;&nbsp;&nbsp;
+          <a href="https://iceyxxx.github.io/">Zhengbo Xu</a> &nbsp;&nbsp;&nbsp;
+          <a href="https://huangerbai.github.io/">Haofeng Huang</a> &nbsp;&nbsp;&nbsp;
+          <a href="https://www.icst.pku.edu.cn/struct/people/liujiaying.html">Jiaying Liu</a>
+        </p>
+      </div>
+
+      <div class="site-inner">
+        <h3 class="heading h-03">Abstract</h3>
+            <p class="copy-02">Low light conditions not only degrade human visual experience, but also reduce the performance of downstream machine analytics. Although many works have been designed for low-light enhancement or domain adaptive machine analytics, the former considers less on high-level vision, while the latter neglects the potential of image-level signal adjustment. How to restore underexposed images/videos from the perspective of machine vision has long been overlooked. In this paper, we are the first to propose a learnable illumination enhancement model for high-level vision. Inspired by real camera response functions, we assume that the illumination enhancement function should be a concave curve, and propose to satisfy this concavity through discrete integral. With the intention of adapting illumination from the perspective of machine vision without task-specific annotated data, we design an asymmetric cross-domain self-supervised training strategy. Our model architecture and training designs mutually benefit each other, forming a powerful unsupervised normal-to-low light adaptation framework. Comprehensive experiments demonstrate that our method surpasses existing low-light enhancement and adaptation methods and shows superior generalization on various low-light vision tasks, including classification, detection, action recognition, and optical flow estimation. All of our data, code, and results will be available online upon publication of the paper.</p>
+      </div>
+
+      <br>
+
+      <div class="site-inner">
+        <h3 class="heading h-03">Video Introduction (YouTube)</h3>
+        <br>
+        <p class='copy-02'>
+          <div align="center">
+          <iframe width="720" height="405" src="https://www.youtube.com/embed/sm7vlPpqsBo" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+          </p>
+      </div>
+
+      <br>
+
+      <div class="site-inner" style="padding-top: 50px;">
+        <h3 class="heading h-03">Framework</h3>
+        <div align="center" style="padding-top:20px;padding-bottom:10px">
+          <img src="framework-new.jpg" width=90%> <br>
+        </div>
+        <p class='copy-02'>The framework of our model. Our model first predicts a non-negative minus second derivative, and then integrates and normalizes it into a concave curve g, which controls the illumination of the enhanced result. The model is trained in an asymmetric self-supervised way. Based on a pretrained and fixed-weight feature extractor, we first train a pretext head on normal light images, and then train our model with the fixed-weight pretext head on low-light images.
+        </p>
+      </div>
+
+      <div class="site-inner" style="padding-top: 50px;">
+        <h3 class="heading h-03">Selected Experimental Results</h3>
+
+        <div align="center" style="padding-top:20px;padding-bottom:10px">
+          <img src="face.jpg" width=90%> <br>
+        </div>
+        <p class='copy-02'>Subjective comparison results for dark face detection. The color of the bounding boxes represents the confidence of recognition, with yellow indicating higher confidence.
+
+        <br> <br>
+
+        <div align="center" style="padding-top:20px;padding-bottom:10px">
+          <img src="flow.jpg" width=90%> <br>
+        </div>
+        <p class='copy-02'>Optical flow estimation results of the same scene under different illumination levels.
+        </p>
+
+        <br> <br>
+
+        <div align="center" style="padding-top:20px;padding-bottom:10px">
+          <img src="action.jpg" width=90%> <br>
+        </div>
+        <p class='copy-02'>Subjective results for video action recognition.
+        </p>
+
+
+        
+
+
+
+      </div>
+
+      <div class="site-inner" style="padding-top:50px;">
+        <p class="heading h-03"> Resources </p> 
+          <ul style="line-height:1.5; padding-left: 50px; padding-right: 50px">
+             <li class="copy-02"> Paper: <a href="https://arxiv.org/abs/2210.03792">arXiv</a> </li>
+             <li class="copy-02"> Code: Coming Soon </li>
+             <li class="copy-02"> Supplementary Material: <a href="https://github.com/daooshee/SACC-Website/blob/main/Supplementary-Material.pdf">PDF</a></li>
+          </ul>
+      </div>
+      
+
+      <div class="site-inner" style="padding-top:50px;">
+        <p class='heading h-03'> Citation</p>
+        <p class="copy-02"> @InProceedings{SACC_2022_ACMMM, <br>
+        &nbsp; &nbsp; author = {Wang, Wenjing and Xu, Zhengbo and Huang, Haofeng and Liu, Jiaying}, <br>
+        &nbsp; &nbsp; title = {Self-Aligned Concave Curve: Illumination Enhancement for Unsupervised Adaptation}, <br>
+        &nbsp; &nbsp; booktitle = {Proceedings of the ACM International Conference on Multimedia}, <br>
+        &nbsp; &nbsp; month = {October}, <br>
+        &nbsp; &nbsp; year = {2022} <br>
+        } <br> 
+        </p>
+      </div>
+
+<!--       <div class="site-inner" style="padding-top:50px;">
+        <p class="heading h-03"> Resources </p> 
+          <p class="copy-02"> [1] Jian Li, Yabiao Wang, Changan Wang, Ying Tai, Jianjun Qian, Jian Yang, Chengjie Wang, Jilin Li, Feiyue Huang: DSFD: Dual Shot Face Detector. CVPR 2019: 5060-5069</p>
+          <br>
+          <p class="copy-02"> [2] Xiaojie Guo, Yu Li, Haibin Ling: LIME: Low-Light Image Enhancement via Illumination Map Estimation. IEEE Trans. Image Process. 26(2): 982-993 (2017)</p>
+      </div>
+ -->
+    <section id="page-about" class="section">
+
+</body>
+</html>
