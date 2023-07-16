@@ -75,6 +75,8 @@ class Projection(object):
             self.focal_y = intrinsics[1, 1] * self.frustum_size[1]
             bias_x = ((intrinsics[0, 2] + 1) * self.frustum_size[0] - 1.) / 2.
             bias_y = ((intrinsics[1, 2] + 1) * self.frustum_size[1] - 1.) / 2.
+            # bias_x = (intrinsics[0, 2] + 1) * self.frustum_size[0] / 2.
+            # bias_y = (intrinsics[1, 2] + 1) * self.frustum_size[1] / 2.
         intrinsic_mat = torch.tensor([[self.focal_x, 0, bias_x, 0],
                                       [0, self.focal_y, bias_y, 0],
                                       [0, 0, 1, 0],
