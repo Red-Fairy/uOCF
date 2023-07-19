@@ -48,7 +48,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--mask_in', type=int, default=0)
 		parser.add_argument('--no_locality_epoch', type=int, default=600)
 		parser.add_argument('--locality_in', type=int, default=1000)
-		parser.add_argument('--locality_full', type=int, default=0)
+		parser.add_argument('--locality_out', type=int, default=0)
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
 		parser.add_argument('--frustum_size', type=int, default=64)
@@ -283,7 +283,7 @@ class uorfGeneralModel(BaseModel):
 		sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
 		sampling_coor_bg = frus_nss_coor  # Px3
 
-		local_locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
+		local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
 		invariant = epoch >= self.opt.invariant_in
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1

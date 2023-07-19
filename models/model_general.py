@@ -110,6 +110,26 @@ class dualRouteEncoder(nn.Module):
 
 		return torch.cat([feat_shape, feat_color], dim=1)
 
+class singleRouteEncoder(nn.Module):
+	def __init__(self, bottom=False, pos_emb=False, out_dim=64, input_dim=256, hidden_dim=256):
+		super().__init__()
+
+		self.shallow_encoder = nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
+											nn.ReLU(True),
+											nn.Conv2d(hidden_dim, out_dim, 3, stride=1, padding=1))
+
+	def forward(self, input_feat):
+		'''
+		input:
+			input_feat: (B, input_dim, 64, 64)
+			x: input images of size (B, 3, 64, 64) or (B, 3, 128, 128) if bottom is True
+		output:
+			spatial feature (B, shape_dim, 64, 64)
+		'''
+		feat = self.shallow_encoder(input_feat)
+
+		return feat
+
 class dualRouteEncoderSeparate(nn.Module):
 	def __init__(self, bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
 		super().__init__()
@@ -522,8 +542,8 @@ class Decoder(nn.Module):
 			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
 			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
 			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
-			# if local_locality_ratio is not None:
-			# 	outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
+			if local_locality_ratio is not None:
+				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
 		else:
 			# currently do not support fg_in_world
 			# first compute the original locality constraint
