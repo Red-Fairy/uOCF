@@ -42,6 +42,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 970 --n_img_each_sce
     --exp_id '0719/1obj-load-uuf-4050' \
     --obj_scale 4.5 --world_obj_scale 4.5 \
     --fixed_locality \
+    --continue_train --epoch_count 40 \
     --dummy_info 'DINO from scratch 1 obj with white BG. dim=72+24' \
     
 

@@ -33,14 +33,14 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --attn_decay_steps 100000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 5 --attn_iter 4 --shape_dim 96 --color_dim 32 \
+    --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --freezeInit_steps 100000 \
-    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2027 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/1obj-scratch-nofoot-fixed-large-range4055-r2' \
+    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2023 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0719/1obj-load-uuf-4050' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
     --fixed_locality --random_init_pos \
-    --exp_id '0719/4obj-load-ttf-4050-randomInitPos-noloc' \
-    --dummy_info 'DINO load from 1 obj with BG, epoch 300, random init slot position, no locality constraint from the begining' \
+    --exp_id '0719/1obj-load-uuf-4050-randomInit-noloc' \
+    --dummy_info 'DINO load from 1 obj with BG, epoch 300' \
     
 
 # can try the following to list out which GPU you have access to

@@ -32,6 +32,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120 --no_locality_epoch 60 --z_dim 64 --num_slots 5 --near 8 --far 18 \
     --model 'uorf_nogan_DINO' --bottom --encoder_type 'DINO' --encoder_size 896 \
+    --continue_train --epoch_count 138 \
     --exp_id 'uORF-4obj-DINO' \
 # done
 echo "Done"

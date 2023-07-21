@@ -39,9 +39,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 970 --n_img_each_sce
     --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2023 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0719/1obj-mask-fixed-4050' \
     --load_encoder 'unload' --load_slotattention 'unload' --load_decoder 'load_freeze' \
-    --exp_id '0719/1obj-load-uuf-pos-4050' \
+    --exp_id '0719/1obj-load-uuf-pos' \
     --position_loss --weight_pos 0.1 \
-    --continue_train --epoch 75 --epoch_count 76 \
+    --continue_train --epoch_count 40 \
     --obj_scale 4.5 --world_obj_scale 4.5 \
     --fixed_locality \
     --dummy_info 'DINO from scratch 1 obj with white BG. dim=72+24' \
