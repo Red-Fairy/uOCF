@@ -35,10 +35,10 @@ python test.py --dataroot $DATAROOT --n_scenes 25 --n_img_each_scene 3  \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/4obj-load-ttf-nofoot-fixed-large-range4055' \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/4obj-load-ttf-real' \
     --fixed_locality --recon_only --load_intrinsics --no_shuffle \
     --nss_scale 7 \
-    --dummy_info 'test_real' --testset_name 'test_real_dataset-4obj-test-0719' \
+    --dummy_info 'test_real' --testset_name 'test_real_dataset-4obj-test' \
 
 
 # can try the following to list out which GPU you have access to

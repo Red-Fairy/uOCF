@@ -209,7 +209,8 @@ class BaseModel(ABC):
                     # add loaded keys to loaded_keys_frozen
                 for key, _ in net.named_parameters():
                     if key not in incompatible.missing_keys:
-                        if load_method == 'load_train' or (self.opt.freeze_bg_only and 'f_' in key):
+                        # if (load_method == 'load_train' or (self.opt.freeze_bg_only and 'f_' in key)) and not 'attn_to_pos_bias' in key:
+                        if (load_method == 'load_train' or (self.opt.freeze_bg_only and 'f_' in key)):
                             loaded_keys_trainable.append(key)
                         else: #load_method == 'load_freeze':
                             loaded_keys_frozen.append(key)

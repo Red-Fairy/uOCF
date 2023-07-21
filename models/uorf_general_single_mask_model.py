@@ -11,16 +11,21 @@ import os
 import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
+# from .model_T_sam_fgmask import Decoder
 # SlotAttention
-from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDSeparate, Encoder
-from .model_general import SlotAttention, Decoder
+from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
+from .model_general import SlotAttentionFG as SlotAttention
+from .model_general import DecoderFG as Decoder
 from .utils import *
+from matplotlib import cm
+import matplotlib.pyplot as plt
 import numpy as np
-
+from segment_anything import sam_model_registry
+from .model_general import singleRouteEncoder
 
 import torchvision
 
-class uorfGeneralModel(BaseModel):
+class uorfGeneralSingleMaskModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -45,18 +50,16 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
 		parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
 		parser.add_argument('--weight_percept', type=float, default=0.006)
-		parser.add_argument('--percept_in', type=int, default=100)
+		parser.add_argument('--percept_in', type=int, default=10)
 		parser.add_argument('--mask_in', type=int, default=0)
 		parser.add_argument('--no_locality_epoch', type=int, default=600)
 		parser.add_argument('--locality_in', type=int, default=1000)
-		parser.add_argument('--locality_out', type=int, default=0)
+		parser.add_argument('--locality_full', type=int, default=0)
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
 		parser.add_argument('--frustum_size', type=int, default=64)
 		parser.add_argument('--frustum_size_fine', type=int, default=128)
 		parser.add_argument('--attn_decay_steps', type=int, default=2e5)
-		parser.add_argument('--freezeInit_ratio', type=float, default=1)
-		parser.add_argument('--freezeInit_steps', type=int, default=100000)
 		parser.add_argument('--coarse_epoch', type=int, default=600)
 		parser.add_argument('--near_plane', type=float, default=8)
 		parser.add_argument('--far_plane', type=float, default=18)
@@ -64,11 +67,9 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
-		parser.add_argument('--sfs_loss', action='store_true', help='use the Slot-Feature-Slot loss')
-		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
-		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
-		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
-
+		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
+		parser.add_argument('--centered', action='store_true', help='object at center of world')
+		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
 
@@ -85,57 +86,48 @@ class uorfGeneralModel(BaseModel):
 		- define loss function, visualization images, model names, and optimizers
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
-		self.loss_names = ['recon', 'perc', 'sfs', 'pos']
+		assert opt.num_slots == 1, 'only support single slot, for Kobj, use general_mask_Kobj_model'
+		self.loss_names = ['recon', 'perc']
 		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		self.perceptual_net = get_perceptual_net().to(self.device)
 		self.vgg_norm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-		self.intrinsics = np.loadtxt(os.path.join(opt.dataroot, 'camera_intrinsics_ratio.txt')) if opt.load_intrinsics else None
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 		frustum_size_fine = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp]
 		self.projection_fine = Projection(device=self.device, nss_scale=opt.nss_scale,
-										  frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=self.intrinsics)
+										  frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 
 		z_dim = opt.color_dim + opt.shape_dim
-		self.num_slots = opt.num_slots
 
-		if opt.encoder_type == 'SAM':
-			from segment_anything import sam_model_registry
-			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-			self.pretrained_encoder = SAMViT(sam_model).to(self.device).eval()
-			vit_dim = 256
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=vit_dim),
-													gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'DINO':
+		if opt.encoder_type == 'DINO':
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
-					   								gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'SD':
-			from .SD.ldm_extractor import LdmExtractor
-			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
-			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
-												gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'CNN':
-			self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
-									gpu_ids=self.gpu_ids, init_type='normal')
+			self.netEncoder = networks.init_net(singleRouteEncoder(pos_emb=opt.pos_emb, bottom=opt.bottom, out_dim=opt.shape_dim, input_dim=dino_dim),
+                                                gpu_ids=self.gpu_ids, init_type='normal')
 		else:
 			assert False
 
-		self.netSlotAttention = networks.init_net(
-				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter,
-		  						learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), gpu_ids=self.gpu_ids, init_type='normal')
+		if not opt.feature_aggregate:
+			self.netSlotAttention = networks.init_net(
+				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
+		else:
+			self.netSlotAttention = networks.init_net(
+				FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 
+		if self.isTrain:  # only defined during training time
+			requires_grad = lambda x: x.requires_grad
+			params = chain(self.netEncoder.parameters(),self.netSlotAttention.parameters(), self.netDecoder.parameters())
+			self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
+			self.optimizers = [self.optimizer]
+
 		self.L2_loss = nn.MSELoss()
-		self.sfs_loss = SlotFeatureSlotLoss()
-		self.pos_loss = PositionSetLoss()
 
 	def set_visual_names(self):
 		n = self.opt.n_img_each_scene
@@ -144,7 +136,8 @@ class uorfGeneralModel(BaseModel):
 							['x_rec{}'.format(i) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
-		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
+		if not self.opt.feature_aggregate:
+			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -152,42 +145,10 @@ class uorfGeneralModel(BaseModel):
 			opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
 		"""
 		if self.isTrain:
-			if opt.load_pretrain: # load pretraine models, e.g., object NeRF decoder
-				assert opt.load_pretrain_path is not None
-				unloaded_keys, loaded_keys_frozen, loaded_keys_trainable = self.load_pretrain_networks(opt.load_pretrain_path, opt.load_epoch)
-				def get_params(keys):
-					params = [v for k, v in self.netEncoder.named_parameters() if k in keys] + \
-							 [v for k, v in self.netSlotAttention.named_parameters() if k in keys] + \
-							 [v for k, v in self.netDecoder.named_parameters() if k in keys]
-					return params
-
-				unloaded_params, loaded_params_frozen, loaded_params_trainable = get_params(unloaded_keys), get_params(loaded_keys_frozen), get_params(loaded_keys_trainable)
-				print('Unloaded params:', unloaded_keys, '\n', 'Length:', len(unloaded_keys))
-				print('Loaded params (frozen):', loaded_keys_frozen, '\n', 'Length:', len(loaded_keys_frozen))
-				print('Loaded params (trainable):', loaded_keys_trainable, '\n', 'Length:', len(loaded_keys_trainable))
-				self.optimizers, self.schedulers = [], []
-				if len(unloaded_params) > 0:
-					self.optimizers.append(optim.Adam(unloaded_params, lr=opt.lr))
-					self.schedulers.append(networks.get_scheduler(self.optimizers[-1], opt))
-				if len(loaded_params_frozen) > 0:
-					self.optimizers.append(optim.Adam(loaded_params_frozen, lr=opt.lr))
-					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, opt.warmup_steps, opt.attn_decay_steps)
-					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
-				if len(loaded_params_trainable) > 0:
-					self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
-					configs = (opt.freezeInit_ratio, 0, opt.warmup_steps, opt.attn_decay_steps)
-					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
-			else:
-				requires_grad = lambda x: x.requires_grad
-				params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())
-				self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
-				self.optimizers = [self.optimizer]
-				self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
-
-		if not self.isTrain or opt.continue_train: # resume
+			self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
+		if not self.isTrain or opt.continue_train:
 			load_suffix = 'iter_{}'.format(opt.load_iter) if opt.load_iter > 0 else opt.epoch
 			self.load_networks(load_suffix)
-		
 		self.print_networks(opt.verbose)
 
 	def set_input(self, input):
@@ -195,44 +156,23 @@ class uorfGeneralModel(BaseModel):
 		Parameters:
 			input: a dictionary that contains the data itself and its metadata information.
 		"""
-		self.x = input['img_data'].to(self.device)
-		self.x_large = input['img_data_large'].to(self.device) if self.opt.encoder_type != 'CNN' else None
+		self.x = input['img_data'].to(self.device) # N*3*H*W
+		assert 'img_data_large' in input or 'img_feats' in input
+		if 'img_data_large' in input:
+			self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W
+		else:
+			self.x_large = None
+			self.x_feats = input['img_feats'].to(self.device) # 1*H'*W'*C (H'=W'=64, C=1024)
 		self.cam2world = input['cam2world'].to(self.device)
+		if 'obj_idxs' in input:
+			self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
+			self.num_slots = self.masks.shape[0]
+			self.bg_mask = input['bg_mask'].float().to(self.device) # N*1*H*W
+		else:
+			self.num_slots = self.opt.num_slots
+			self.masks = None
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
-
-	def encode(self, idx=0):
-		"""Encode the input image into a feature map.
-		Parameters:
-			idx: idx of the image to be encoded (typically 0, if position loss is used, we may use 1)
-		Returns:
-			feat_shape, feat_color
-		"""
-		
-		dev = self.x[0:1].device
-		if not self.opt.encoder_type == 'CNN':
-			if self.opt.encoder_type == 'SAM':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder(self.x_large[idx:idx+1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-			elif self.opt.encoder_type == 'DINO':
-				with torch.no_grad():
-					feat_size = 64
-					feature_map = self.pretrained_encoder.forward_features(self.x_large[idx:idx+1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
-			elif self.opt.encoder_type == 'SD':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
-			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
-
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
-			feat_color = None
-
-		return feat_shape, feat_color
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -241,31 +181,59 @@ class uorfGeneralModel(BaseModel):
 		dens_noise = 0
 		self.loss_recon = 0
 		self.loss_perc = 0
-		self.loss_sfs = 0
-		self.loss_pos = 0
 		dev = self.x[0:1].device
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 		if self.opt.fixed_locality: # divide the translation part by self.opt.nss_scale
 			nss2cam0 = torch.cat([torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2), 
 									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
+			
 
 		# Encoding images
-		feat_shape, feat_color = self.encode(0)
+		with torch.no_grad():
+			feat_size = 64
+			feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
+		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+		feature_map_shape = self.netEncoder(feature_map)  # Bxshape_dimxHxW
+
+		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_color = None
+		self.masks = F.interpolate(self.masks, size=feat_shape.shape[1:3], mode='nearest') if self.masks is not None else None # Kx1xHxW
 	
 		# Slot Attention
-		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
-		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
+		# use_mask = epoch < self.opt.mask_in
+		use_mask = False
+		if not self.opt.feature_aggregate:
+			z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape,  feat_color=feat_color, mask=self.masks, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN
+			z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
+		else:
+			z_slots, fg_slot_position = self.netSlotAttention(feat_shape.permute([0,3,1,2]), self.masks, use_mask, feat_color.permute([0,3,1,2]))  # KxC, Kx2
+			# z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, Kx2
 
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics)  # Kx3
+		if not self.opt.centered:
+			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
+		else:
+			fg_slot_nss_position = torch.zeros(fg_slot_position.shape[0], 3).to(fg_slot_position.device)
 		
-		K = attn.shape[0]
-			
+		K = z_slots.shape[0]
+
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 		if self.opt.stage == 'coarse':
 			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
+			# frus_nss_coor_debug = frus_nss_coor.reshape(N, -1, 3).cpu().numpy()
+			# fig = plt.figure(figsize=(20, 40))
+			# # create a subplot for each camera
+			# colors = cm.rainbow(np.linspace(0, 1, N))
+			# cam2world_debug = cam2world.cpu().numpy()
+			# for i in range(N):
+			# 	ax = plt.subplot(2, 4, i+1, projection='3d')
+			# 	# visualize the frustum
+			# 	ax.scatter(frus_nss_coor_debug[i,:,0], frus_nss_coor_debug[i,:,1], frus_nss_coor_debug[i,:,2], c=colors[i], marker='o', s=1)
+			# 	# visualize the camera origin
+			# 	ax.scatter(cam2world_debug[i,0,3], cam2world_debug[i,1,3], cam2world_debug[i,2,3], c=colors[i], marker='o', s=10)
+			# fig.savefig('frus_nss_coor.png')
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
@@ -282,13 +250,12 @@ class uorfGeneralModel(BaseModel):
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 
-		sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
-		sampling_coor_bg = frus_nss_coor  # Px3
+		sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
-		local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
+		local_locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
 		invariant = epoch >= self.opt.invariant_in
-		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 		raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 		masked_raws = masked_raws.view([K, N, D, H, W, 4])
 		unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
@@ -302,29 +269,14 @@ class uorfGeneralModel(BaseModel):
 		rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
 		self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
 
-		if self.opt.sfs_loss:
-			# shape representations of foreground slots: z_slots[1:, :self.opt.shape_dim] # K*C
-			# representations of spatial features: feat_shape.flatten(1, 2).squeeze(0) # N*C
-			self.loss_sfs = self.opt.weight_sfs * self.sfs_loss(z_slots[1:, :self.opt.shape_dim], feat_shape.flatten(1, 2).squeeze(0))
-
-		if self.opt.position_loss and epoch >= self.opt.position_in:
-			# assert self.opt.num_slots == 2 # only support one foreground object
-			# infer the position from the second view
-			feat_shape_, _ = self.encode(1)
-			_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None)  # 1xKx2
-			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
-			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics)
-			# calculate the position loss (L2 loss between the two inferred positions)
-			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_nss_position, fg_slot_nss_position_)
-			# print('position loss: {}'.format(self.loss_position.item()))
-
 		with torch.no_grad():
-			attn = attn.detach().cpu()  # KxN
-			H_, W_ = feat_shape.shape[1:3]
-			attn = attn.view(self.opt.num_slots, 1, H_, W_)
-			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
-			setattr(self, 'attn', attn)
+			if not self.opt.feature_aggregate:
+				attn = attn.detach().cpu()  # KxN
+				H_, W_ = feature_map_shape.shape[2], feature_map_shape.shape[3]
+				attn = attn.view(self.opt.num_slots, 1, H_, W_)
+				if H_ != H:
+					attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+				setattr(self, 'attn', attn)
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 				setattr(self, 'x{}'.format(i), x[i])
@@ -353,7 +305,8 @@ class uorfGeneralModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(self.opt.n_img_each_scene):
 					setattr(self, 'unmasked_slot{}_view{}'.format(k, i), x_recon[i])
-				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+				if not self.opt.feature_aggregate:
+					setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
 			for k in range(self.num_slots, self.opt.num_slots):
 				# add dummy images
@@ -366,9 +319,9 @@ class uorfGeneralModel(BaseModel):
 
 	def backward(self):
 		"""Calculate losses, gradients, and update network weights; called in every training iteration"""
-		loss = self.loss_recon + self.loss_perc + self.loss_sfs + self.loss_pos
+		loss = self.loss_recon + self.loss_perc
 		loss.backward()
-		# self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
+		self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 
 	def optimize_parameters(self, ret_grad=False, epoch=0):
 		"""Update network weights; it will be called in every training iteration."""

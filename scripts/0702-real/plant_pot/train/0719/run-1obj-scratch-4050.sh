@@ -1,11 +1,13 @@
 #!/bin/bash
+
+#!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:a6000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,24 +24,23 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/real/dataset-4obj-0719/dataset_undistorted_multiview'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/plant_pots/train-white-1obj-nofoot-viewrange-large-4050'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python test.py --dataroot $DATAROOT --n_scenes 25 --n_img_each_scene 3  \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 970 --n_img_each_scene 3 \
     --checkpoints_dir 'checkpoints' --name 'room_real_pots' \
-    --display_port $PORT --display_ncols 4 \
-    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
-    --model 'uorf_general_eval' \
-    --num_slots 5 --attn_iter 4 \
-    --shape_dim 96 --color_dim 32 \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 10 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
+    --model 'uorf_general' \
+    --attn_decay_steps 200000 --freezeInit_steps 50000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/4obj-load-ttf-nofoot-fixed-large-range4055' \
-    --fixed_locality --recon_only --load_intrinsics --no_shuffle \
-    --nss_scale 7 \
-    --dummy_info 'test_real' --testset_name 'test_real_dataset-4obj-test-0719' \
-
+    --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
+    --coarse_epoch 300 --niter 300 --percept_in 25 --no_locality_epoch 50 --seed 2023 \
+    --exp_id '0719/1obj-scratch-4050' \
+    --obj_scale 4.5 --world_obj_scale 4.5 \
+    --dummy_info 'DINO from scratch 1 obj with white BG. dim=72+24' \
+    
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery
