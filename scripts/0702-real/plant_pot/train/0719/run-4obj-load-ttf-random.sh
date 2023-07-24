@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/plant_pots/train-white-4obj-nofoot-viewrange-large-4050-close2.5'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/plant_pots/train-white-4obj-nofoot-viewrange-large-4550'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 3 \
@@ -33,14 +33,14 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --attn_decay_steps 100000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 \
+    --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
     --freezeInit_steps 100000 \
     --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 50 --seed 2023 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0719/1obj-load-uuf-4050' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
     --fixed_locality --random_init_pos \
-    --exp_id '0719/4obj-load-ttf-4050-randomInit' \
-    --dummy_info 'DINO load from 1 obj with BG, 100 epoch' \
+    --exp_id '0723/4obj-load-ttf-4050-randomInit' \
+    --dummy_info 'DINO load from 1 obj with BG, 250 epoch' \
     
 
 # can try the following to list out which GPU you have access to

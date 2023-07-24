@@ -29,17 +29,18 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --checkpoints_dir 'checkpoints' --name 'room_real_pots' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 20 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
-    --model 'uorf_general' \
+    --model 'uorf_general_prog' \
     --attn_decay_steps 100000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
     --freezeInit_steps 100000 \
-    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2023 \
+    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 50 --seed 2023 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0719/1obj-load-uuf-4050' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
     --fixed_locality --random_init_pos \
-    --exp_id '0723/4obj-load-ttf-4050-randomInit-noloc' \
+    --progressive_steps '0,2,4,6' \
+    --exp_id '0723/4obj-load-ttf-prog-debug' \
     --dummy_info 'DINO load from 1 obj with BG, 250 epoch' \
     
 

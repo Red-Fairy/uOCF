@@ -39,7 +39,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/1obj-scratch-nofoot-fixed-viewrange-4555' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
     --fixed_locality \
-    --exp_id '4obj-load-ttf-nofoot-fixed-viewrange-4555' \
+    --exp_id '4obj-load-ttf-nofoot-fixed-viewrange-4555-debug' \
     --dummy_info 'DINO from scratch 1 obj with BG' \
     
 

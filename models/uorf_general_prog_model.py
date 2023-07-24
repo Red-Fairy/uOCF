@@ -20,7 +20,7 @@ import numpy as np
 
 import torchvision
 
-class uorfGeneralModel(BaseModel):
+class uorfGeneralProgModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -48,7 +48,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--percept_in', type=int, default=100)
 		parser.add_argument('--mask_in', type=int, default=0)
 		parser.add_argument('--no_locality_epoch', type=int, default=600)
-		parser.add_argument('--locality_in', type=int, default=100000)
+		parser.add_argument('--locality_in', type=int, default=1000000)
 		parser.add_argument('--locality_out', type=int, default=0)
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
@@ -57,6 +57,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--attn_decay_steps', type=int, default=2e5)
 		parser.add_argument('--freezeInit_ratio', type=float, default=1)
 		parser.add_argument('--freezeInit_steps', type=int, default=100000)
+		parser.add_argument('--progressive_steps', type=str, default='0,0,0,0') # must be in ascending order, first one must be 0
 		parser.add_argument('--coarse_epoch', type=int, default=600)
 		parser.add_argument('--near_plane', type=float, default=8)
 		parser.add_argument('--far_plane', type=float, default=18)
@@ -68,7 +69,6 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
-		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -127,11 +127,9 @@ class uorfGeneralModel(BaseModel):
 			assert False
 
 		self.netSlotAttention = networks.init_net(
-				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
-							  slot_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
-		  					  color_dim=0 if self.opt.color_in_attn else self.color_dim, 
-							  iters=opt.attn_iter, learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
-							  gpu_ids=self.gpu_ids, init_type='normal')
+				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter,
+		  						learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad, diff_fg_init=opt.diff_fg_init), 
+								gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
@@ -141,9 +139,12 @@ class uorfGeneralModel(BaseModel):
 		self.sfs_loss = SlotFeatureSlotLoss()
 		self.pos_loss = PositionSetLoss()
 
-	def set_visual_names(self):
+		self.progressive_steps = [int(x) for x in opt.progressive_steps.split(',')]
+		assert opt.num_slots == len(self.progressive_steps) + 1
+
+	def set_visual_names(self, n_slot=None):
 		n = self.opt.n_img_each_scene
-		n_slot = self.opt.num_slots
+		n_slot = self.opt.num_slots if n_slot is None else n_slot
 		self.visual_names = ['x{}'.format(i) for i in range(n)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
@@ -175,11 +176,11 @@ class uorfGeneralModel(BaseModel):
 					self.schedulers.append(networks.get_scheduler(self.optimizers[-1], opt))
 				if len(loaded_params_frozen) > 0:
 					self.optimizers.append(optim.Adam(loaded_params_frozen, lr=opt.lr))
-					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, opt.warmup_steps, opt.attn_decay_steps)
+					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, 0, opt.attn_decay_steps)
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 				if len(loaded_params_trainable) > 0:
 					self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
-					configs = (opt.freezeInit_ratio, 0, opt.warmup_steps, opt.attn_decay_steps)
+					configs = (opt.freezeInit_ratio, 0, 0, opt.attn_decay_steps) # no warmup for the loaded params
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 			else:
 				requires_grad = lambda x: x.requires_grad
@@ -239,6 +240,16 @@ class uorfGeneralModel(BaseModel):
 		return feat_shape, feat_color
 
 	def forward(self, epoch=0):
+		# set number of slots
+		# find the largest index in the progressive steps that is smaller than epoch
+		# if no such index exists, then the number of slots is the largest number in the progressive steps
+		# otherwise, the number of slots is the number in the next index
+		# one more slot is added for the background
+		# e.g., progressive_steps = [0, 100, 200, 300], epoch = 150, then num_slots = 2+1 = 3
+		previous_num_slots = self.num_slots
+		self.num_slots = max([i for i, x in enumerate(self.progressive_steps) if x <= epoch]) + 2 if epoch < self.progressive_steps[-1] else len(self.progressive_steps) + 1
+		if self.num_slots != previous_num_slots:
+			self.set_visual_names(self.num_slots)
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
 		# dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
@@ -258,10 +269,7 @@ class uorfGeneralModel(BaseModel):
 		feat_shape, feat_color = self.encode(0)
 	
 		# Slot Attention
-		if not self.opt.color_in_attn:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
-		else:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), feat_color=None)
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, num_slots=self.num_slots)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics)  # Kx3
@@ -292,7 +300,7 @@ class uorfGeneralModel(BaseModel):
 		sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
 		sampling_coor_bg = frus_nss_coor  # Px3
 
-		local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
+		local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if (epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch) else None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
 		invariant = epoch >= self.opt.invariant_in
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
@@ -328,7 +336,7 @@ class uorfGeneralModel(BaseModel):
 		with torch.no_grad():
 			attn = attn.detach().cpu()  # KxN
 			H_, W_ = feat_shape.shape[1:3]
-			attn = attn.view(self.opt.num_slots, 1, H_, W_)
+			attn = attn.view(self.num_slots, 1, H_, W_)
 			if H_ != H:
 				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			setattr(self, 'attn', attn)
@@ -362,12 +370,12 @@ class uorfGeneralModel(BaseModel):
 					setattr(self, 'unmasked_slot{}_view{}'.format(k, i), x_recon[i])
 				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
-			for k in range(self.num_slots, self.opt.num_slots):
-				# add dummy images
-				for i in range(self.opt.n_img_each_scene):
-					setattr(self, 'slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
-					setattr(self, 'unmasked_slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
-				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+			# for k in range(self.num_slots, self.opt.num_slots):
+			# 	# add dummy images
+			# 	for i in range(self.opt.n_img_each_scene):
+			# 		setattr(self, 'slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
+			# 		setattr(self, 'unmasked_slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
+			# 	setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
 				
 

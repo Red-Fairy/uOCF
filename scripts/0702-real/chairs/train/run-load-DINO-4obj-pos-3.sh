@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/train-4obj'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/train-4obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 3 \
@@ -35,12 +35,11 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --freezeInit_steps 100000 \
-    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 50 --seed 2023 \
+    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 50 --seed 2025 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/1obj-scratch-posLoss-nss' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --exp_id '0709/4obj-loadPos-ttf-r2' \
-    --continue_train --epoch_count 58 \
-    --dummy_info 'DINO from scratch 1 obj with BG and position loss (~250 epoch)' \
+    --exp_id '0709/4obj-loadPos-ttf-r5' \
+    --dummy_info 'DINO from scratch 1 obj with BG and position loss, 300 epoch' \
     
 
 # can try the following to list out which GPU you have access to

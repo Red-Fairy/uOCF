@@ -314,17 +314,26 @@ class EncoderPosEmbedding(nn.Module):
 		return k_bg, v_bg # (b, 1, h*w, d)
 
 class SlotAttention(nn.Module):
-	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, 
-	      hidden_dim=128, learnable_pos=True, n_feats=64*64, global_feat=False, random_init_pos=False):
+	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
+	      learnable_pos=True, n_feats=64*64, global_feat=False, 
+		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
 		self.eps = eps
 		self.scale = slot_dim ** -0.5
 
-		self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
-		self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
-		init.xavier_uniform_(self.slots_logsigma)
+		self.diff_fg_init = diff_fg_init
+
+		if not self.diff_fg_init:
+			self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
+			self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
+			init.xavier_uniform_(self.slots_logsigma)
+		else:
+			self.slots_mu = nn.Parameter(torch.randn(1, num_slots-1, slot_dim))
+			self.slots_logsigma = nn.Parameter(torch.zeros(1, num_slots-1, slot_dim))
+			init.xavier_uniform_(self.slots_logsigma)
+			
 		self.slots_mu_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
 		self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
 		init.xavier_uniform_(self.slots_logsigma_bg)
@@ -356,6 +365,7 @@ class SlotAttention(nn.Module):
 
 		self.global_feat = global_feat
 		self.random_init_pos = random_init_pos
+		self.pos_no_grad = pos_no_grad
 
 	def forward(self, feat, feat_color=None, num_slots=None):
 		"""
@@ -369,12 +379,16 @@ class SlotAttention(nn.Module):
 		feat = feat.flatten(1, 2) # (B, N, C)
 		K = num_slots if num_slots is not None else self.num_slots
 
-		mu = self.slots_mu.expand(B, K-1, -1)
-		sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
+		if not self.diff_fg_init:
+			mu = self.slots_mu.expand(B, K-1, -1)
+			sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
+		else:
+			mu = self.slots_mu.expand(B, -1, -1)[:, 0:K-1, :]
+			sigma = self.slots_logsigma.exp().expand(B, -1, -1)[:, 0:K-1, :]
 		slot_fg = mu + sigma * torch.randn_like(mu)
 		
 		fg_position = self.fg_position if (self.fg_position is not None and not self.random_init_pos) else torch.rand(1, K-1, 2) * 1.5 - 0.75
-		fg_position = fg_position.expand(B, -1, -1).to(feat.device) # Bx(K-1)x2
+		fg_position = fg_position.expand(B, -1, -1)[:, :K-1, :].to(feat.device) # Bx(K-1)x2
 		
 		mu_bg = self.slots_mu_bg.expand(B, 1, -1)
 		sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
@@ -414,7 +428,11 @@ class SlotAttention(nn.Module):
 			
 			# update slot position
 			# print(attn_weights_fg.shape, grid.shape, fg_position.shape)
-			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+			if self.pos_no_grad:
+				with torch.no_grad():
+					fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+			else:
+				fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
 			if self.learnable_pos: # add a bias term
 				fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
 				fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
@@ -459,6 +477,7 @@ class SlotAttention(nn.Module):
 		if feat_color is not None:
 			slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # (B,K-1,C+C')
 			slot_bg = torch.cat([slot_bg, slot_bg_color], dim=-1) # (B,1,C+C')
+			
 		slots = torch.cat([slot_bg, slot_fg], dim=1) # (B,K,C+C')
 				
 		return slots, attn, fg_position
@@ -535,14 +554,15 @@ class Decoder(nn.Module):
 
 		if self.fixed_locality:
 			# first compute the originallocality constraint
-			outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
+			if self.locality:
+				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
 			if self.rel_pos and invariant:
 				# then compute the transformed locality constraint
 				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
 			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
 			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
 			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
-			if local_locality_ratio is not None:
+			if self.locality and local_locality_ratio is not None:
 				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
 		else:
 			# currently do not support fg_in_world
@@ -554,7 +574,7 @@ class Decoder(nn.Module):
 			if self.rel_pos and invariant:
 				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3
 			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3
-			if local_locality_ratio is not None:
+			if self.locality and local_locality_ratio is not None:
 				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
 
 		z_bg = z_slots[0:1, :]  # 1xC

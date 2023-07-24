@@ -41,5 +41,9 @@ class TrainOptions(BaseOptions):
 
 		parser.add_argument('--position_loss', action='store_true', help='use the position loss')
 
+		parser.add_argument('--pos_no_grad', action='store_true', help='do not use the position loss gradient')
+		parser.add_argument('--no_load_sigma_mu', action='store_true', help='do not load sigma and mu')
+		parser.add_argument('--diff_fg_init', action='store_true', help='different fg init')
+
 		self.isTrain = True
 		return parser

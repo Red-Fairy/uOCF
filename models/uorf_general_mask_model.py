@@ -68,6 +68,7 @@ class uorfGeneralMaskModel(BaseModel):
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
 		parser.add_argument('--feature_aggregate', action='store_true', help='aggregate features from encoder')
 		parser.add_argument('--centered', action='store_true', help='object at center of world')
+		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -120,12 +121,16 @@ class uorfGeneralMaskModel(BaseModel):
 		else:
 			assert False
 
-		if not opt.feature_aggregate:
-			self.netSlotAttention = networks.init_net(
-				SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
-		else:
-			self.netSlotAttention = networks.init_net(
-				FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
+		# if not opt.feature_aggregate:
+		# 	self.netSlotAttention = networks.init_net(
+		# 		SlotAttention(in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
+		# else:
+		# 	self.netSlotAttention = networks.init_net(
+		# 		FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
+		self.netSlotAttention = networks.init_net(SlotAttention(in_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
+							  slot_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
+		  					  color_dim=0 if self.opt.color_in_attn else opt.color_dim, 
+							  iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
@@ -221,18 +226,22 @@ class uorfGeneralMaskModel(BaseModel):
 		# Slot Attention
 		# use_mask = epoch < self.opt.mask_in
 		use_mask = False
-		if not self.opt.feature_aggregate:
-			z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape,  feat_color=feat_color, mask=self.masks, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN
-			z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
+		# if not self.opt.feature_aggregate:
+		# 	z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape,  feat_color=feat_color, mask=self.masks, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN
+		# 	z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
+		# else:
+		# 	z_slots, fg_slot_position = self.netSlotAttention(feat_shape.permute([0,3,1,2]), self.masks, use_mask, feat_color.permute([0,3,1,2]))  # KxC, Kx2
+		if not self.opt.color_in_attn:
+			z_slots, fg_slot_position, attn = self.netSlotAttention(feat_shape, feat_color=feat_color, mask=self.masks, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN
 		else:
-			z_slots, fg_slot_position = self.netSlotAttention(feat_shape.permute([0,3,1,2]), self.masks, use_mask, feat_color.permute([0,3,1,2]))  # KxC, Kx2
-			# z_slots, fg_slot_position = z_slots.squeeze(0), fg_slot_position.squeeze(0)  # KxC, Kx2
+			z_slots, fg_slot_position, attn = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), feat_color=None, mask=self.masks, use_mask=use_mask)  # 1xKxC, 1xKx2, 1xKxN			
+		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		if not self.opt.centered:
 			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer)  # Kx3
 		else:
 			fg_slot_nss_position = torch.zeros(fg_slot_position.shape[0], 3).to(fg_slot_position.device)
-		
+
 		K = z_slots.shape[0]
 
 		cam2world = self.cam2world

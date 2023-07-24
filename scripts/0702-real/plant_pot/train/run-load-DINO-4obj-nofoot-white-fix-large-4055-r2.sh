@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -36,12 +36,12 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --num_slots 5 --attn_iter 4 --shape_dim 96 --color_dim 32 --near_plane 6 --far_plane 20 \
     --freezeInit_steps 100000 \
     --world_obj_scale 4.5 --obj_scale 4.5 \
-    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 50 --seed 2025 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/1obj-scratch-nofoot-fixed-large-range4055-r2' \
+    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 50 --seed 2023 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/legacy/1obj-scratch-nofoot-fixed-large-range4055-r2' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
     --fixed_locality \
-    --exp_id '4obj-load-ttf-nofoot-fixed-large-range4055' \
-    --dummy_info 'DINO load from 1 obj with BG, epoch ~245' \
+    --exp_id '0723/4obj-load-ttf-nofoot-fixed-large-range4055-debug' \
+    --dummy_info 'DINO load from 1 obj with BG, epoch 300' \
     
 
 # can try the following to list out which GPU you have access to

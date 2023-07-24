@@ -199,7 +199,12 @@ class BaseModel(ABC):
                 print('loading the model from %s' % load_path)
                 state_dict = torch.load(load_path, map_location=str(self.device))
                 if 'fg_position' in state_dict:
-                    del state_dict['fg_position'] 
+                    del state_dict['fg_position']
+                if self.opt.no_load_sigma_mu or self.opt.diff_fg_init:
+                    keys = list(state_dict.keys())
+                    for key in keys:
+                        if ('slots_logsigma' in key or 'slots_mu' in key) and 'bg' not in key:
+                            del state_dict[key]
                 incompatible = net.load_state_dict(state_dict, strict=False)
                 if incompatible.missing_keys:
                     for key in incompatible.missing_keys:
