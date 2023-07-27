@@ -351,27 +351,38 @@ class EncoderPosEmbedding(nn.Module):
 class SlotAttention(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 	      learnable_pos=True, n_feats=64*64, global_feat=False, pos_emb=False, feat_dropout_dim=None,
-		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False):
+		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False, learnable_init=False):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
 		self.eps = eps
 		self.scale = slot_dim ** -0.5
 
-		self.diff_fg_init = diff_fg_init
+		self.learnable_init = learnable_init
 
-		if not self.diff_fg_init:
+		if not self.learnable_init:
 			self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
 			self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
 			init.xavier_uniform_(self.slots_logsigma)
+			self.slots_mu_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
+			self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
+			init.xavier_uniform_(self.slots_logsigma_bg)
 		else:
-			self.slots_mu = nn.Parameter(torch.randn(1, num_slots-1, slot_dim))
-			self.slots_logsigma = nn.Parameter(torch.zeros(1, num_slots-1, slot_dim))
-			init.xavier_uniform_(self.slots_logsigma)
-			
-		self.slots_mu_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
-		self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
-		init.xavier_uniform_(self.slots_logsigma_bg)
+			self.slots_init_fg = nn.Parameter((torch.randn(1, num_slots-1, slot_dim)))
+			self.slots_init_bg = nn.Parameter((torch.randn(1, 1, slot_dim)))
+			init.xavier_uniform_(self.slots_init_fg)
+			init.xavier_uniform_(self.slots_init_bg)
+
+		# self.diff_fg_init = diff_fg_init
+
+		# if not self.diff_fg_init:
+		# 	self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
+		# 	self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
+		# 	init.xavier_uniform_(self.slots_logsigma)
+		# else:
+		# 	self.slots_mu = nn.Parameter(torch.randn(1, num_slots-1, slot_dim))
+		# 	self.slots_logsigma = nn.Parameter(torch.zeros(1, num_slots-1, slot_dim))
+		# 	init.xavier_uniform_(self.slots_logsigma)
 
 		self.learnable_pos = learnable_pos
 		self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 1.5 - 0.75)
@@ -427,21 +438,30 @@ class SlotAttention(nn.Module):
 
 		K = num_slots if num_slots is not None else self.num_slots
 
-		if not self.diff_fg_init:
+		if not self.learnable_init:
 			mu = self.slots_mu.expand(B, K-1, -1)
 			sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
+			slot_fg = mu + sigma * torch.randn_like(mu)
+
+			mu_bg = self.slots_mu_bg.expand(B, 1, -1)
+			sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
+			slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
 		else:
-			mu = self.slots_mu.expand(B, -1, -1)[:, 0:K-1, :]
-			sigma = self.slots_logsigma.exp().expand(B, -1, -1)[:, 0:K-1, :]
-		slot_fg = mu + sigma * torch.randn_like(mu)
+			slot_fg = self.slots_init_fg.expand(B, K-1, -1)
+			slot_bg = self.slots_init_bg.expand(B, 1, -1)
+
+		# if not self.diff_fg_init:
+		# 	mu = self.slots_mu.expand(B, K-1, -1)
+		# 	sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
+		# 	slot_fg = mu + sigma * torch.randn_like(mu)
+		# else:
+		# 	mu = self.slots_mu.expand(B, -1, -1)[:, 0:K-1, :]
+		# 	sigma = self.slots_logsigma.exp().expand(B, -1, -1)[:, 0:K-1, :]
+		# 	slot_fg = mu + sigma * torch.randn_like(mu)
 		
 		fg_position = self.fg_position if (self.fg_position is not None and not self.random_init_pos) else torch.rand(1, K-1, 2) * 1.5 - 0.75
 		fg_position = fg_position.expand(B, -1, -1)[:, :K-1, :].to(feat.device) # Bx(K-1)x2
 		
-		mu_bg = self.slots_mu_bg.expand(B, 1, -1)
-		sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
-		slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
-
 		feat = self.norm_feat(feat)
 		if feat_color is not None:
 			feat_color = self.norm_feat_color(feat_color)

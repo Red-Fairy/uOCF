@@ -162,19 +162,26 @@ class Decoder(nn.Module):
 
 
 class SlotAttention(nn.Module):
-    def __init__(self, num_slots, in_dim=64, slot_dim=64, iters=3, eps=1e-8, hidden_dim=128):
+    def __init__(self, num_slots, in_dim=64, slot_dim=64, iters=3, eps=1e-8, hidden_dim=128, learnable_init=False):
         super().__init__()
         self.num_slots = num_slots
         self.iters = iters
         self.eps = eps
         self.scale = slot_dim ** -0.5
 
-        self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
-        self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
-        init.xavier_uniform_(self.slots_logsigma)
-        self.slots_mu_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
-        self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
-        init.xavier_uniform_(self.slots_logsigma_bg)
+        self.learnable_init = learnable_init
+        if not self.learnable_init:
+            self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
+            self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
+            init.xavier_uniform_(self.slots_logsigma)
+            self.slots_mu_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
+            self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
+            init.xavier_uniform_(self.slots_logsigma_bg)
+        else:
+            self.slots_init_fg = nn.Parameter(torch.randn(1, num_slots-1, slot_dim))
+            self.slots_init_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
+            init.xavier_uniform_(self.slots_init_fg)
+            init.xavier_uniform_(self.slots_init_bg)
 
         self.to_k = nn.Linear(in_dim, slot_dim, bias=False)
         self.to_v = nn.Linear(in_dim, slot_dim, bias=False)
@@ -211,12 +218,16 @@ class SlotAttention(nn.Module):
         B, _, _ = feat.shape
         K = num_slots if num_slots is not None else self.num_slots
 
-        mu = self.slots_mu.expand(B, K-1, -1)
-        sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
-        slot_fg = mu + sigma * torch.randn_like(mu)
-        mu_bg = self.slots_mu_bg.expand(B, 1, -1)
-        sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
-        slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
+        if not self.learnable_init:
+            mu = self.slots_mu.expand(B, K-1, -1)
+            sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
+            slot_fg = mu + sigma * torch.randn_like(mu)
+            mu_bg = self.slots_mu_bg.expand(B, 1, -1)
+            sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
+            slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
+        else:
+            slot_fg = self.slots_init_fg.expand(B, K-1, -1)
+            slot_bg = self.slots_init_bg.expand(B, 1, -1)
 
         feat = self.norm_feat(feat)
         k = self.to_k(feat)

@@ -47,6 +47,7 @@ class uorfNoGanModel(BaseModel):
 		parser.add_argument('--far_plane', type=float, default=20)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
+		parser.add_argument('--learnable_slot_init', action='store_true', help='learnable slot initialization')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -86,7 +87,9 @@ class uorfNoGanModel(BaseModel):
 		self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom),
 											gpu_ids=self.gpu_ids, init_type='normal')
 		self.netSlotAttention = networks.init_net(
-			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, 
+		 				iters=opt.attn_iter, learnable_init=opt.learnable_slot_init), 
+						gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
 

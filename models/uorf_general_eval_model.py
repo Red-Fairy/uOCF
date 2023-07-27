@@ -107,8 +107,11 @@ class uorfGeneralEvalModel(BaseModel):
 			assert False
 
 		self.netSlotAttention = networks.init_net(
-				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter,
-		  						learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), gpu_ids=self.gpu_ids, init_type='normal')
+				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
+							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), 
+							  gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
@@ -186,7 +189,10 @@ class uorfGeneralEvalModel(BaseModel):
 		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 	
 		# Slot Attention
-		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
+		if not self.opt.color_in_attn:
+			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
+		else:
+			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), feat_color=None)
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3

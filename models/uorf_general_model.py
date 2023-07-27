@@ -68,8 +68,6 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
-		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
-		parser.add_argument('--slot_attn_pos_emb', action='store_true', help='use position embedding in slot attention')
 		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
 		parser.add_argument('--feat_dropout_min', type=float, default=0, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
