@@ -2,10 +2,11 @@
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=10
-#SBATCH --mem=20G
+#SBATCH --mem=32G
 
 # only use the following on partition with GPUs
 #SBATCH --gres=gpu:a6000:1
+#SBATCH --time=3-00:00:00
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -33,14 +34,16 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 970 --n_img_each_sce
     --attn_decay_steps 200000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
-    --coarse_epoch 300 --niter 300 --percept_in 25 --no_locality_epoch 50 --seed 2025 \
+    --num_slots 2 --attn_iter 4 --shape_dim 48 --color_dim 48 --near 6 --far 20 \
+    --coarse_epoch 300 --niter 300 --percept_in 25 --no_locality_epoch 50 --seed 2023 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0724-new/1obj-mask-4848' \
+    --load_encoder 'unload' --load_slotattention 'unload' --load_decoder 'load_freeze' --freezeInit_steps 50000 \
     --position_loss --weight_pos 0.1 \
     --color_in_attn \
-    --exp_id '0724-new/1obj-scratch-pos-7224' \
+    --exp_id '0726-dropout-all/1obj-load-uuf-pos' \
     --obj_scale 4.5 --world_obj_scale 4.5 \
-    --fixed_locality \
-    --continue_train --epoch_count 100 \
+    --continue_train --epoch 140 --epoch_count 141  \
+    --fixed_locality --feat_dropout \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1' \
     
 

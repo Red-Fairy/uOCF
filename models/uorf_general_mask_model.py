@@ -13,7 +13,7 @@ from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # from .model_T_sam_fgmask import Decoder
 # SlotAttention
-from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
+from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate, Encoder
 from .model_general import SlotAttentionFG as SlotAttention
 from .model_general import DecoderFG as Decoder
 from .utils import *
@@ -118,6 +118,9 @@ class uorfGeneralMaskModel(BaseModel):
 			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
 			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
 												gpu_ids=self.gpu_ids, init_type='normal')
+		elif opt.encoder_type == 'CNN':
+			self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
+									gpu_ids=self.gpu_ids, init_type='normal')
 		else:
 			assert False
 
@@ -127,9 +130,9 @@ class uorfGeneralMaskModel(BaseModel):
 		# else:
 		# 	self.netSlotAttention = networks.init_net(
 		# 		FeatureAggregate(in_dim=z_dim, out_dim=z_dim), gpu_ids=self.gpu_ids, init_type='normal')
-		self.netSlotAttention = networks.init_net(SlotAttention(in_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
-							  slot_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
-		  					  color_dim=0 if self.opt.color_in_attn else opt.color_dim, 
+		self.netSlotAttention = networks.init_net(SlotAttention(in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, 
 							  iters=opt.attn_iter, centered=opt.centered), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
@@ -172,12 +175,7 @@ class uorfGeneralMaskModel(BaseModel):
 			input: a dictionary that contains the data itself and its metadata information.
 		"""
 		self.x = input['img_data'].to(self.device) # N*3*H*W
-		assert 'img_data_large' in input or 'img_feats' in input
-		if 'img_data_large' in input:
-			self.x_large = input['img_data_large'].to(self.device) # 1*3*H*W
-		else:
-			self.x_large = None
-			self.x_feats = input['img_feats'].to(self.device) # 1*H'*W'*C (H'=W'=64, C=1024)
+		self.x_large = input['img_data_large'].to(self.device) if self.opt.encoder_type != 'CNN' else None
 		self.cam2world = input['cam2world'].to(self.device)
 		if 'obj_idxs' in input:
 			self.masks = input['obj_idxs'].float().to(self.device) # K*1*H*W (no background mask)
@@ -205,22 +203,27 @@ class uorfGeneralMaskModel(BaseModel):
 			
 
 		# Encoding images
-		if self.opt.encoder_type == 'SAM':
-			with torch.no_grad():
-				feature_map = self.pretrained_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-		elif self.opt.encoder_type == 'DINO':
-			with torch.no_grad():
-				feat_size = 64
-				feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
-		elif self.opt.encoder_type == 'SD':
-			with torch.no_grad():
-				feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
-		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-		feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+		if self.opt.encoder_type != 'CNN':
+			if self.opt.encoder_type == 'SAM':
+				with torch.no_grad():
+					feature_map = self.pretrained_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
+			elif self.opt.encoder_type == 'DINO':
+				with torch.no_grad():
+					feat_size = 64
+					feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
+			elif self.opt.encoder_type == 'SD':
+				with torch.no_grad():
+					feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
+			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
+					F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		else:
+			feature_map_shape = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
+			feat_color = None
 
-		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		self.masks = F.interpolate(self.masks, size=feat_shape.shape[1:3], mode='nearest') if self.masks is not None else None # Kx1xHxW
 	
 		# Slot Attention
@@ -279,7 +282,8 @@ class uorfGeneralMaskModel(BaseModel):
 
 		sampling_coor_fg = frus_nss_coor[None, ...].expand(K, -1, -1)  # KxPx3
 
-		local_locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
+		# local_locality_ratio = 1 - min((epoch-self.opt.locality_in) / self.opt.locality_full, 1) * (1 - self.opt.obj_scale/self.opt.nss_scale) if epoch >= self.opt.locality_in else None
+		local_locality_ratio = None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
 		invariant = epoch >= self.opt.invariant_in
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1

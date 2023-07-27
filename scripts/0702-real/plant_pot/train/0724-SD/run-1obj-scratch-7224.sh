@@ -32,16 +32,15 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 970 --n_img_each_sce
     --model 'uorf_general' \
     --attn_decay_steps 200000 \
     --bottom \
-    --encoder_size 896 --encoder_type 'DINO' \
+    --encoder_size 256 --encoder_type 'SD' \
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
-    --coarse_epoch 300 --niter 300 --percept_in 25 --no_locality_epoch 50 --seed 2025 \
+    --coarse_epoch 300 --niter 300 --percept_in 25 --no_locality_epoch 50 --seed 2027 \
     --position_loss --weight_pos 0.1 \
     --color_in_attn \
-    --exp_id '0724-new/1obj-scratch-pos-7224' \
+    --exp_id '0724-SD/1obj-scratch-pos-7224' \
     --obj_scale 4.5 --world_obj_scale 4.5 \
     --fixed_locality \
-    --continue_train --epoch_count 100 \
-    --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1' \
+    --dummy_info 'SD 1 obj from scratch, position loss in the nss space, weight position = 0.1' \
     
 
 # can try the following to list out which GPU you have access to

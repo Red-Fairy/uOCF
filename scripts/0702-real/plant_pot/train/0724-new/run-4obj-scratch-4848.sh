@@ -37,6 +37,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 120 --niter 240 --percept_in 25 --no_locality_epoch 50 --seed 2025 \
     --exp_id '0724-new/4obj-scratch-4848' \
     --color_in_attn \
+    --continue_train --epoch_count 28 \
     --obj_scale 4.5 --world_obj_scale 4.5 \
     --fixed_locality \
     --dummy_info 'DINO 4obj scratch' \

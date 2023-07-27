@@ -69,6 +69,12 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
 		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
+		parser.add_argument('--slot_attn_pos_emb', action='store_true', help='use position embedding in slot attention')
+		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
+		parser.add_argument('--feat_dropout_min', type=float, default=0, help='dropout rate in feature map')
+		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
+		parser.add_argument('--feat_dropout', action='store_true', help='use dropout in feature map')
+		parser.add_argument('--all_dropout_ratio', type=float, default=0.25, help='dropout rate in all layers (* shape feat dropout rate)')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -127,10 +133,11 @@ class uorfGeneralModel(BaseModel):
 			assert False
 
 		self.netSlotAttention = networks.init_net(
-				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
-							  slot_dim=opt.shape_dim+opt.color_dim if self.opt.color_in_attn else opt.shape_dim, 
-		  					  color_dim=0 if self.opt.color_in_attn else self.color_dim, 
-							  iters=opt.attn_iter, learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
+				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb,
+							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, 
+							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
@@ -175,11 +182,11 @@ class uorfGeneralModel(BaseModel):
 					self.schedulers.append(networks.get_scheduler(self.optimizers[-1], opt))
 				if len(loaded_params_frozen) > 0:
 					self.optimizers.append(optim.Adam(loaded_params_frozen, lr=opt.lr))
-					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, opt.warmup_steps, opt.attn_decay_steps)
+					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, 0, opt.attn_decay_steps) # no warmup
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 				if len(loaded_params_trainable) > 0:
 					self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
-					configs = (opt.freezeInit_ratio, 0, opt.warmup_steps, opt.attn_decay_steps)
+					configs = (opt.freezeInit_ratio, 0, 0, opt.attn_decay_steps) # no warmup
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 			else:
 				requires_grad = lambda x: x.requires_grad
@@ -236,6 +243,12 @@ class uorfGeneralModel(BaseModel):
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
 			feat_color = None
 
+		# debug, save the feature map
+		# save_dir = os.path.join(self.opt.checkpoints_dir, self.opt.name, self.opt.exp_id)
+		# print(save_dir)
+		# np.save(os.path.join(save_dir, 'feat_shape_{}.npy'.format(idx)), feat_shape.detach().cpu().numpy())
+		# np.save(os.path.join(save_dir, 'feat_color_{}.npy'.format(idx)), feat_color.detach().cpu().numpy())
+
 		return feat_shape, feat_color
 
 	def forward(self, epoch=0):
@@ -256,12 +269,20 @@ class uorfGeneralModel(BaseModel):
 
 		# Encoding images
 		feat_shape, feat_color = self.encode(0)
+		dropout_shape_rate = (self.opt.feat_dropout_min + 
+		       (self.opt.feat_dropout_max - self.opt.feat_dropout_min) 
+			   * (epoch - self.opt.feat_dropout_start) 
+			   / (self.opt.niter - self.opt.feat_dropout_start)) \
+				if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else 0
+		dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio
 	
 		# Slot Attention
 		if not self.opt.color_in_attn:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
+			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
+							   dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)  # 1xKxC, 1xKx2, 1xKxN
 		else:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), feat_color=None)
+			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), 
+							   feat_color=None, dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics)  # Kx3
@@ -317,8 +338,13 @@ class uorfGeneralModel(BaseModel):
 		if self.opt.position_loss and epoch >= self.opt.position_in:
 			# assert self.opt.num_slots == 2 # only support one foreground object
 			# infer the position from the second view
-			feat_shape_, _ = self.encode(1)
-			_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None)  # 1xKx2
+			feat_shape_, feat_color_ = self.encode(1)
+			if not self.opt.color_in_attn:
+				_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None,
+						    dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)  # 1xKx2
+			else:
+				_, _, fg_slot_position_ = self.netSlotAttention(feat=torch.cat([feat_shape_, feat_color_], dim=-1), 
+						    feat_color=None, dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)  # 1xKx2
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
 			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics)
 			# calculate the position loss (L2 loss between the two inferred positions)

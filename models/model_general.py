@@ -1,4 +1,5 @@
 import math
+from os import X_OK
 from .op import conv2d_gradfix
 import torch
 from torch import nn
@@ -249,6 +250,27 @@ class SDEncoder(nn.Module):
 		x = torch.cat([x1, x2, x3], dim=1)
 		return self.out(x)
 
+class InputPosEmbedding(nn.Module):
+	def __init__(self, in_dim):
+		super().__init__()
+		self.point_conv = nn.Conv2d(in_dim+4, in_dim, 1, bias=False)
+		# init as eye matrix
+		self.point_conv.weight.data.zero_()
+		for i in range(in_dim):
+			self.point_conv.weight.data[i, i, 0, 0] = 1
+
+	def forward(self, x): # x: B*H*W*C
+		x = x.permute(0, 3, 1, 2) # B*C*H*W
+		W, H = x.shape[3], x.shape[2]
+		X = torch.linspace(-1, 1, W)
+		Y = torch.linspace(-1, 1, H)
+		y1_m, x1_m = torch.meshgrid([Y, X])
+		x2_m, y2_m = -x1_m, -y1_m  # Normalized distance in the four direction
+		pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
+		x_ = torch.cat([x, pixel_emb], dim=1)
+		# print(x_.shape)
+		return self.point_conv(x_).permute(0, 2, 3, 1) # B*H*W*C
+
 class EncoderPosEmbedding(nn.Module):
 	def __init__(self, dim, slot_dim, hidden_dim=128):
 		super().__init__()
@@ -282,7 +304,20 @@ class EncoderPosEmbedding(nn.Module):
 		
 		return grid - position # (b, n, h, w, 2)
 
-	def forward(self, x, h, w, position_latent=None):
+	def forward(self, x, h, w, position_latent=None, dropout_shape_dim=48, dropout_shape_rate=0, dropout_all_rate=0):
+		
+		x_ = x
+
+		if dropout_shape_rate > 0:
+			# randomly dropout the first few dimensions of the feature, i.e., keep only the information from the shallow encoder
+			drop = (torch.rand(1, 1, 1, device=x.device) > dropout_shape_rate).expand(1, 1, dropout_shape_dim)
+			drop = torch.cat([drop, torch.ones(1, 1, x.shape[-1] - dropout_shape_dim, device=x.device)], dim=-1).expand(x.shape[0], x.shape[1], -1)
+			x_ = x_ * drop # zeroing out some dimensions of the feature
+			
+		if dropout_all_rate > 0:
+			# randomly dropout all dimensions of the feature, i.e., keep only the position information
+			drop = torch.rand(1, 1, 1, device=x.device) > dropout_all_rate
+			x_ = x_ * drop # zeroing out all dimensions of the feature
 
 		grid = build_grid(h, w, x.device) # (1, h, w, 2)
 		if position_latent is not None:
@@ -294,7 +329,7 @@ class EncoderPosEmbedding(nn.Module):
 		rel_grid = torch.cat([rel_grid, -rel_grid], dim=-1).flatten(-3, -2) # (b, n_slot-1, h*w, 4)
 		grid_embed = self.grid_embed(rel_grid) # (b, n_slot-1, h*w, d)
 
-		k, v = self.input_to_k_fg(x).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
+		k, v = self.input_to_k_fg(x_).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
 
 		k, v = k + grid_embed, v + grid_embed
 		k, v = self.MLP_fg(k), self.MLP_fg(v)
@@ -315,7 +350,7 @@ class EncoderPosEmbedding(nn.Module):
 
 class SlotAttention(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
-	      learnable_pos=True, n_feats=64*64, global_feat=False, 
+	      learnable_pos=True, n_feats=64*64, global_feat=False, pos_emb=False, feat_dropout_dim=None,
 		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False):
 		super().__init__()
 		self.num_slots = num_slots
@@ -366,8 +401,12 @@ class SlotAttention(nn.Module):
 		self.global_feat = global_feat
 		self.random_init_pos = random_init_pos
 		self.pos_no_grad = pos_no_grad
+		self.pos_emb = pos_emb
+		if self.pos_emb:
+			self.input_pos_emb = InputPosEmbedding(in_dim)
+		self.dropout_shape_dim = feat_dropout_dim
 
-	def forward(self, feat, feat_color=None, num_slots=None):
+	def forward(self, feat, feat_color=None, num_slots=None, dropout_shape_rate=0, dropout_all_rate=0):
 		"""
 		input:
 			feat: visual feature with position information, BxHxWxC
@@ -376,7 +415,16 @@ class SlotAttention(nn.Module):
 		"""
 		B, H, W, _ = feat.shape
 		N = H * W
+		if self.pos_emb:
+			feat = self.input_pos_emb(feat)
 		feat = feat.flatten(1, 2) # (B, N, C)
+
+		# if self.feat_dropout_dim is not None:
+		# 	# randomly dropout the first few dimensions of the feature
+		# 	drop = torch.rand(B, N, self.feat_dropout_dim, device=feat.device) > feat_dropout_rate
+		# 	drop = torch.cat([drop, torch.ones(B, N, feat.shape[-1] - self.feat_dropout_dim, device=feat.device)], dim=-1)
+		# 	feat = feat * drop # zeroing out some dimensions of the feature
+
 		K = num_slots if num_slots is not None else self.num_slots
 
 		if not self.diff_fg_init:
@@ -411,7 +459,10 @@ class SlotAttention(nn.Module):
 			
 			attn = torch.empty(B, K, N, device=feat.device)
 			
-			k, v = self.to_kv(feat, H, W, fg_position) # (B,K-1,N,C)
+			k, v = self.to_kv(feat, H, W, fg_position, 
+		     			dropout_shape_dim=self.dropout_shape_dim, 
+		     			dropout_shape_rate=dropout_shape_rate,
+						dropout_all_rate=dropout_all_rate) # (B,K-1,N,C), (B,K-1,N,C)
 			
 			for i in range(K):
 				if i != 0:
