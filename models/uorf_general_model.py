@@ -271,8 +271,8 @@ class uorfGeneralModel(BaseModel):
 		       (self.opt.feat_dropout_max - self.opt.feat_dropout_min) 
 			   * (epoch - self.opt.feat_dropout_start) 
 			   / (self.opt.niter - self.opt.feat_dropout_start)) \
-				if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else 0
-		dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio
+				if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else None
+		dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
 	
 		# Slot Attention
 		if not self.opt.color_in_attn:

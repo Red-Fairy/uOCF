@@ -305,19 +305,6 @@ class EncoderPosEmbedding(nn.Module):
 		return grid - position # (b, n, h, w, 2)
 
 	def forward(self, x, h, w, position_latent=None, dropout_shape_dim=48, dropout_shape_rate=0, dropout_all_rate=0):
-		
-		x_ = x
-
-		if dropout_shape_rate > 0:
-			# randomly dropout the first few dimensions of the feature, i.e., keep only the information from the shallow encoder
-			drop = (torch.rand(1, 1, 1, device=x.device) > dropout_shape_rate).expand(1, 1, dropout_shape_dim)
-			drop = torch.cat([drop, torch.ones(1, 1, x.shape[-1] - dropout_shape_dim, device=x.device)], dim=-1).expand(x.shape[0], x.shape[1], -1)
-			x_ = x_ * drop # zeroing out some dimensions of the feature
-			
-		if dropout_all_rate > 0:
-			# randomly dropout all dimensions of the feature, i.e., keep only the position information
-			drop = torch.rand(1, 1, 1, device=x.device) > dropout_all_rate
-			x_ = x_ * drop # zeroing out all dimensions of the feature
 
 		grid = build_grid(h, w, x.device) # (1, h, w, 2)
 		if position_latent is not None:
@@ -329,7 +316,20 @@ class EncoderPosEmbedding(nn.Module):
 		rel_grid = torch.cat([rel_grid, -rel_grid], dim=-1).flatten(-3, -2) # (b, n_slot-1, h*w, 4)
 		grid_embed = self.grid_embed(rel_grid) # (b, n_slot-1, h*w, d)
 
-		k, v = self.input_to_k_fg(x_).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
+		if dropout_shape_rate is not None or dropout_all_rate is not None:
+			x_ = x.clone()
+			if dropout_shape_rate is not None:
+				# randomly dropout the first few dimensions of the feature, i.e., keep only the information from the shallow encoder
+				drop = (torch.rand(1, 1, 1, device=x.device) > dropout_shape_rate).expand(1, 1, dropout_shape_dim)
+				drop = torch.cat([drop, torch.ones(1, 1, x.shape[-1] - dropout_shape_dim, device=x.device)], dim=-1).expand(x.shape[0], x.shape[1], -1)
+				x_ = x_ * drop # zeroing out some dimensions of the feature
+			if dropout_all_rate is not None:
+				# randomly dropout all dimensions of the feature, i.e., keep only the position information
+				drop = torch.rand(1, 1, 1, device=x.device) > dropout_all_rate
+				x_ = x_ * drop # zeroing out all dimensions of the feature
+			k, v = self.input_to_k_fg(x_).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
+		else:
+			k, v = self.input_to_k_fg(x).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1)
 
 		k, v = k + grid_embed, v + grid_embed
 		k, v = self.MLP_fg(k), self.MLP_fg(v)

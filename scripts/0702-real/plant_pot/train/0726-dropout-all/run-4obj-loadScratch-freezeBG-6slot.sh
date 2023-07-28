@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
@@ -38,8 +38,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2025 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0726-dropout-all/1obj-scratch-pos' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --fixed_locality --color_in_attn --freeze_bg_only \
-    --exp_id '0726-dropout-all/4obj-loadScratchdrop-freezeBG-noloc-6slot' \
+    --fixed_locality --color_in_attn --freeze_bg_only --random_init_pos \
+    --exp_id '0726-dropout-all/4obj-loadScratchdrop-freezeBG-noloc-random-6slot' \
     --dummy_info 'DINO load from 1 obj scratch, 240 epoch' \
     
 

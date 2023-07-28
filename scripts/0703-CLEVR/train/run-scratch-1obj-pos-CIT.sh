@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -33,10 +33,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --model 'uorf_general' \
     --attn_decay_steps 200000 \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 2 --attn_iter 4 --shape_dim 24 --color_dim 8 --seed 2025 \
+    --num_slots 2 --attn_iter 4 --shape_dim 16 --color_dim 16 --seed 2027 \
     --coarse_epoch 300 --niter 300 --percept_in 25 --no_locality_epoch 50 \
-    --position_loss --weight_position 0.1 \
-    --exp_id '0728/1obj-scratch-pos' \
+    --position_loss --weight_position 0.1 --color_in_attn \
+    --exp_id '0727/1obj-scratch-pos-CIT' \
     --dummy_info 'from scratch' \
     
 
