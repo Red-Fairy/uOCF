@@ -205,6 +205,11 @@ class BaseModel(ABC):
                     for key in keys:
                         if ('slots_logsigma' in key or 'slots_mu' in key) and 'bg' not in key:
                             del state_dict[key]
+                if self.opt.learnable_slot_init:
+                    keys = list(state_dict.keys())
+                    for key in keys:
+                        if 'slots_logsigma' in key or 'slots_mu' in key:
+                            del state_dict[key]
                 incompatible = net.load_state_dict(state_dict, strict=False)
                 if incompatible.missing_keys:
                     for key in incompatible.missing_keys:

@@ -47,7 +47,6 @@ class uorfNoGanModel(BaseModel):
 		parser.add_argument('--far_plane', type=float, default=20)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
-		parser.add_argument('--learnable_slot_init', action='store_true', help='learnable slot initialization')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
