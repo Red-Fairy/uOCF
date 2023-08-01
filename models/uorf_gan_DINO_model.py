@@ -10,9 +10,10 @@ import time
 from .projection import Projection
 from torchvision.transforms import Normalize
 from .model import Encoder, Decoder, SlotAttention, Discriminator, get_perceptual_net, raw2outputs, toggle_grad, d_logistic_loss, d_r1_loss, g_nonsaturating_loss
+from .model_general import singleRouteEncoder
 
 
-class uorfGanModel(BaseModel):
+class uorfGanDINOModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -94,11 +95,14 @@ class uorfGanModel(BaseModel):
 										  frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 		z_dim = opt.z_dim
 		self.num_slots = opt.num_slots
-		self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom),
-											gpu_ids=self.gpu_ids, init_type='normal')
+
+		self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
+		dino_dim = 768
+		self.netEncoder = networks.init_net(singleRouteEncoder(pos_emb=opt.pos_emb, bottom=opt.bottom, out_dim=opt.z_dim, input_dim=dino_dim),
+												gpu_ids=self.gpu_ids, init_type='normal')
+
 		self.netSlotAttention = networks.init_net(
-			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter, 
-		 					learnable_init=opt.learnable_slot_init), gpu_ids=self.gpu_ids, init_type='normal')
+			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.netDisc = networks.init_net(Discriminator(size=opt.supervision_size, ndf=opt.ndf), gpu_ids=self.gpu_ids, init_type=None)
@@ -131,6 +135,7 @@ class uorfGanModel(BaseModel):
 			input: a dictionary that contains the data itself and its metadata information.
 		"""
 		self.x = input['img_data'].to(self.device)
+		self.x_large = input['img_data_large'].to(self.device) if self.opt.encoder_type != 'CNN' else None
 		self.cam2world = input['cam2world'].to(self.device)
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
@@ -149,8 +154,13 @@ class uorfGanModel(BaseModel):
 									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
 
 		# Encoding images
-		feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+		with torch.no_grad():
+			feat_size = 64
+			feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
+		feature_map = self.netEncoder(feature_map)
 		feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
+		# feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+		# feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
 		# Slot Attention
 		z_slots, attn = self.netSlotAttention(feat)  # 1xKxC, 1xKxN

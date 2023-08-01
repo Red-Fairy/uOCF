@@ -7,7 +7,7 @@
 # only use the following on partition with GPUs
 #SBATCH --gres=gpu:3090:1
 
-#SBATCH --job-name="T_uORF"
+#SBATCH --job-name=""
 #SBATCH --output=logs/%j.out
 
 # only use the following if you want email notification
@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/train-1obj'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/train-1obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_scene 2 \
@@ -36,8 +36,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_sc
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --coarse_epoch 500 --niter 500 --percept_in 25 --no_locality_epoch 50 --seed 2023 \
     --position_loss \
-    --continue_train --epoch_count 461 --epoch 460 \
-    --exp_id '1obj-scratch-posLoss-nss' \
+    --exp_id '1obj-scratch-pos-debug' \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1' \
     
 

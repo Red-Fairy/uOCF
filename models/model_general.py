@@ -304,7 +304,7 @@ class EncoderPosEmbedding(nn.Module):
 		
 		return grid - position # (b, n, h, w, 2)
 
-	def forward(self, x, h, w, position_latent=None, dropout_shape_dim=48, dropout_shape_rate=0, dropout_all_rate=0):
+	def forward(self, x, h, w, position_latent=None, dropout_shape_dim=48, dropout_shape_rate=None, dropout_all_rate=None):
 
 		grid = build_grid(h, w, x.device) # (1, h, w, 2)
 		if position_latent is not None:
@@ -417,7 +417,7 @@ class SlotAttention(nn.Module):
 			self.input_pos_emb = InputPosEmbedding(in_dim)
 		self.dropout_shape_dim = feat_dropout_dim
 
-	def forward(self, feat, feat_color=None, num_slots=None, dropout_shape_rate=0, dropout_all_rate=0):
+	def forward(self, feat, feat_color=None, num_slots=None, dropout_shape_rate=None, dropout_all_rate=None):
 		"""
 		input:
 			feat: visual feature with position information, BxHxWxC

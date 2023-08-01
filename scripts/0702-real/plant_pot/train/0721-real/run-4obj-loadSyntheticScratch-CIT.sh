@@ -33,13 +33,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 210 --n_img_each_sce
     --attn_decay_steps 50000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 7 --attn_iter 4 --shape_dim 48 --color_dim 48 --near 6 --far 20 \
+    --num_slots 6 --attn_iter 4 --shape_dim 48 --color_dim 48 --near 6 --far 20 \
     --freezeInit_steps 100000 \
     --coarse_epoch 1000 --niter 2000 --percept_in 250 --no_locality_epoch 0 --seed 2023 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0724-new/1obj-scratch-pos-4848' \
-    --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
-    --fixed_locality --load_intrinsics --color_in_attn \
-    --exp_id '0721-real/4obj-loadSyntheticScratch-CIT-ttt-noloc-7slot' \
+    --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
+    --fixed_locality --load_intrinsics --color_in_attn --load_epoch 280 \
+    --exp_id '0721-real/4obj-loadSyntheticScratch-CIT-ttt-noloc-6slot' \
     --dummy_info 'DINO load from 1 obj synthetic, 300 epoch' \
     
 

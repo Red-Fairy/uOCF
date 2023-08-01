@@ -28,7 +28,7 @@ PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_with_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_bg' \
-    --display_port $PORT --display_ncols 4 --print_freq 50 \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --save_epoch_freq 20 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120 --niter 240 --no_locality_epoch 60 --z_dim 64 --num_slots 5 --near 8 --far 18 \
     --model 'uorf_gan' --bottom --learnable_slot_init \
