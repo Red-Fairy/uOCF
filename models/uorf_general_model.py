@@ -164,10 +164,16 @@ class uorfGeneralModel(BaseModel):
 			if opt.load_pretrain: # load pretraine models, e.g., object NeRF decoder
 				assert opt.load_pretrain_path is not None
 				unloaded_keys, loaded_keys_frozen, loaded_keys_trainable = self.load_pretrain_networks(opt.load_pretrain_path, opt.load_epoch)
-				def get_params(keys):
-					params = [v for k, v in self.netEncoder.named_parameters() if k in keys] + \
-							 [v for k, v in self.netSlotAttention.named_parameters() if k in keys] + \
-							 [v for k, v in self.netDecoder.named_parameters() if k in keys]
+				def get_params(keys, keyword_to_include=None, keyword_to_exclude=None):
+					params = [v for k, v in self.netEncoder.named_parameters() if k in keys \
+	       						and (keyword_to_include is None or keyword_to_include in k) \
+								and (keyword_to_exclude is None or keyword_to_exclude not in k)] + \
+							 [v for k, v in self.netSlotAttention.named_parameters() if k in keys \
+	 							and (keyword_to_include is None or keyword_to_include in k) \
+								and (keyword_to_exclude is None or keyword_to_exclude not in k)] + \
+							 [v for k, v in self.netDecoder.named_parameters() if k in keys \
+	 							and (keyword_to_include is None or keyword_to_include in k) \
+								and (keyword_to_exclude is None or keyword_to_exclude not in k)]
 					return params
 
 				unloaded_params, loaded_params_frozen, loaded_params_trainable = get_params(unloaded_keys), get_params(loaded_keys_frozen), get_params(loaded_keys_trainable)
@@ -183,7 +189,12 @@ class uorfGeneralModel(BaseModel):
 					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, 0, opt.attn_decay_steps) # no warmup
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 				if len(loaded_params_trainable) > 0:
-					self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
+					if not self.opt.diff_fg_bg_lr:
+						self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
+					else:
+						big_lr_params = get_params(loaded_keys_trainable, keyword_to_include='b_')
+						small_lr_params = get_params(loaded_keys_trainable, keyword_to_exclude='b_')
+						self.optimizers.append(optim.Adam([{'params': big_lr_params, 'lr': opt.lr}, {'params': small_lr_params, 'lr': opt.lr/3}]))
 					configs = (opt.freezeInit_ratio, 0, 0, opt.attn_decay_steps) # no warmup
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 			else:
@@ -210,7 +221,7 @@ class uorfGeneralModel(BaseModel):
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 		if 'intrinsics' in input:
-			self.intrinsics = input['intrinsics'].to(self.device) # overwrite the default intrinsics
+			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 
 	def encode(self, idx=0):
 		"""Encode the input image into a feature map.

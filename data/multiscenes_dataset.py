@@ -16,6 +16,7 @@ class MultiscenesDataset(BaseDataset):
     @staticmethod
     def modify_commandline_options(parser, is_train):
         parser.set_defaults(input_nc=3, output_nc=3)
+        parser.add_argument('--start_scene_idx', type=int, default=0, help='start scene index')
         parser.add_argument('--n_scenes', type=int, default=1000, help='dataset length is #scenes')
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
@@ -48,7 +49,7 @@ class MultiscenesDataset(BaseDataset):
         filenames_set = image_filenames_set - mask_filenames_set - fg_mask_filenames_set - moved_filenames_set - changed_filenames_set - bg_in_filenames_set - bg_mask_filenames_set - bg_in_mask_filenames_set
         filenames = sorted(list(filenames_set))
         self.scenes = []
-        for i in range(self.n_scenes):
+        for i in range(opt.start_scene_idx, opt.start_scene_idx + self.n_scenes):
             scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
             self.scenes.append(scene_filenames)
 

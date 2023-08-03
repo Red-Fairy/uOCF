@@ -153,6 +153,8 @@ class uorfGeneralEvalModel(BaseModel):
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 		self.image_paths = input['paths']
+		if 'intrinsics' in input:
+			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 
 		if not self.opt.recon_only or self.opt.video:
 			self.gt_masks = input['masks']
@@ -204,7 +206,7 @@ class uorfGeneralEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, partitioned=True)
+		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
