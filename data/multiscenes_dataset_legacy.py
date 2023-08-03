@@ -17,6 +17,7 @@ class MultiscenesDataset(BaseDataset):
     def modify_commandline_options(parser, is_train):
         parser.set_defaults(input_nc=3, output_nc=3)
         parser.add_argument('--n_scenes', type=int, default=1000, help='dataset length is #scenes')
+        parser.add_argument('--n_custom_intrinsics', type=int, default=0, help='dataset length is #scenes, the first n_custom_intrinsics scenes are with custom intrinsics')
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
         parser.add_argument('--transparent', action='store_true')
@@ -54,6 +55,7 @@ class MultiscenesDataset(BaseDataset):
 
         self.encoder_type = opt.encoder_type
         self.bg_color = opt.bg_color
+        self.n_custom_intrinsics = opt.n_custom_intrinsics
 
     def _transform(self, img):
         img = TF.resize(img, (self.opt.load_size, self.opt.load_size))
@@ -119,14 +121,16 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
+            ret['custom_intrinsics'] = True if index < self.n_custom_intrinsics else False
             if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.encoder_type != 'CNN':
-                normalize = False if self.encoder_type == 'SD' else True
-                ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
-            if rd == 0 and os.path.isfile(path.replace('.png', '_intrinsics.txt')):
-                intrinsics_path = path.replace('.png', '_intrinsics.txt')
-                intrinsics = np.loadtxt(intrinsics_path)
-                intrinsics = torch.tensor(intrinsics, dtype=torch.float32)
-                ret['intrinsics'] = intrinsics
+                # position loss requires multiple input views to be encoded
+                # if self.opt.preextract:
+                #     feats_path = path.replace('.png', f'{self.opt.pre_feats}.npy')
+                #     assert os.path.isfile(feats_path)
+                #     ret['img_feats'] = torch.from_numpy(np.load(feats_path))
+                # else:
+                    normalize = False if self.encoder_type == 'SD' else True
+                    ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
             mask_path = path.replace('.png', '_mask.png')
             if os.path.isfile(mask_path):
                 mask = Image.open(mask_path).convert('RGB')
@@ -185,13 +189,12 @@ def collate_fn(batch):
         'cam2world': cam2world,
         'azi_rot': azi_rot,
         'depths': depths,
+        'custom_intrinsics': flat_batch[0]['custom_intrinsics'],
     }
     if 'img_data_large' in flat_batch[0]:
         ret['img_data_large'] = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
-    if 'intrinsics' in flat_batch[0]:
-        ret['intrinsics'] = torch.stack([x['intrinsics'] for x in flat_batch if 'intrinsics' in x])
-    # if 'img_feats' in flat_batch[0]:
-    #     ret['img_feats'] = torch.stack([x['img_feats'] for x in flat_batch if 'img_feats' in x])
+    if 'img_feats' in flat_batch[0]:
+        ret['img_feats'] = torch.stack([x['img_feats'] for x in flat_batch if 'img_feats' in x])
     if 'mask' in flat_batch[0]:
         masks = torch.stack([x['mask'] for x in flat_batch])
         ret['masks'] = masks

@@ -65,6 +65,27 @@ class Projection(object):
                                         [0, 1/nss_scale, 0, 0],
                                         [0, 0, 1/nss_scale, 0],
                                         [0, 0, 0, 1]]).unsqueeze(0).to(device)
+        self.construct_intrinsic(intrinsics)
+        # if intrinsics is None:
+        #     self.focal_x = self.focal_ratio[0] * self.frustum_size[0]
+        #     self.focal_y = self.focal_ratio[1] * self.frustum_size[1]
+        #     bias_x = (self.frustum_size[0] - 1.) / 2.
+        #     bias_y = (self.frustum_size[1] - 1.) / 2.
+        # else: # intrinsics stores focal_ratio and principal point
+        #     self.focal_x = intrinsics[0, 0] * self.frustum_size[0]
+        #     self.focal_y = intrinsics[1, 1] * self.frustum_size[1]
+        #     bias_x = ((intrinsics[0, 2] + 1) * self.frustum_size[0] - 1.) / 2.
+        #     bias_y = ((intrinsics[1, 2] + 1) * self.frustum_size[1] - 1.) / 2.
+        #     # bias_x = (intrinsics[0, 2] + 1) * self.frustum_size[0] / 2.
+        #     # bias_y = (intrinsics[1, 2] + 1) * self.frustum_size[1] / 2.
+        # intrinsic_mat = torch.tensor([[self.focal_x, 0, bias_x, 0],
+        #                               [0, self.focal_y, bias_y, 0],
+        #                               [0, 0, 1, 0],
+        #                               [0, 0, 0, 1]]).to(torch.float32)
+        # self.cam2spixel = intrinsic_mat.to(self.device)
+        # self.spixel2cam = intrinsic_mat.inverse().to(self.device) 
+
+    def construct_intrinsic(self, intrinsics=None):
         if intrinsics is None:
             self.focal_x = self.focal_ratio[0] * self.frustum_size[0]
             self.focal_y = self.focal_ratio[1] * self.frustum_size[1]
@@ -75,14 +96,12 @@ class Projection(object):
             self.focal_y = intrinsics[1, 1] * self.frustum_size[1]
             bias_x = ((intrinsics[0, 2] + 1) * self.frustum_size[0] - 1.) / 2.
             bias_y = ((intrinsics[1, 2] + 1) * self.frustum_size[1] - 1.) / 2.
-            # bias_x = (intrinsics[0, 2] + 1) * self.frustum_size[0] / 2.
-            # bias_y = (intrinsics[1, 2] + 1) * self.frustum_size[1] / 2.
         intrinsic_mat = torch.tensor([[self.focal_x, 0, bias_x, 0],
-                                      [0, self.focal_y, bias_y, 0],
-                                      [0, 0, 1, 0],
-                                      [0, 0, 0, 1]]).to(torch.float32)
+                                        [0, self.focal_y, bias_y, 0],
+                                        [0, 0, 1, 0],
+                                        [0, 0, 0, 1]]).to(torch.float32)
         self.cam2spixel = intrinsic_mat.to(self.device)
-        self.spixel2cam = intrinsic_mat.inverse().to(self.device) 
+        self.spixel2cam = intrinsic_mat.inverse().to(self.device)
         
     def construct_frus_coor(self, z_vals=None):
         x = torch.arange(self.frustum_size[0])
@@ -103,7 +122,7 @@ class Projection(object):
         pixel_coor = torch.stack([x_unnorm_pix, y_unnorm_pix, z_unnorm_pix, torch.ones_like(x_unnorm_pix)])
         return pixel_coor # 4x(WxHxD)
 
-    def construct_sampling_coor(self, cam2world, partitioned=False):
+    def construct_sampling_coor(self, cam2world, partitioned=False, intrinsics=None):
         """
         construct a sampling frustum coor in NSS space, and generate z_vals/ray_dir
         input:
@@ -113,6 +132,8 @@ class Projection(object):
             z_vals: (NxHxW)xD
             ray_dir: (NxHxW)x3
         """
+        if intrinsics is not None: # overwrite intrinsics
+            self.construct_intrinsic(intrinsics)
         N = cam2world.shape[0]
         W, H, D = self.frustum_size
         pixel_coor = self.construct_frus_coor()

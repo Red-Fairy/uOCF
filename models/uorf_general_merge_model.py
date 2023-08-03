@@ -20,7 +20,7 @@ import numpy as np
 
 import torchvision
 
-class uorfGeneralModel(BaseModel):
+class uorfGeneralMergeModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -99,9 +99,13 @@ class uorfGeneralModel(BaseModel):
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
+									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=None)
+		self.projection_int = Projection(device=self.device, nss_scale=opt.nss_scale,
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=self.intrinsics)
 		frustum_size_fine = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp]
 		self.projection_fine = Projection(device=self.device, nss_scale=opt.nss_scale,
+										  frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=None)
+		self.projection_fine_int = Projection(device=self.device, nss_scale=opt.nss_scale,
 										  frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=self.intrinsics)
 
 		z_dim = opt.color_dim + opt.shape_dim
@@ -209,8 +213,7 @@ class uorfGeneralModel(BaseModel):
 		self.cam2world = input['cam2world'].to(self.device)
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
-		if 'intrinsics' in input:
-			self.intrinsics = input['intrinsics'].to(self.device) # overwrite the default intrinsics
+		self.custom_intrinsics = input['custom_intrinsics'] # bool
 
 	def encode(self, idx=0):
 		"""Encode the input image into a feature map.
@@ -285,14 +288,16 @@ class uorfGeneralModel(BaseModel):
 							   feat_color=None, dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics)  # Kx3
+		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics) \
+							if self.custom_intrinsics else pixel2world(fg_slot_position, cam2world_viewer, intrinsics=None) # Kx3
 		
 		K = attn.shape[0]
 			
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 		if self.opt.stage == 'coarse':
-			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+			frus_nss_coor, z_vals, ray_dir = self.projection_int.construct_sampling_coor(cam2world) \
+							if self.custom_intrinsics else self.projection.construct_sampling_coor(cam2world)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -300,7 +305,8 @@ class uorfGeneralModel(BaseModel):
 			W, H, D = self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp
 			start_range = self.opt.frustum_size_fine - self.opt.render_size
 			rs = self.opt.render_size
-			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+			frus_nss_coor, z_vals, ray_dir = self.projection_fine_int.construct_sampling_coor(cam2world) \
+							if self.custom_intrinsics else self.projection_fine.construct_sampling_coor(cam2world)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
@@ -346,7 +352,8 @@ class uorfGeneralModel(BaseModel):
 				_, _, fg_slot_position_ = self.netSlotAttention(feat=torch.cat([feat_shape_, feat_color_], dim=-1), 
 						    feat_color=None, dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)  # 1xKx2
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
-			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics)
+			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics) \
+				if self.custom_intrinsics else pixel2world(fg_slot_position_, cam2world[1], intrinsics=None)
 			# calculate the position loss (L2 loss between the two inferred positions)
 			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_nss_position, fg_slot_nss_position_)
 			# print('position loss: {}'.format(self.loss_position.item()))
