@@ -38,7 +38,7 @@ python test.py --dataroot $DATAROOT --n_scenes 62 --n_img_each_scene 3  \
     --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0801-real/4obj-load4obj-CIT-ttt-potvase-bg' \
     --fixed_locality --recon_only --color_in_attn --no_shuffle \
     --nss_scale 7 \
-    --dummy_info 'test_real' --testset_name '200ep_test4obj' \
+    --dummy_info 'test_real' --testset_name '240ep_test4obj' \
 
 
 # can try the following to list out which GPU you have access to

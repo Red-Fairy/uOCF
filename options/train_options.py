@@ -38,6 +38,7 @@ class TrainOptions(BaseOptions):
 
 		parser.add_argument('--load_decoder', type=str, default='unload', help='load decoder')
 		parser.add_argument('--freeze_bg_only', action='store_true', help='freeze background only (trainable FG decoder)')
+		parser.add_argument('--freeze_fg_only', action='store_true', help='freeze foreground only (trainable BG decoder)')
 
 		parser.add_argument('--position_loss', action='store_true', help='use the position loss')
 

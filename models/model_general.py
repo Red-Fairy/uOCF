@@ -350,7 +350,7 @@ class EncoderPosEmbedding(nn.Module):
 
 class SlotAttention(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
-	      learnable_pos=True, n_feats=64*64, global_feat=False, pos_emb=False, feat_dropout_dim=None,
+		  learnable_pos=True, n_feats=64*64, global_feat=False, pos_emb=False, feat_dropout_dim=None,
 		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False, learnable_init=False):
 		super().__init__()
 		self.num_slots = num_slots
@@ -480,8 +480,8 @@ class SlotAttention(nn.Module):
 			attn = torch.empty(B, K, N, device=feat.device)
 			
 			k, v = self.to_kv(feat, H, W, fg_position, 
-		     			dropout_shape_dim=self.dropout_shape_dim, 
-		     			dropout_shape_rate=dropout_shape_rate,
+			 			dropout_shape_dim=self.dropout_shape_dim, 
+			 			dropout_shape_rate=dropout_shape_rate,
 						dropout_all_rate=dropout_all_rate) # (B,K-1,N,C), (B,K-1,N,C)
 			
 			for i in range(K):
@@ -957,6 +957,125 @@ class SlotAttentionFGKobj(nn.Module):
 			attn = (attn - attn.min(dim=2, keepdim=True)[0]) / (attn.max(dim=2, keepdim=True)[0] - attn.min(dim=2, keepdim=True)[0] + 1e-5)
 				
 		return slot_fg, fg_position, attn
+	
+class SlotAttentionAblation(nn.Module):
+	def __init__(self, num_slots, in_dim=64, slot_dim=64, iters=3, eps=1e-8, hidden_dim=128, color_dim=0,
+		 		learnable_init=False):
+		super().__init__()
+		self.num_slots = num_slots
+		self.iters = iters
+		self.eps = eps
+		self.scale = slot_dim ** -0.5
+
+		self.learnable_init = learnable_init
+		if not self.learnable_init:
+			self.slots_mu = nn.Parameter(torch.randn(1, 1, slot_dim))
+			self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
+			init.xavier_uniform_(self.slots_logsigma)
+			self.slots_mu_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
+			self.slots_logsigma_bg = nn.Parameter(torch.zeros(1, 1, slot_dim))
+			init.xavier_uniform_(self.slots_logsigma_bg)
+		else:
+			self.slots_init_fg = nn.Parameter(torch.randn(1, num_slots-1, slot_dim))
+			self.slots_init_bg = nn.Parameter(torch.randn(1, 1, slot_dim))
+			init.xavier_uniform_(self.slots_init_fg)
+			init.xavier_uniform_(self.slots_init_bg)
+
+		self.to_k = nn.Linear(in_dim, slot_dim, bias=False)
+		self.to_v = nn.Linear(in_dim, slot_dim, bias=False)
+		self.to_q = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
+		self.to_q_bg = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
+
+		self.gru = nn.GRUCell(slot_dim, slot_dim)
+		self.gru_bg = nn.GRUCell(slot_dim, slot_dim)
+
+		hidden_dim = max(slot_dim, hidden_dim)
+
+		self.to_res = nn.Sequential(
+			nn.LayerNorm(slot_dim),
+			nn.Linear(slot_dim, hidden_dim),
+			nn.ReLU(inplace=True),
+			nn.Linear(hidden_dim, slot_dim)
+		)
+		self.to_res_bg = nn.Sequential(
+			nn.LayerNorm(slot_dim),
+			nn.Linear(slot_dim, hidden_dim),
+			nn.ReLU(inplace=True),
+			nn.Linear(hidden_dim, slot_dim)
+		)
+
+		self.norm_feat = nn.LayerNorm(in_dim)
+		if color_dim != 0:
+			self.norm_feat_color = nn.LayerNorm(color_dim)
+		self.slot_dim = slot_dim
+
+	def forward(self, feat, num_slots=None, feat_color=None):
+		"""
+		input:
+			feat: visual feature with position information, BxNxC
+		output: slots: BxKxC, attn: BxKxN
+		"""
+		B, _, _ = feat.shape
+		K = num_slots if num_slots is not None else self.num_slots
+
+		if not self.learnable_init:
+			mu = self.slots_mu.expand(B, K-1, -1)
+			sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
+			slot_fg = mu + sigma * torch.randn_like(mu)
+			mu_bg = self.slots_mu_bg.expand(B, 1, -1)
+			sigma_bg = self.slots_logsigma_bg.exp().expand(B, 1, -1)
+			slot_bg = mu_bg + sigma_bg * torch.randn_like(mu_bg)
+		else:
+			slot_fg = self.slots_init_fg.expand(B, K-1, -1)
+			slot_bg = self.slots_init_bg.expand(B, 1, -1)
+
+		feat = self.norm_feat(feat)
+		k = self.to_k(feat)
+		v = self.to_v(feat)
+
+		if feat_color is not None:
+			feat_color = self.norm_feat_color(feat_color)
+
+		attn = None
+		for _ in range(self.iters):
+			slot_prev_bg = slot_bg
+			slot_prev_fg = slot_fg
+			q_fg = self.to_q(slot_fg)
+			q_bg = self.to_q_bg(slot_bg)
+
+			dots_fg = torch.einsum('bid,bjd->bij', q_fg, k) * self.scale
+			dots_bg = torch.einsum('bid,bjd->bij', q_bg, k) * self.scale
+			dots = torch.cat([dots_bg, dots_fg], dim=1)  # BxKxN
+			attn = dots.softmax(dim=1) + self.eps  # BxKxN
+			attn_bg, attn_fg = attn[:, 0:1, :], attn[:, 1:, :]  # Bx1xN, Bx(K-1)xN
+			attn_weights_bg = attn_bg / attn_bg.sum(dim=-1, keepdim=True)  # Bx1xN
+			attn_weights_fg = attn_fg / attn_fg.sum(dim=-1, keepdim=True)  # Bx(K-1)xN
+
+			updates_bg = torch.einsum('bjd,bij->bid', v, attn_weights_bg)
+			updates_fg = torch.einsum('bjd,bij->bid', v, attn_weights_fg)
+
+			slot_bg = self.gru_bg(
+				updates_bg.reshape(-1, self.slot_dim),
+				slot_prev_bg.reshape(-1, self.slot_dim)
+			)
+			slot_bg = slot_bg.reshape(B, -1, self.slot_dim)
+			slot_bg = slot_bg + self.to_res_bg(slot_bg)
+
+			slot_fg = self.gru(
+				updates_fg.reshape(-1, self.slot_dim),
+				slot_prev_fg.reshape(-1, self.slot_dim)
+			)
+			slot_fg = slot_fg.reshape(B, -1, self.slot_dim)
+			slot_fg = slot_fg + self.to_res(slot_fg)
+		
+		if feat_color is not None: # (B,N,C)
+			slot_fg_color = torch.einsum('bkn,bnd->bkd', attn_weights_fg, feat_color) # (B,K-1,C)
+			slot_bg_color = torch.einsum('bkn,bnd->bkd', attn_weights_bg, feat_color) # (B,1,C)
+			slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1)
+			slot_bg = torch.cat([slot_bg, slot_bg_color], dim=-1)
+
+		slots = torch.cat([slot_bg, slot_fg], dim=1)
+		return slots, attn
 
 class DecoderFG(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
