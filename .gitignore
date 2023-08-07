@@ -3,8 +3,10 @@ checkpoints/*
 logs/*
 results/*
 scripts-sbatch/*
+scripts/*
 */__pycache__/*
 */.idea/*
 */.idea
 debug/*
 extract_feats/*
+vis*.png
