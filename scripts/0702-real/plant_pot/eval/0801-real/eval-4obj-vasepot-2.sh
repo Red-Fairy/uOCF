@@ -25,7 +25,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/4obj-potvase-bg-test_multiview'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python test.py --dataroot $DATAROOT --n_scenes 62 --n_img_each_scene 3  \
+python test.py --dataroot $DATAROOT --n_scenes 95 --n_img_each_scene 3  \
     --checkpoints_dir 'checkpoints' --name 'room_real_pots' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
@@ -35,10 +35,10 @@ python test.py --dataroot $DATAROOT --n_scenes 62 --n_img_each_scene 3  \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0801-real/4obj-load4obj-CIT-ttt-potvase-bg' \
-    --fixed_locality --recon_only --color_in_attn --no_shuffle \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0801-real/4obj-load4obj-CIT-ttt-potvase-520' \
+    --fixed_locality --recon_only --color_in_attn --no_shuffle --epoch 660 \
     --nss_scale 7 \
-    --dummy_info 'test_real' --testset_name '240ep_test4obj' \
+    --dummy_info 'test_real' --testset_name '660ep_test4obj' \
 
 
 # can try the following to list out which GPU you have access to

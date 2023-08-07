@@ -34,7 +34,7 @@ if __name__ == '__main__':
         model.set_input(data)  # unpack data from data loader
         model.test()           # run inference: forward + compute_visuals
 
-        # self model.z_slots
+        # save model.z_slots
         # save_path = os.path.join(model.save_dir, f'{model.opt.testset_name}_{model.opt.epoch}', f'z_slots_{i}.txt')
         # np.savetxt(save_path, model.z_slots[1].detach().cpu().numpy())
 
