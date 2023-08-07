@@ -49,7 +49,6 @@ class uorfNoGanDINOModel(BaseModel):
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
 		parser.add_argument('--dual_route_encoder', action='store_true', help='use dual route encoders')
-		parser.add_argument('--color_in_attn', action='store_true', help='use color as input to attn')
 		parser.add_argument('--shape_dim', type=int, default=48, help='shape dimension')
 		parser.add_argument('--color_dim', type=int, default=16, help='color dimension')
 
@@ -97,7 +96,7 @@ class uorfNoGanDINOModel(BaseModel):
 					   								gpu_ids=self.gpu_ids, init_type='normal')
 			if opt.color_in_attn:
 				self.netSlotAttention = networks.init_net(
-					SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=z_dim, color_dim=0, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
+					SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, color_dim=0, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 			else:
 				self.netSlotAttention = networks.init_net(
 					SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, slot_dim=opt.shape_dim, color_dim=opt.color_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
@@ -169,7 +168,7 @@ class uorfNoGanDINOModel(BaseModel):
 			feat_shape = feature_map_shape.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 			feat_color = feature_map_color.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 			# Slot Attention
-			if self.opt.color_in_attn:
+			if not self.opt.color_in_attn:
 				z_slots, attn = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKxN
 			else:
 				z_slots, attn = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1))  # 1xKxC, 1xKxN

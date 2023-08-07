@@ -259,7 +259,12 @@ class uorfGanDINOModel(BaseModel):
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
 		# Encoding images
-		feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+		# feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+		# feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
+		with torch.no_grad():
+			feat_size = 64
+			feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
+		feature_map = self.netEncoder(feature_map)
 		feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
 		# Slot Attention

@@ -71,7 +71,7 @@ class uorfGeneralEvalModel(BaseModel):
 		- define loss function, visualization images, model names, and optimizers
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
-		self.loss_names = ['psnr', 'ssim', 'lpips']
+		self.loss_names = ['psnr', 'ssim', 'lpips'] if not self.opt.no_loss else []
 		if not opt.recon_only or opt.video:
 			self.loss_names += ['ari', 'fgari', 'nvari']
 		n = opt.n_img_each_scene

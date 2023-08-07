@@ -25,17 +25,17 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room_diverse_bg/test-4obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
+CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_bg' \
     --display_port $PORT --display_ncols 4 \
-    --load_size 128 --n_samp 128 --input_size 128 --render_size 32 --frustum_size 128 \
+    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
     --model 'uorf_general_eval' \
     --num_slots 5 --attn_iter 4 \
     --shape_dim 48 --color_dim 16 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 8 --far_plane 18 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_bg/0703/4obj-loadPos-ttf' \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_bg/0703/4obj-loadPos-ttf-noloc' \
     --dummy_info 'regular test' --testset_name 'regular_160-sample256' --epoch 160 \
 
 
