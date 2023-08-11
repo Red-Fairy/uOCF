@@ -71,18 +71,16 @@ class uorfEvalDinoModel(BaseModel):
 		n = opt.n_img_each_scene
 		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
-							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
-							# ['gt_mask{}'.format(i) for i in range(n)] + \
-							# ['render_mask{}'.format(i) for i in range(n)] + \
+							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)] + \
+							['gt_mask{}'.format(i) for i in range(n)] + \
+							['render_mask{}'.format(i) for i in range(n)]
 							# ['slot{}_attn'.format(k) for k in range(opt.num_slots)]
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
-		z_dim = opt.z_dim
-		self.num_slots = opt.num_slots
-
+									 
 		z_dim = opt.z_dim if not opt.dual_route_encoder else opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
 
@@ -105,7 +103,7 @@ class uorfEvalDinoModel(BaseModel):
 			self.netSlotAttention = networks.init_net(
 				SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
 
-		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=False,
+		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
 													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)

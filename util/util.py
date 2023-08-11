@@ -373,6 +373,56 @@ class GroupMeters(object):
         else:
             meters_kv = values
         return meters_kv
+    
+def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True):
+    """
+    Get spiral camera to world matrix
+    radius: radius of the spiral
+    height: height of the spiral
+    n_views: number of views
+    angle_range: range of the angle
+    return: Tensor of shape (n_views, 4, 4)
+    """
+    # Convert theta to radians
+    if not radians:
+        theta = np.radians(theta)
+        # angle_range = (np.radians(angle_range[0]), np.radians(angle_range[1]))
+
+    # Calculate the rotation angle for each view
+    rotation_angles = np.linspace(angle_range[0], angle_range[1], n_views)
+    print(rotation_angles)
+
+    # Initialize a list to store the transformation matrices
+    cam2world_matrices = []
+
+    for angle in rotation_angles:
+        # Calculate the camera position on the spiral
+        x = radius * np.sin(angle)
+        y = radius * np.cos(angle)
+        z = height * (angle / ((2 * np.pi) * 2) + .5)
+
+        # Calculate the rotation matrix
+        rotation_matrix = np.array([[np.cos(angle), -np.sin(angle), 0, 0],
+                                    [np.sin(angle), np.cos(angle), 0, 0],
+                                    [0, 0, 1, 0],
+                                    [0, 0, 0, 1]])
+
+        # Calculate the translation matrix
+        translation_matrix = np.array([[1, 0, 0, x],
+                                    [0, 1, 0, y],
+                                    [0, 0, 1, z],
+                                    [0, 0, 0, 1]])
+
+        # Calculate the transformation matrix
+        cam2world_matrix = np.matmul(translation_matrix, rotation_matrix)
+
+        # Add the transformation matrix to the list
+        cam2world_matrices.append(cam2world_matrix)
+
+    # Convert the list to a tensor
+    cam2world_matrices = torch.tensor(cam2world_matrices, dtype=torch.float32)
+
+    return cam2world_matrices
 
 def get_spherical_cam2world(radius, theta, n_views=48, radians=True):
     """
@@ -425,7 +475,9 @@ def get_spherical_cam2world(radius, theta, n_views=48, radians=True):
 
         cam2world_matrices.append(cam2world)
 
-    return np.stack(cam2world_matrices)
+    cam2world_matrices = np.stack(cam2world_matrices)
+
+    return torch.from_numpy(cam2world_matrices).float()
 
 
 

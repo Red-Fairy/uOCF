@@ -222,6 +222,7 @@ class uorfGeneralModel(BaseModel):
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 		if 'intrinsics' in input:
 			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
+			# print('Overwrite the default intrinsics with the provided ones.')
 
 	def encode(self, idx=0):
 		"""Encode the input image into a feature map.

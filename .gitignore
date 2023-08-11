@@ -2,8 +2,6 @@
 checkpoints/*
 logs/*
 results/*
-scripts-sbatch/*
-scripts/*
 */__pycache__/*
 */.idea/*
 */.idea

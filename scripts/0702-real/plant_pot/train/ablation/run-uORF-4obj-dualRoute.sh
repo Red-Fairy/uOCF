@@ -33,6 +33,6 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 120 --no_locality_epoch 60  --num_slots 5 --near 6 --far 20 \
     --dual_route_encoder --shape_dim 48 --color_dim 48 --fixed_locality \
     --model 'uorf_nogan_DINO' --bottom --encoder_type 'DINO' --encoder_size 896 \
-    --exp_id 'uORF-4obj-DINO-dualRoute' \
+    --pos_emb --exp_id 'ablation/uORF-4obj-DINO-dualRoute' \
 # done
 echo "Done"

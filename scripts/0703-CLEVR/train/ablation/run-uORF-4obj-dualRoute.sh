@@ -34,6 +34,6 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_sc
     --num_slots 8 --near 8 --far 18 \
     --dual_route_encoder --shape_dim 24 --color_dim 8 \
     --model 'uorf_nogan_DINO' --bottom --encoder_type 'DINO' --encoder_size 896 \
-    --exp_id 'uORF-4obj-DINO-dualroute' \
+    --pos_emb --exp_id 'ablation/uORF-4obj-DINO-dualroute' \
 # done
 echo "Done"

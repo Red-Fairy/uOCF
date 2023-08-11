@@ -72,10 +72,10 @@ class uorfGeneralEvalModel(BaseModel):
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
 		self.loss_names = ['psnr', 'ssim', 'lpips'] if not self.opt.no_loss else []
-		if not opt.recon_only or opt.video:
+		if not opt.recon_only and not opt.video:
 			self.loss_names += ['ari', 'fgari', 'nvari']
 		n = opt.n_img_each_scene
-		self.set_visual_names()
+		self.set_visual_names(add_attn=True)
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
@@ -112,22 +112,28 @@ class uorfGeneralEvalModel(BaseModel):
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
-	def set_visual_names(self):
+	def set_visual_names(self, add_mask=False, add_attn=False):
 		n = self.opt.n_img_each_scene
 		n_slot = self.opt.num_slots
 		self.visual_names =	['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
 							['input_image'] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
+							# ['gt_mask{}'.format(i) for i in range(n)] + \
+							# ['render_mask{}'.format(i) for i in range(n)]
 							# ['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
-		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
+		if add_mask:
+			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
+								 ['render_mask{}'.format(i) for i in range(n)]
+		if add_attn:
+			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -156,7 +162,7 @@ class uorfGeneralEvalModel(BaseModel):
 		if 'intrinsics' in input:
 			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 
-		if not self.opt.recon_only or self.opt.video:
+		if not self.opt.recon_only and not self.opt.video:
 			self.gt_masks = input['masks']
 			self.mask_idx = input['mask_idx']
 			self.fg_idx = input['fg_idx']
@@ -265,13 +271,18 @@ class uorfGeneralEvalModel(BaseModel):
 		'''
 		dev = self.x[0:1].device
 		cam2world = cam2world.to(dev)
+
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
+		if self.opt.fixed_locality: # divide the translation part by self.opt.nss_scale
+			nss2cam0 = torch.cat([torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2), 
+									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
+			
 		K = self.attn.shape[0]
 		N = cam2world.shape[0]
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, partitioned=True)
+		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
@@ -307,7 +318,11 @@ class uorfGeneralEvalModel(BaseModel):
 		dev = x.device
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
+
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
+		if self.opt.fixed_locality: # divide the translation part by self.opt.nss_scale
+			nss2cam0 = torch.cat([torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2), 
+									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
 		
 		if fg_slot_image_position is not None:
 			fg_slot_nss_position = pixel2world(fg_slot_image_position.to(dev), self.cam2world[0], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
@@ -391,7 +406,7 @@ class uorfGeneralEvalModel(BaseModel):
 			# 	for i in range(self.opt.n_img_each_scene):
 			# 		setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
 
-			if not self.opt.recon_only or self.opt.video:
+			if not self.opt.recon_only and not self.opt.video:
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW
 				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
 				predefined_colors = []

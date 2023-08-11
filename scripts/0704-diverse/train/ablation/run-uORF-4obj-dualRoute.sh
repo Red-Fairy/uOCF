@@ -7,7 +7,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -31,8 +31,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --display_port $PORT --display_ncols 4 --print_freq 50 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120 --niter 240 --no_locality_epoch 60  --num_slots 5 --near 8 --far 18 \
-    --dual_route_encoder --shape_dim 72 --color_dim 24 \
+    --dual_route_encoder --shape_dim 48 --color_dim 16 \
     --model 'uorf_nogan_DINO' --bottom --encoder_type 'DINO' --encoder_size 896 \
-    --exp_id 'uORF-4obj-DINO-dualroute' \
+    --pos_emb --exp_id 'uORF-4obj-DINO-dualroute' \
 # done
 echo "Done"
