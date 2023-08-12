@@ -29,7 +29,7 @@ python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
     --load_size 128 --input_size 128 --render_size 8 --frustum_size 128 --bottom \
     --n_samp 256 --z_dim 64 --num_slots 5 \
     --model 'uorf_eval' \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_bg/0703/uORF-4obj-GAN-QBO' \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_bg/ablation/uORF-4obj-GAN-QBO-r2' \
     --learnable_slot_init \
     --attn_iter 3 --testset_name 'regular_test_end' --epoch 240 \
 # done

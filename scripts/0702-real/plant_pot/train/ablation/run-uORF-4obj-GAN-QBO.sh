@@ -32,6 +32,7 @@ python train_with_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120 --no_locality_epoch 60 --z_dim 96 --num_slots 5 --near 6 --far 20 \
     --model 'uorf_gan' --bottom --fixed_locality --learnable_slot_init \
-    --exp_id 'uORF-4obj-GAN-fixed-QBO' \
+    --continue_train --epoch_count 235 \
+    --exp_id 'ablation/uORF-4obj-GAN-fixed-QBO' \
 # done
 echo "Done"

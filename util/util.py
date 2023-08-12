@@ -19,465 +19,474 @@ import torch.nn.functional as F
 from matplotlib import patches,  lines
 
 def write_location(f, location, i, description=''):
-    f.write(f"Test image {i}: {description}\n")
-    location = location.cpu().numpy()
-    for i in range(location.shape[0]):
-        f.write(f"Slot {i}:, ({location[i][0]:.4f}, {location[i][1]:.4f})\n")
-    f.flush()
+	f.write(f"Test image {i}: {description}\n")
+	location = location.cpu().numpy()
+	for i in range(location.shape[0]):
+		f.write(f"Slot {i}:, ({location[i][0]:.4f}, {location[i][1]:.4f})\n")
+	f.flush()
 
 def resize_masks(masks, image_size):
-    """
-    Resize masks size
-    :param masks: tensor of shape (n, 1, h, w)
-    :param image_size: H, W
-    :return: numpy array of shape (n, H, W)
-    """
-    masks_n = masks.squeeze()
-    masks_resize = np.zeros((masks_n.shape[0], image_size[0], image_size[1]))
+	"""
+	Resize masks size
+	:param masks: tensor of shape (n, 1, h, w)
+	:param image_size: H, W
+	:return: numpy array of shape (n, H, W)
+	"""
+	masks_n = masks.squeeze()
+	masks_resize = np.zeros((masks_n.shape[0], image_size[0], image_size[1]))
 
-    for i in range(masks_n.shape[0]):
-        masks_resize[i] = skimage.transform.resize(masks_n[i], image_size, order=3)
-        masks_resize[i] = (masks_resize[i]>=0.75).astype('uint8')
-    return masks_resize
+	for i in range(masks_n.shape[0]):
+		masks_resize[i] = skimage.transform.resize(masks_n[i], image_size, order=3)
+		masks_resize[i] = (masks_resize[i]>=0.75).astype('uint8')
+	return masks_resize
 
 def mask2bbox(mask):
-    inds = (np.where(mask==1))
-    xmin, xmax = inds[1].min(), inds[1].max()
-    ymin, ymax = inds[0].min(), inds[0].max()
-    width = xmax - xmin
-    height = ymax - ymin
-    rect = patches.Rectangle((xmin, ymin),xmax - xmin, ymax - ymin,linewidth=1,edgecolor='r',facecolor='none')
-    return (xmin + width / 2, ymin + height / 2, width, height), rect
+	inds = (np.where(mask==1))
+	xmin, xmax = inds[1].min(), inds[1].max()
+	ymin, ymax = inds[0].min(), inds[0].max()
+	width = xmax - xmin
+	height = ymax - ymin
+	rect = patches.Rectangle((xmin, ymin),xmax - xmin, ymax - ymin,linewidth=1,edgecolor='r',facecolor='none')
+	return (xmin + width / 2, ymin + height / 2, width, height), rect
 
 
 def apply_mask(image, mask, color, alpha=0.5):
-    """Apply the given mask to the image.
-    """
-    for c in range(3):
-        image[:, :, c] = np.where(mask == 1,
-                                  image[:, :, c] *
-                                  (1 - alpha) + \
-                                  alpha * color[c] * 255,
-                                  image[:, :, c])
-    return image
+	"""Apply the given mask to the image.
+	"""
+	for c in range(3):
+		image[:, :, c] = np.where(mask == 1,
+								  image[:, :, c] *
+								  (1 - alpha) + \
+								  alpha * color[c] * 255,
+								  image[:, :, c])
+	return image
 
 def random_colors(N, bright=True):
-    """
-    Generate random colors.
-    To get visually distinct colors, generate them in HSV space then
-    convert to RGB.
-    """
-    brightness = 1.0 if bright else 0.7
-    hsv = [(i / N, 1, brightness) for i in range(N)]
-    colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
-    random.shuffle(colors)
-    return colors
+	"""
+	Generate random colors.
+	To get visually distinct colors, generate them in HSV space then
+	convert to RGB.
+	"""
+	brightness = 1.0 if bright else 0.7
+	hsv = [(i / N, 1, brightness) for i in range(N)]
+	colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
+	random.shuffle(colors)
+	return colors
 
 
 def display_image(image, masks, display_index=False):
-    image_mask = image
-    colors = random_colors(masks.shape[0])
-    for i in range(masks.shape[0]):
-        image_mask = apply_mask(image, masks[i], colors[i])
-    if display_index:
-        image_mask = Image.fromarray(image_mask)
-        draw = ImageDraw.Draw(image_mask)
-        for i in range(masks.shape[0]):
-            min_pixel = 30
-            if masks[i].sum() > min_pixel:
-                mask = masks[i]
-                mask_eroded = np.array(Image.fromarray(mask).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3)))
-                if mask_eroded.sum() <= min_pixel - 20:
-                    continue
-                (x_center, y_center, _, _), rect = mask2bbox(mask_eroded)
-                # draw.text((x_center, y_center), str(i), (0, 0, 0))
-                # import ipdb; ipdb.set_trace()
-                draw.rectangle(list(rect.get_bbox().get_points().reshape(-1)))
-        image_mask = np.array(image_mask)
+	image_mask = image
+	colors = random_colors(masks.shape[0])
+	for i in range(masks.shape[0]):
+		image_mask = apply_mask(image, masks[i], colors[i])
+	if display_index:
+		image_mask = Image.fromarray(image_mask)
+		draw = ImageDraw.Draw(image_mask)
+		for i in range(masks.shape[0]):
+			min_pixel = 30
+			if masks[i].sum() > min_pixel:
+				mask = masks[i]
+				mask_eroded = np.array(Image.fromarray(mask).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3)))
+				if mask_eroded.sum() <= min_pixel - 20:
+					continue
+				(x_center, y_center, _, _), rect = mask2bbox(mask_eroded)
+				# draw.text((x_center, y_center), str(i), (0, 0, 0))
+				# import ipdb; ipdb.set_trace()
+				draw.rectangle(list(rect.get_bbox().get_points().reshape(-1)))
+		image_mask = np.array(image_mask)
 
 
-    return image_mask
+	return image_mask
 
 def get_colormap(rgb=True):
-    color_list = np.array(
-        [
-            0, 0, 0.5625
-            , 0, 0, 0.6250
-            , 0, 0, 0.6875
-            , 0, 0, 0.7500
-            , 0, 0, 0.8125
-            , 0, 0, 0.8750
-            , 0, 0, 0.9375
-            , 0, 0, 1.0000
-            , 0, 0.0625, 1.0000
-            , 0, 0.1250, 1.0000
-            , 0, 0.1875, 1.0000
-            , 0, 0.2500, 1.0000
-            , 0, 0.3125, 1.0000
-            , 0, 0.3750, 1.0000
-            , 0, 0.4375, 1.0000
-            , 0, 0.5000, 1.0000
-            , 0, 0.5625, 1.0000
-            , 0, 0.6250, 1.0000
-            , 0, 0.6875, 1.0000
-            , 0, 0.7500, 1.0000
-            , 0, 0.8125, 1.0000
-            , 0, 0.8750, 1.0000
-            , 0, 0.9375, 1.0000
-            , 0, 1.0000, 1.0000
-            , 0.0625, 1.0000, 0.9375
-            , 0.1250, 1.0000, 0.8750
-            , 0.1875, 1.0000, 0.8125
-            , 0.2500, 1.0000, 0.7500
-            , 0.3125, 1.0000, 0.6875
-            , 0.3750, 1.0000, 0.6250
-            , 0.4375, 1.0000, 0.5625
-            , 0.5000, 1.0000, 0.5000
-            , 0.5625, 1.0000, 0.4375
-            , 0.6250, 1.0000, 0.3750
-            , 0.6875, 1.0000, 0.3125
-            , 0.7500, 1.0000, 0.2500
-            , 0.8125, 1.0000, 0.1875
-            , 0.8750, 1.0000, 0.1250
-            , 0.9375, 1.0000, 0.0625
-            , 1.0000, 1.0000, 0
-            , 1.0000, 0.9375, 0
-            , 1.0000, 0.8750, 0
-            , 1.0000, 0.8125, 0
-            , 1.0000, 0.7500, 0
-            , 1.0000, 0.6875, 0
-            , 1.0000, 0.6250, 0
-            , 1.0000, 0.5625, 0
-            , 1.0000, 0.5000, 0
-            , 1.0000, 0.4375, 0
-            , 1.0000, 0.3750, 0
-            , 1.0000, 0.3125, 0
-            , 1.0000, 0.2500, 0
-            , 1.0000, 0.1875, 0
-            , 1.0000, 0.1250, 0
-            , 1.0000, 0.0625, 0
-            , 1.0000, 0, 0
-            , 0.9375, 0, 0
-            , 0.8750, 0, 0
-            , 0.8125, 0, 0
-            , 0.7500, 0, 0
-            , 0.6875, 0, 0
-            , 0.6250, 0, 0
-            , 0.5625, 0, 0
-            , 0.5000, 0, 0
-        ]
-    ).astype(np.float32)
-    color_list = color_list.reshape((-1, 3))
-    if not rgb:
-        color_list = color_list[:, ::-1]
-    return color_list
+	color_list = np.array(
+		[
+			0, 0, 0.5625
+			, 0, 0, 0.6250
+			, 0, 0, 0.6875
+			, 0, 0, 0.7500
+			, 0, 0, 0.8125
+			, 0, 0, 0.8750
+			, 0, 0, 0.9375
+			, 0, 0, 1.0000
+			, 0, 0.0625, 1.0000
+			, 0, 0.1250, 1.0000
+			, 0, 0.1875, 1.0000
+			, 0, 0.2500, 1.0000
+			, 0, 0.3125, 1.0000
+			, 0, 0.3750, 1.0000
+			, 0, 0.4375, 1.0000
+			, 0, 0.5000, 1.0000
+			, 0, 0.5625, 1.0000
+			, 0, 0.6250, 1.0000
+			, 0, 0.6875, 1.0000
+			, 0, 0.7500, 1.0000
+			, 0, 0.8125, 1.0000
+			, 0, 0.8750, 1.0000
+			, 0, 0.9375, 1.0000
+			, 0, 1.0000, 1.0000
+			, 0.0625, 1.0000, 0.9375
+			, 0.1250, 1.0000, 0.8750
+			, 0.1875, 1.0000, 0.8125
+			, 0.2500, 1.0000, 0.7500
+			, 0.3125, 1.0000, 0.6875
+			, 0.3750, 1.0000, 0.6250
+			, 0.4375, 1.0000, 0.5625
+			, 0.5000, 1.0000, 0.5000
+			, 0.5625, 1.0000, 0.4375
+			, 0.6250, 1.0000, 0.3750
+			, 0.6875, 1.0000, 0.3125
+			, 0.7500, 1.0000, 0.2500
+			, 0.8125, 1.0000, 0.1875
+			, 0.8750, 1.0000, 0.1250
+			, 0.9375, 1.0000, 0.0625
+			, 1.0000, 1.0000, 0
+			, 1.0000, 0.9375, 0
+			, 1.0000, 0.8750, 0
+			, 1.0000, 0.8125, 0
+			, 1.0000, 0.7500, 0
+			, 1.0000, 0.6875, 0
+			, 1.0000, 0.6250, 0
+			, 1.0000, 0.5625, 0
+			, 1.0000, 0.5000, 0
+			, 1.0000, 0.4375, 0
+			, 1.0000, 0.3750, 0
+			, 1.0000, 0.3125, 0
+			, 1.0000, 0.2500, 0
+			, 1.0000, 0.1875, 0
+			, 1.0000, 0.1250, 0
+			, 1.0000, 0.0625, 0
+			, 1.0000, 0, 0
+			, 0.9375, 0, 0
+			, 0.8750, 0, 0
+			, 0.8125, 0, 0
+			, 0.7500, 0, 0
+			, 0.6875, 0, 0
+			, 0.6250, 0, 0
+			, 0.5625, 0, 0
+			, 0.5000, 0, 0
+		]
+	).astype(np.float32)
+	color_list = color_list.reshape((-1, 3))
+	if not rgb:
+		color_list = color_list[:, ::-1]
+	return color_list
 
 def tensor2im(input_image, imtype=np.uint8, use_color_map=True):
-    """"Converts a Tensor array into a numpy image array.
+	""""Converts a Tensor array into a numpy image array.
 
-    Parameters:
-        input_image (tensor) --  the input image tensor array, range=[-1,1], CxHxW
-        imtype (type)        --  the desired type of the converted numpy array
-        use_color_map: if True, when inputting grayscale (n_ch==1), do color mapping
-    output:
-        image_numpy: HxWx3
-    """
-    if not isinstance(input_image, np.ndarray):
-        if isinstance(input_image, torch.Tensor):  # get the data from a variable
-            image_tensor = input_image.data
-        else:
-            return input_image
-        image_numpy = image_tensor.cpu().float().numpy()  # convert it into a numpy array
-        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0  # now HxWx3, [0,1]
-        if image_numpy.shape[2] == 1:  # grayscale to RGB
-            image_numpy = np.tile(image_numpy, (1, 1, 3))
-            if use_color_map:
-                mapped = image_numpy.copy()
-                colormap = get_colormap()  # 64-bin color map, 64x3
-                img = image_numpy[:, :, 0]
-                grid = np.linspace(0, 1, 65)
-                for i in range(64):
-                    lower, upper = grid[i], grid[i + 1]
-                    img_pos = (img <= upper) & (img >= lower)
-                    mapped[img_pos, :] = colormap[i, :]
-                image_numpy = mapped
-        image_numpy *= 255.0
-        image_numpy = image_numpy.astype(imtype)
-    else:  # if it is a numpy array, do nothing
-        image_numpy = input_image.astype(imtype)
-    return image_numpy
+	Parameters:
+		input_image (tensor) --  the input image tensor array, range=[-1,1], CxHxW
+		imtype (type)        --  the desired type of the converted numpy array
+		use_color_map: if True, when inputting grayscale (n_ch==1), do color mapping
+	output:
+		image_numpy: HxWx3
+	"""
+	if not isinstance(input_image, np.ndarray):
+		if isinstance(input_image, torch.Tensor):  # get the data from a variable
+			image_tensor = input_image.data
+		else:
+			return input_image
+		image_numpy = image_tensor.cpu().float().numpy()  # convert it into a numpy array
+		image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0  # now HxWx3, [0,1]
+		if image_numpy.shape[2] == 1:  # grayscale to RGB
+			image_numpy = np.tile(image_numpy, (1, 1, 3))
+			if use_color_map:
+				mapped = image_numpy.copy()
+				colormap = get_colormap()  # 64-bin color map, 64x3
+				img = image_numpy[:, :, 0]
+				grid = np.linspace(0, 1, 65)
+				for i in range(64):
+					lower, upper = grid[i], grid[i + 1]
+					img_pos = (img <= upper) & (img >= lower)
+					mapped[img_pos, :] = colormap[i, :]
+				image_numpy = mapped
+		image_numpy *= 255.0
+		image_numpy = image_numpy.astype(imtype)
+	else:  # if it is a numpy array, do nothing
+		image_numpy = input_image.astype(imtype)
+	return image_numpy
 
 def set_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
-    np.random.seed(seed)
-    random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
+	torch.manual_seed(seed)
+	torch.cuda.manual_seed_all(seed)
+	torch.backends.cudnn.deterministic = True
+	torch.backends.cudnn.benchmark = True
+	torch.backends.cuda.matmul.allow_tf32 = False
+	torch.backends.cudnn.allow_tf32 = False
+	np.random.seed(seed)
+	random.seed(seed)
+	os.environ['PYTHONHASHSEED'] = str(seed)
 
 def diagnose_network(net, name='network'):
-    """Calculate and print the mean of average absolute(gradients)
+	"""Calculate and print the mean of average absolute(gradients)
 
-    Parameters:
-        net (torch network) -- Torch network
-        name (str) -- the name of the network
-    """
-    mean = 0.0
-    count = 0
-    for param in net.parameters():
-        if param.grad is not None:
-            mean += torch.mean(torch.abs(param.grad.data))
-            count += 1
-    if count > 0:
-        mean = mean / count
-    print(name)
-    print(mean)
+	Parameters:
+		net (torch network) -- Torch network
+		name (str) -- the name of the network
+	"""
+	mean = 0.0
+	count = 0
+	for param in net.parameters():
+		if param.grad is not None:
+			mean += torch.mean(torch.abs(param.grad.data))
+			count += 1
+	if count > 0:
+		mean = mean / count
+	print(name)
+	print(mean)
 
 
 def save_image(image_numpy, image_path):
-    """Save a numpy image to the disk
+	"""Save a numpy image to the disk
 
-    Parameters:
-        image_numpy (numpy array) -- input numpy array
-        image_path (str)          -- the path of the image
-    """
-    image_pil = Image.fromarray(image_numpy)
-    image_pil.save(image_path)
+	Parameters:
+		image_numpy (numpy array) -- input numpy array
+		image_path (str)          -- the path of the image
+	"""
+	image_pil = Image.fromarray(image_numpy)
+	image_pil.save(image_path)
 
 
 def print_numpy(x, val=True, shp=False):
-    """Print the mean, min, max, median, std, and size of a numpy array
+	"""Print the mean, min, max, median, std, and size of a numpy array
 
-    Parameters:
-        val (bool) -- if print the values of the numpy array
-        shp (bool) -- if print the shape of the numpy array
-    """
-    x = x.astype(np.float64)
-    if shp:
-        print('shape,', x.shape)
-    if val:
-        x = x.flatten()
-        print('mean = %3.3f, min = %3.3f, max = %3.3f, median = %3.3f, std=%3.3f' % (
-            np.mean(x), np.min(x), np.max(x), np.median(x), np.std(x)))
+	Parameters:
+		val (bool) -- if print the values of the numpy array
+		shp (bool) -- if print the shape of the numpy array
+	"""
+	x = x.astype(np.float64)
+	if shp:
+		print('shape,', x.shape)
+	if val:
+		x = x.flatten()
+		print('mean = %3.3f, min = %3.3f, max = %3.3f, median = %3.3f, std=%3.3f' % (
+			np.mean(x), np.min(x), np.max(x), np.median(x), np.std(x)))
 
 def print_tensor(x):
-    print('mean={}, min={}, max={}, median={}, std={}'.format(x.mean(), x.min(), x.max(), x.median(), x.std()))
+	print('mean={}, min={}, max={}, median={}, std={}'.format(x.mean(), x.min(), x.max(), x.median(), x.std()))
 
 def mkdirs(paths):
-    """create empty directories if they don't exist
+	"""create empty directories if they don't exist
 
-    Parameters:
-        paths (str list) -- a list of directory paths
-    """
-    if isinstance(paths, list) and not isinstance(paths, str):
-        for path in paths:
-            mkdir(path)
-    else:
-        mkdir(paths)
+	Parameters:
+		paths (str list) -- a list of directory paths
+	"""
+	if isinstance(paths, list) and not isinstance(paths, str):
+		for path in paths:
+			mkdir(path)
+	else:
+		mkdir(paths)
 
 
 def mkdir(path):
-    """create a single empty directory if it didn't exist
+	"""create a single empty directory if it didn't exist
 
-    Parameters:
-        path (str) -- a single directory path
-    """
-    if not os.path.exists(path):
-        os.makedirs(path)
+	Parameters:
+		path (str) -- a single directory path
+	"""
+	if not os.path.exists(path):
+		os.makedirs(path)
 
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    val = 0
-    avg = 0
-    sum = 0
-    count = 0
-    tot_count = 0
+	"""Computes and stores the average and current value"""
+	val = 0
+	avg = 0
+	sum = 0
+	count = 0
+	tot_count = 0
 
-    def __init__(self):
-        self.reset()
-        self.tot_count = 0
+	def __init__(self):
+		self.reset()
+		self.tot_count = 0
 
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
+	def reset(self):
+		self.val = 0
+		self.avg = 0
+		self.sum = 0
+		self.count = 0
 
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.tot_count += n
-        self.avg = self.sum / self.count
+	def update(self, val, n=1):
+		self.val = val
+		self.sum += val * n
+		self.count += n
+		self.tot_count += n
+		self.avg = self.sum / self.count
 
 class GroupMeters(object):
-    def __init__(self):
-        self._meters = collections.defaultdict(AverageMeter)
+	def __init__(self):
+		self._meters = collections.defaultdict(AverageMeter)
 
-    def reset(self):
-        list(map((AverageMeter.reset, self._meters.values())))
+	def reset(self):
+		list(map((AverageMeter.reset, self._meters.values())))
 
-    def update(self, updates=None, value=None, n=1, **kwargs):
-        """
-        Example:
-            >>> meters.update(key, value)
-            >>> meters.update({key1: value1, key2: value2})
-            >>> meters.update(key1=value1, key2=value2)
-        """
-        if updates is None:
-            updates = {}
-        if updates is not None and value is not None:
-            updates = {updates: value}
-        updates.update(kwargs)
-        for k, v in updates.items():
-            self._meters[k].update(v, n=n)
+	def update(self, updates=None, value=None, n=1, **kwargs):
+		"""
+		Example:
+			>>> meters.update(key, value)
+			>>> meters.update({key1: value1, key2: value2})
+			>>> meters.update(key1=value1, key2=value2)
+		"""
+		if updates is None:
+			updates = {}
+		if updates is not None and value is not None:
+			updates = {updates: value}
+		updates.update(kwargs)
+		for k, v in updates.items():
+			self._meters[k].update(v, n=n)
 
-    def __getitem__(self, name):
-        return self._meters[name]
+	def __getitem__(self, name):
+		return self._meters[name]
 
-    def items(self):
-        return self._meters.items()
+	def items(self):
+		return self._meters.items()
 
-    @property
-    def sum(self):
-        return {k: m.sum for k, m in self._meters.items() if m.count > 0}
+	@property
+	def sum(self):
+		return {k: m.sum for k, m in self._meters.items() if m.count > 0}
 
-    @property
-    def avg(self):
-        return {k: m.avg for k, m in self._meters.items() if m.count > 0}
+	@property
+	def avg(self):
+		return {k: m.avg for k, m in self._meters.items() if m.count > 0}
 
-    @property
-    def val(self):
-        return {k: m.val for k, m in self._meters.items() if m.count > 0}
+	@property
+	def val(self):
+		return {k: m.val for k, m in self._meters.items() if m.count > 0}
 
-    def format(self, caption, values, kv_format, glue):
-        meters_kv = self._canonize_values(values)
-        log_str = [caption]
-        log_str.extend(itertools.starmap(kv_format.format, sorted(meters_kv.items())))
-        return glue.join(log_str)
+	def format(self, caption, values, kv_format, glue):
+		meters_kv = self._canonize_values(values)
+		log_str = [caption]
+		log_str.extend(itertools.starmap(kv_format.format, sorted(meters_kv.items())))
+		return glue.join(log_str)
 
-    def format_simple(self, caption, values='avg', compressed=True):
-        if compressed:
-            return self.format(caption, values, '{}={:4f}', ' ')
-        else:
-            return self.format(caption, values, '\t{} = {:4f}', '\n')
+	def format_simple(self, caption, values='avg', compressed=True):
+		if compressed:
+			return self.format(caption, values, '{}={:4f}', ' ')
+		else:
+			return self.format(caption, values, '\t{} = {:4f}', '\n')
 
-    def _canonize_values(self, values):
-        if isinstance(values, six.string_types):
-            assert values in ('avg', 'val', 'sum')
-            meters_kv = getattr(self, values)
-        else:
-            meters_kv = values
-        return meters_kv
-    
+	def _canonize_values(self, values):
+		if isinstance(values, six.string_types):
+			assert values in ('avg', 'val', 'sum')
+			meters_kv = getattr(self, values)
+		else:
+			meters_kv = values
+		return meters_kv
+	
+import numpy as np
+import torch
+
 def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True):
-    """
-    Get spiral camera to world matrix
-    radius: radius of the spiral
-    height: height of the spiral
-    n_views: number of views
-    angle_range: range of the angle
-    return: Tensor of shape (n_views, 4, 4)
-    """
-    # Convert theta to radians
-    if not radians:
-        theta = np.radians(theta)
-        # angle_range = (np.radians(angle_range[0]), np.radians(angle_range[1]))
+	"""
+	Get spiral camera to world matrix
+	radius: radius of the spiral
+	height: height of the spiral
+	n_views: number of views
+	angle_range: range of the angle
+	return: Tensor of shape (n_views, 4, 4)
+	"""
+	# Convert theta to radians
+	if not radians:
+		theta = np.radians(theta)
+		# angle_range = (np.radians(angle_range[0]), np.radians(angle_range[1]))
 
-    # Calculate the rotation angle for each view
-    rotation_angles = np.linspace(angle_range[0], angle_range[1], n_views)
-    print(rotation_angles)
+	# Calculate the rotation angle for each view
+	if angle_range[0] != angle_range[1]:
+		rotation_angles = np.linspace(angle_range[0], angle_range[1], n_views)
+	else:
+		rotation_angles = np.ones(n_views) * angle_range[0]
+	# print(rotation_angles)
 
-    # Initialize a list to store the transformation matrices
-    cam2world_matrices = []
+	# Initialize a list to store the transformation matrices
+	cam2world_matrices = []
 
-    for angle in rotation_angles:
-        # Calculate the camera position on the spiral
-        x = radius * np.sin(angle)
-        y = radius * np.cos(angle)
-        z = height * (angle / ((2 * np.pi) * 2) + .5)
+	for angle in rotation_angles:
+		# Calculate the camera position on the spiral
+		x = radius * np.cos(angle)
+		y = radius * np.sin(angle)
+		if angle_range[0] != angle_range[1]:
+			z = height * ((angle - angle_range[0]) / (angle_range[1] - angle_range[0]) + 0.5) # from 0.5 to 1.5
+		else:
+			z = height 
+	
+		# Calculte the cam2world matrix for the camera positioned at (x, y, z), pointing at the origin
+		forward_direction = torch.tensor([-x, -y, -z], dtype=torch.float32)
+		forward_direction = forward_direction / torch.norm(forward_direction)
 
-        # Calculate the rotation matrix
-        rotation_matrix = np.array([[np.cos(angle), -np.sin(angle), 0, 0],
-                                    [np.sin(angle), np.cos(angle), 0, 0],
-                                    [0, 0, 1, 0],
-                                    [0, 0, 0, 1]])
+		# world up vector is always (0, 0, 1)
+		right_direction = torch.cross(forward_direction, torch.tensor([0, -1, 0], dtype=torch.float32))
 
-        # Calculate the translation matrix
-        translation_matrix = np.array([[1, 0, 0, x],
-                                    [0, 1, 0, y],
-                                    [0, 0, 1, z],
-                                    [0, 0, 0, 1]])
+		up_direction = torch.cross(right_direction, forward_direction)
 
-        # Calculate the transformation matrix
-        cam2world_matrix = np.matmul(translation_matrix, rotation_matrix)
+		# Construct the cam2world matrix
+		rotation_matrix = torch.stack([right_direction, up_direction, forward_direction], dim=1)
+		translation_vector = torch.tensor([x, y, z], dtype=torch.float32).view(3, 1)
+		cam2world_matrix = torch.cat([rotation_matrix, translation_vector], dim=1)
+		cam2world_matrix = torch.cat([cam2world_matrix, torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)], dim=0) # [4, 4]
 
-        # Add the transformation matrix to the list
-        cam2world_matrices.append(cam2world_matrix)
+		cam2world_matrices.append(cam2world_matrix)
 
-    # Convert the list to a tensor
-    cam2world_matrices = torch.tensor(cam2world_matrices, dtype=torch.float32)
 
-    return cam2world_matrices
+	# Convert the list to a tensor
+	cam2world_matrices = torch.stack(cam2world_matrices, dim=0)
+
+	return cam2world_matrices
 
 def get_spherical_cam2world(radius, theta, n_views=48, radians=True):
-    """
-    Get spherical camera to world matrix
-    radius: radius of the sphere
-    theta: angle between the line from the camera to the origin and the XY plane
-    n_views: number of views
-    return: Tensor of shape (n_views, 4, 4)
-    """
+	"""
+	Get spherical camera to world matrix
+	radius: radius of the sphere
+	theta: angle between the line from the camera to the origin and the XY plane
+	n_views: number of views
+	return: Tensor of shape (n_views, 4, 4)
+	"""
 
-    # Convert theta to radians
-    if not radians:
-        theta = np.radians(theta)
+	# Convert theta to radians
+	if not radians:
+		theta = np.radians(theta)
 
-    # Calculate the rotation angle for each view
-    rotation_angles = np.linspace(0, 2 * np.pi, n_views, endpoint=False)
+	# Calculate the rotation angle for each view
+	rotation_angles = np.linspace(0, 2 * np.pi, n_views, endpoint=False)
 
-    # Initialize a list to store the transformation matrices
-    cam2world_matrices = []
+	# Initialize a list to store the transformation matrices
+	cam2world_matrices = []
 
-    for angle in rotation_angles:
-        # Calculate the camera position on the sphere
-        x = radius * np.sin(theta) * np.cos(angle)
-        y = radius * np.sin(theta) * np.sin(angle)
-        z = radius * np.cos(theta)
+	for angle in rotation_angles:
+		# Calculate the camera position on the sphere
+		x = radius * np.sin(theta) * np.cos(angle)
+		y = radius * np.sin(theta) * np.sin(angle)
+		z = radius * np.cos(theta)
 
-        camera_position = np.array([x, y, z])
+		camera_position = np.array([x, y, z])
 
-        # Calculate the camera's forward direction vector
-        forward = -camera_position / np.linalg.norm(camera_position)
+		# Calculate the camera's forward direction vector
+		forward = -camera_position / np.linalg.norm(camera_position)
 
-        # Calculate the camera's up vector
-        up = np.array([0, 0, 1])
-        if np.abs(np.dot(up, forward)) > 0.999:
-            up = np.array([0, 1, 0])
+		# Calculate the camera's up vector
+		up = np.array([0, 0, 1])
+		if np.abs(np.dot(up, forward)) > 0.999:
+			up = np.array([0, 1, 0])
 
-        # Calculate the camera's right direction vector
-        right = -np.cross(up, forward)
-        right /= np.linalg.norm(right)
+		# Calculate the camera's right direction vector
+		right = -np.cross(up, forward)
+		right /= np.linalg.norm(right)
 
-        # Update the camera's up vector to be orthogonal to forward and right vectors
-        up = np.cross(forward, right)
+		# Update the camera's up vector to be orthogonal to forward and right vectors
+		up = np.cross(forward, right)
 
-        # Create the camera to world matrix
-        cam2world = np.eye(4)
-        cam2world[:3, 0] = right
-        cam2world[:3, 1] = up
-        cam2world[:3, 2] = forward
-        cam2world[:3, 3] = camera_position
+		# Create the camera to world matrix
+		cam2world = np.eye(4)
+		cam2world[:3, 0] = right
+		cam2world[:3, 1] = up
+		cam2world[:3, 2] = forward
+		cam2world[:3, 3] = camera_position
 
-        cam2world_matrices.append(cam2world)
+		cam2world_matrices.append(cam2world)
 
-    cam2world_matrices = np.stack(cam2world_matrices)
+	cam2world_matrices = np.stack(cam2world_matrices)
 
-    return torch.from_numpy(cam2world_matrices).float()
+	return torch.from_numpy(cam2world_matrices).float()
 
 
 

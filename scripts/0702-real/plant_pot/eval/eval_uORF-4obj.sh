@@ -29,7 +29,7 @@ python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
     --load_size 128 --input_size 128 --render_size 8 --frustum_size 128 --bottom \
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' \
-    --fixed_locality \
+    --fixed_locality --near_plane 6 --far_plane 20 \
     --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/ablation/uORF-4obj-GAN-fixed' \
     --attn_iter 3 --testset_name 'regular_test_240end'  \
 # done

@@ -78,14 +78,14 @@ for j, data in enumerate(dataset):
 		cam2world_input = model.cam2world[0:1].cpu()
 		radius = torch.sqrt(torch.sum(cam2world_input[:, :3, 3] ** 2, dim=1))
 		x, y = cam2world_input[:, 0, 3], cam2world_input[:, 1, 3]
-		angle_xy = torch.atan2(y, x).item()
+		radius_xy, angle_xy = torch.sqrt(x ** 2 + y ** 2).item(), torch.atan2(y, x).item()
 		theta = torch.acos((cam2world_input[:, 2, 3]) / radius)
 		radius, theta, z = radius.item(), theta.item(), cam2world_input[:, 2, 3].item()
 
 		if spherical:
 			cam2worlds = get_spherical_cam2world(radius, theta, 30)
 		else:
-			cam2worlds = get_spiral_cam2world(radius, z, (angle_xy - np.pi / 6, angle_xy + np.pi / 6), 30)
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 6, angle_xy + np.pi / 6), 30)
 
 		# cam2worlds = torch.from_numpy(cam2worlds).float()
 
