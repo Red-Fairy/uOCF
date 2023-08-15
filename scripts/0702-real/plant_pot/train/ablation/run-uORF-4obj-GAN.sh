@@ -32,7 +32,6 @@ python train_with_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
     --coarse_epoch 120 --no_locality_epoch 60 --z_dim 96 --num_slots 5 --near 6 --far 20 \
     --model 'uorf_gan' --bottom --fixed_locality \
-    --continue_train --epoch 235 --epoch_count 236 \
-    --exp_id 'ablation/uORF-4obj-GAN-fixed' \
+    --exp_id 'ablation/uORF-4obj-GAN-fixed-new' \
 # done
 echo "Done"

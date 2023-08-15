@@ -3,8 +3,8 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=48G
 
 # only use the following on partition with GPUs
 #SBATCH --gres=gpu:titanrtx:1
@@ -23,15 +23,15 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
-DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/plant_pots/train-white-4obj-nofoot-viewrange-large-4050'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/train-4obj'}
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_with_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 3  \
-    --checkpoints_dir 'checkpoints' --name 'room_real_pots' \
-    --display_port $PORT --display_ncols 4 --print_freq 10 --save_epoch_freq 20 \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
+    --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
+    --display_port $PORT --display_ncols 4 --print_freq 50 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
-    --coarse_epoch 120 --niter 240 --no_locality_epoch 60 --z_dim 96 --num_slots 5 --near 6 --far 20 \
-    --model 'uorf_gan' --bottom --fixed_locality --learnable_slot_init \
-    --exp_id 'ablation/uORF-4obj-GAN-fixed-QBO-new' \
+    --coarse_epoch 120 --no_locality_epoch 60 --z_dim 64 --num_slots 5 --near 8 --far 18 \
+    --model 'uorf_nogan' --bottom \
+    --exp_id 'ablation/uORF-4obj' \
 # done
 echo "Done"

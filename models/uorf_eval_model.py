@@ -68,6 +68,7 @@ class uorfEvalModel(BaseModel):
 		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
 							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
+							# ['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
 							# ['gt_mask{}'.format(i) for i in range(n)] + \
 							# ['render_mask{}'.format(i) for i in range(n)] + \
 							# ['slot{}_attn'.format(k) for k in range(opt.num_slots)]
@@ -219,14 +220,15 @@ class uorfEvalModel(BaseModel):
 			x_recon[..., h::scale, w::scale] = x_recon_
 
 		with torch.no_grad():
-			for i in range(self.opt.n_img_each_scene):
+			# for i in range(self.opt.n_img_each_scene):
+			for i in range(1):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 
-	def compute_visuals(self):
+	def compute_visuals(self, cam2world=None):
 		with torch.no_grad():
-			cam2world = self.cam2world[:self.opt.n_img_each_scene]
+			cam2world = self.cam2world[:self.opt.n_img_each_scene] if cam2world is None else cam2world.to(self.device)
 			_, N, D, H, W, _ = self.masked_raws.shape
 			masked_raws = self.masked_raws  # KxNxDxHxWx4
 			unmasked_raws = self.unmasked_raws  # KxNxDxHxWx4
@@ -239,10 +241,11 @@ class uorfEvalModel(BaseModel):
 			# 	mask_maps.append(mask_map.view(N, H, W))
 			# 	rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			# 	x_recon = rendered * 2 - 1
-			# 	for i in range(self.opt.n_img_each_scene):
+			# 	for i in range(N):
 			# 		setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
 				
-			# 	setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+			for k in range(self.num_slots):
+				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
 			for k in range(self.num_slots):
 				raws = unmasked_raws[k]  # NxDxHxWx4
@@ -252,7 +255,7 @@ class uorfEvalModel(BaseModel):
 				mask_maps.append(mask_map.view(N, H, W))
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 				x_recon = rendered * 2 - 1
-				for i in range(self.opt.n_img_each_scene):
+				for i in range(N):
 					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
 
 			mask_maps = torch.stack(mask_maps)  # KxNxHxW

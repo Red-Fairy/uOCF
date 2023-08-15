@@ -23,14 +23,15 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 
 DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/plant_pots/test-4obj-large-4050'}
 PORT=${2:-12783}
-python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
-    --checkpoints_dir 'checkpoints' --name 'room_real_chairs' --results_dir 'results' \
+CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
+    --checkpoints_dir 'checkpoints' --name 'room_real_pots' --results_dir 'results' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --input_size 128 --render_size 8 --frustum_size 128 --bottom \
     --n_samp 256 --z_dim 96 --num_slots 5 \
-    --model 'uorf_eval' \
-    --fixed_locality --learnable_slot_init --near_plane 6 --far_plane 20 \
+    --model 'uorf_eval' --learnable_slot_init --fixed_locality --near 6 --far 20 \
     --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/ablation/uORF-4obj-GAN-fixed-QBO' \
-    --attn_iter 3 --testset_name 'regular_test_240end'  \
+    --attn_iter 3 --testset_name 'regular_test_240end_debug' \
+# done
+echo "Done"
 # done
 echo "Done"

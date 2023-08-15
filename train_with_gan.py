@@ -83,6 +83,11 @@ if __name__ == '__main__':
 
             iter_data_time = time.time()
 
+        if epoch % opt.save_epoch_freq == 0:   # cache our latest model every <save_latest_freq> iterations
+            print('saving the current model (epoch %d, total_iters %d)' % (epoch, total_iters))
+            save_suffix = f'{epoch}'
+            model.save_networks(save_suffix)
+
         print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.niter + opt.niter_decay, time.time() - epoch_start_time))
         if not opt.custom_lr:
             model.update_learning_rate()  # update learning rates at the end of every epoch.

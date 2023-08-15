@@ -25,7 +25,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/test-1obj-proof-rot-size-pos'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python test-intepolate.py --dataroot $DATAROOT --n_scenes 2 --n_img_each_scene 1  \
+python test-interpolate.py --dataroot $DATAROOT --n_scenes 2 --n_img_each_scene 1  \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \

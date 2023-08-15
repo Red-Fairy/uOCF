@@ -7,6 +7,11 @@ import os
 from util.util import AverageMeter, set_seed, write_location
 import numpy as np
 import torch
+from tqdm import tqdm
+
+n_steps = 25
+
+manipulation = True
 
 if __name__ == "__main__":
     opt = TestOptions().parse()  # get test options
@@ -48,7 +53,7 @@ if __name__ == "__main__":
         ),
         "w+",
     )
-
+    
     for i, data in enumerate(dataset):
         visualizer.reset()
         model.set_input(data)  # unpack data from data loader
@@ -75,17 +80,21 @@ if __name__ == "__main__":
                     "z_slots_1.txt",
                 )
             )
-            for i in range(5):
-                z_slot_interpolate = z_slot_1 + (z_slot_5 - z_slot_1) * i / 4
+            for i in tqdm(range(n_steps)):
+                z_slot_interpolate = z_slot_1 + (z_slot_5 - z_slot_1) * i / (n_steps - 1)
                 z_slots = model.z_slots
                 z_slots[1] = torch.tensor(z_slot_interpolate).cuda()
                 fg_slot_position = torch.zeros((opt.num_slots - 1, 2))
-                fg_slot_position[0] = torch.tensor([0, 0])
+                if manipulation:
+                    fg_slot_position[0] = torch.tensor([-0.25, -0.25])
+                else:
+                    fg_slot_position[0] = torch.tensor([0, 0])
                 model.forward_position(
                     fg_slot_nss_position=fg_slot_position, z_slots=z_slots
                 )
 
                 model.compute_visuals()
+                model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))
                 visuals = model.get_current_visuals()
 
                 save_images(

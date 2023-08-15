@@ -33,8 +33,10 @@ manipulation = False
 
 spherical = False # False for spiral
 suffix = 'spherical' if spherical else 'spiral'
+if manipulation:
+	suffix += '_manipulation'
 
-wanted_indices = [37, 42]
+wanted_indices = [x for x in range(15)]
 
 for j, data in enumerate(dataset):
 
@@ -62,8 +64,6 @@ for j, data in enumerate(dataset):
 		save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
 
 		if manipulation:
-			offset1 = 0.4
-			# offset2 = offset1
 			num_slots = opt.num_slots if opt.n_objects_eval is None else opt.n_objects_eval
 			inferred_nss_position = model.fg_slot_nss_position[0:1].cpu()
 			inferred_image_position = model.fg_slot_image_position[0:1].cpu()
@@ -72,7 +72,7 @@ for j, data in enumerate(dataset):
 				write_location(f, inferred_image_position, 0, 'image')
 				write_location(f, inferred_nss_position, 0, 'nss')
 			fg_slot_position = torch.zeros((num_slots-1, 2))
-			fg_slot_position[0] = torch.tensor([0 ,0])
+			fg_slot_position[0] = torch.tensor([0.25, 0.25])
 			model.forward_position(fg_slot_nss_position=fg_slot_position)
 
 		cam2world_input = model.cam2world[0:1].cpu()
@@ -83,9 +83,10 @@ for j, data in enumerate(dataset):
 		radius, theta, z = radius.item(), theta.item(), cam2world_input[:, 2, 3].item()
 
 		if spherical:
-			cam2worlds = get_spherical_cam2world(radius, theta, 30)
+			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		else:
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 6, angle_xy + np.pi / 6), 30)
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 60, height_range=(0.85, 1.45))
+			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 20)
 
 		# cam2worlds = torch.from_numpy(cam2worlds).float()
 
@@ -98,9 +99,9 @@ for j, data in enumerate(dataset):
 			model.visual_cam2world(cam2world)
 			# model.visual_names = list(filter(lambda x: 'input' not in x and 'attn' not in x, model.visual_names))
 			model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))
-			model.compute_visuals()
+			# model.compute_visuals(cam2world=cam2world)
 			visuals = model.get_current_visuals()
-			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i}')
+			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
 			# visual_name = 'x_rec0'
 			# img = tensor2im(visuals[visual_name])
 			# img_pil = Image.fromarray(img)

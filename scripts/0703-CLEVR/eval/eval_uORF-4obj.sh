@@ -29,7 +29,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 100 --n_im
     --load_size 128 --input_size 64 --render_size 8 --frustum_size 128 \
     --n_samp 256 --z_dim 32 --num_slots 8 --near 8 --far 18 \
     --model 'uorf_eval' \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/0728/uORF' \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/clevr_bg/ablation/uORF' \
     --attn_iter 3 --testset_name 'regular_test_end' --epoch 1200 \
 # done
 echo "Done"

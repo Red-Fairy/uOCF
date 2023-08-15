@@ -5,7 +5,7 @@
 #SBATCH --mem=48G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,12 +22,12 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/real/4obj-cupbowlplate-distort-all_multiview'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/real/4obj-kitchen-cupbowlplate-compose_multiview'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 423 --n_img_each_scene 2 \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 613 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'room_real_pots' \
-    --display_port $PORT --display_ncols 4 --print_freq 141 --display_freq 141 --save_epoch_freq 20 \
+    --display_port $PORT --display_ncols 4 --print_freq 613 --display_freq 613 --save_epoch_freq 20 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general' \
     --attn_decay_steps 50000 \
@@ -39,8 +39,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 423 --n_img_each_sce
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0724-new/4obj-load-freezeBG-4848-6slot-4050' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --color_in_attn \
-    --exp_id '0801-real/4obj-load4obj-CIT-ttt-cupbowlplate-all-423-distort' \
-    --continue_train --epoch_count 1001 --epoch 1000 \
+    --exp_id '0801-real/4obj-load4obj-CIT-ttt-cupbowlplate-all-613-distort' \
     --dummy_info 'DINO load from 4 obj synthetic' \
     
 

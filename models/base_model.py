@@ -282,7 +282,11 @@ class BaseModel(ABC):
                     state_dict = torch.load(load_path, map_location=self.device)
                     if hasattr(state_dict, '_metadata'):
                         del state_dict._metadata
-                    net.load_state_dict(state_dict, strict=not self.opt.not_strict)
+                    try:
+                        net.load_state_dict(state_dict, strict=not self.opt.not_strict)
+                    except:
+                        del state_dict['fg_position']
+                        net.load_state_dict(state_dict, strict=False)
                 except FileNotFoundError:
                     assert False
                     print('not found: {} not found, skip {}'.format(load_path, name))

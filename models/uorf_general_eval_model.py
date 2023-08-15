@@ -125,10 +125,10 @@ class uorfGeneralEvalModel(BaseModel):
 		self.visual_names =	['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
 							['input_image'] + \
+							['slot{}_view{}_unmasked'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 							# ['gt_mask{}'.format(i) for i in range(n)] + \
 							# ['render_mask{}'.format(i) for i in range(n)]
-							# ['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 		if add_mask:
 			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
 								 ['render_mask{}'.format(i) for i in range(n)]
@@ -306,7 +306,8 @@ class uorfGeneralEvalModel(BaseModel):
 			x_recon[..., h::scale, w::scale] = x_recon_
 
 		with torch.no_grad():
-			for i in range(self.opt.n_img_each_scene):
+			# for i in range(self.opt.n_img_each_scene):
+			for i in range(1):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
@@ -375,13 +376,17 @@ class uorfGeneralEvalModel(BaseModel):
 				setattr(self, 'fg_slot_image_position', fg_slot_image_position.detach())
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 
-	def compute_visuals(self):
+	def compute_visuals(self, cam2world=None):
 		with torch.no_grad():
-			cam2world = self.cam2world[:self.opt.n_img_each_scene]
+			cam2world = self.cam2world[:self.opt.n_img_each_scene] if cam2world is None else cam2world.to(self.device)
+			# n_img_each_scene = cam2world.shape[0]
 			_, N, D, H, W, _ = self.masked_raws.shape
 			masked_raws = self.masked_raws  # KxNxDxHxWx4
 			unmasked_raws = self.unmasked_raws  # KxNxDxHxWx4
 			mask_maps = []
+			
+			for k in range(self.num_slots):
+				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
 			for k in range(self.num_slots):
 				raws = masked_raws[k]  # NxDxHxWx4
@@ -391,20 +396,19 @@ class uorfGeneralEvalModel(BaseModel):
 				mask_maps.append(mask_map.view(N, H, W))
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 				x_recon = rendered * 2 - 1
-				for i in range(self.opt.n_img_each_scene):
+				for i in range(N):
 					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
 
-			# for k in range(self.num_slots):
-			# 	raws = unmasked_raws[k]  # NxDxHxWx4
-			# 	_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
-			# 	raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			# 	rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
-			# 	mask_maps.append(mask_map.view(N, H, W))
-			# 	rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-			# 	x_recon = rendered * 2 - 1
-			# 	for i in range(self.opt.n_img_each_scene):
-			# 		setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
+			for k in range(self.num_slots):
+				raws = unmasked_raws[k]  # NxDxHxWx4
+				_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
+				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
+				mask_maps.append(mask_map.view(N, H, W))
+				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+				x_recon = rendered * 2 - 1
+				for i in range(N):
+					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
 
 			if not self.opt.recon_only and not self.opt.video:
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW

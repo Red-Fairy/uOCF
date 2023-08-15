@@ -30,6 +30,6 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 100 --n_im
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' --learnable_slot_init \
     --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/ablation/uORF-4obj-GAN-QBO-96' \
-    --attn_iter 3 --testset_name 'regular_test_240end' --epoch 240 \
+    --attn_iter 3 --testset_name 'regular_test_240end_debug' --epoch 240 \
 # done
 echo "Done"

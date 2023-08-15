@@ -20,5 +20,6 @@ class TestOptions(BaseOptions):
         parser.add_argument('--video', action='store_true', help='only visualize the results, no quantitative evaluation')
         parser.add_argument('--visual_idx', type=int, default=0, help='index of the image to visualize')
         parser.add_argument('--recon_only', action='store_true', help='only visualize the reconstruction')
+        parser.add_argument('--video_mode', type=str, default='spherical', help='spherical or spiral')
         self.isTrain = False
         return parser

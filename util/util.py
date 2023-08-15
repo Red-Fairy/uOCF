@@ -377,7 +377,7 @@ class GroupMeters(object):
 import numpy as np
 import torch
 
-def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True):
+def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range={0.75, 1.25}):
 	"""
 	Get spiral camera to world matrix
 	radius: radius of the spiral
@@ -391,36 +391,55 @@ def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radia
 		theta = np.radians(theta)
 		# angle_range = (np.radians(angle_range[0]), np.radians(angle_range[1]))
 
+	i1, i2, i3, i4 = 3 * n_views // 10, n_views // 2, 7 * n_views // 10, n_views
+
 	# Calculate the rotation angle for each view
 	if angle_range[0] != angle_range[1]:
-		rotation_angles = np.linspace(angle_range[0], angle_range[1], n_views)
+		rotation_angles = np.linspace(angle_range[0], angle_range[1], i1)
+		rotation_angles = np.append(rotation_angles, np.ones(i2-i1) * angle_range[1])
+		# from angle_range[1] to angle_range[0]
+		rotation_angles = np.append(rotation_angles, np.linspace(angle_range[1], angle_range[0], i3-i2))
+		rotation_angles = np.append(rotation_angles, np.ones(i4-i3) * angle_range[0])
 	else:
 		rotation_angles = np.ones(n_views) * angle_range[0]
+
+	# prepare z, from 0.75 to 1.5, then from 1.5 to 0.75, then from 0.75 to 1.5, then from 1.5 to 0.75
+	h_min, h_max = height_range
+	if angle_range[0] != angle_range[1]:
+		zs = np.zeros(n_views)
+		zs[:i1] = np.linspace(h_min, h_max, i1)
+		zs[i1:i2] = np.linspace(h_max, h_min, i2-i1)
+		zs[i2:i3] = np.linspace(h_min, h_max, i3-i2)
+		zs[i3:] = np.linspace(h_max, h_min, i4-i3)
+		zs = zs * height
+	else:
+		zs = np.ones(n_views) * height
 	# print(rotation_angles)
 
 	# Initialize a list to store the transformation matrices
 	cam2world_matrices = []
 
-	for angle in rotation_angles:
+	for angle, z in zip(rotation_angles, zs):
 		# Calculate the camera position on the spiral
 		x = radius * np.cos(angle)
 		y = radius * np.sin(angle)
-		if angle_range[0] != angle_range[1]:
-			z = height * ((angle - angle_range[0]) / (angle_range[1] - angle_range[0]) + 0.5) # from 0.5 to 1.5
-		else:
-			z = height 
 	
 		# Calculte the cam2world matrix for the camera positioned at (x, y, z), pointing at the origin
 		forward_direction = torch.tensor([-x, -y, -z], dtype=torch.float32)
 		forward_direction = forward_direction / torch.norm(forward_direction)
 
-		# world up vector is always (0, 0, 1)
-		right_direction = torch.cross(forward_direction, torch.tensor([0, -1, 0], dtype=torch.float32))
+		# world up vector is (0, 1, 0)
+		up_direction = torch.tensor([x*z/(x**2 + y**2), y*z/(x**2 + y**2), -1], dtype=torch.float32)
+		up_direction = up_direction / torch.norm(up_direction)
+		right_direction = torch.cross(up_direction, forward_direction)
+		# right_direction = torch.cross(forward_direction, torch.tensor([0, -1, 0], dtype=torch.float32))
 
-		up_direction = torch.cross(right_direction, forward_direction)
+		# up_direction = torch.cross(right_direction, forward_direction)
 
 		# Construct the cam2world matrix
 		rotation_matrix = torch.stack([right_direction, up_direction, forward_direction], dim=1)
+		# flip the y axis (we use left hand coordinate system)
+		# rotation_matrix[:, 1] = -rotation_matrix[:, 1]
 		translation_vector = torch.tensor([x, y, z], dtype=torch.float32).view(3, 1)
 		cam2world_matrix = torch.cat([rotation_matrix, translation_vector], dim=1)
 		cam2world_matrix = torch.cat([cam2world_matrix, torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)], dim=0) # [4, 4]
