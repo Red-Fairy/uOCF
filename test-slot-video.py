@@ -33,9 +33,12 @@ set_seed(opt.seed)
 # webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
 # wanted idx
-wanted_indices = [x for x in range(140) if x % 3 == 0]
+# wanted_indices = [x for x in range(140) if x % 3 == 0]
+wanted_indices = [553]
 
-manipulation = False
+manipulation = True # if true, move all object to the scene center
+
+suffix = '_center' if manipulation else ''
 
 for idx, data in enumerate(dataset):
 
@@ -43,13 +46,16 @@ for idx, data in enumerate(dataset):
 		continue
 
 	web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
-							f'{opt.testset_name}/scene{idx}_{opt.video_mode}')  # define the website directory
+							f'{opt.testset_name}/scene{idx}_{opt.video_mode}{suffix}')  # define the website directory
 	print('creating web directory', web_dir)
 	webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
 	visualizer.reset()
 	model.set_input(data)  # unpack data from data loader
-	visual_names = ['slot0_view0_unmasked'] + [f'slot{i}_view0' for i in range(1, opt.num_slots)] + ['x_rec0']
+	if not manipulation:
+		visual_names = ['slot0_view0_unmasked'] + [f'slot{i}_view0' for i in range(1, opt.num_slots)] + ['x_rec0']
+	else:
+		visual_names = [f'slot{i}_view0_unmasked' for i in range(0, opt.num_slots)] + ['x_rec0']
 
 	with torch.no_grad():
 		model.forward()

@@ -47,5 +47,7 @@ class TrainOptions(BaseOptions):
 		parser.add_argument('--diff_fg_init', action='store_true', help='different fg init')
 		parser.add_argument('--diff_fg_bg_lr', action='store_true', help='different fg bg lr')
 
+		parser.add_argument('--one2four', action='store_true', help='one2four')
+
 		self.isTrain = True
 		return parser

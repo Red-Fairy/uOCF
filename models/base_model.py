@@ -198,7 +198,7 @@ class BaseModel(ABC):
                 assert os.path.isfile(load_path), 'Pretrained network %s not exist' % load_path
                 print('loading the model from %s' % load_path)
                 state_dict = torch.load(load_path, map_location=str(self.device))
-                if 'fg_position' in state_dict:
+                if 'fg_position' in state_dict and self.opt.one2four:
                     del state_dict['fg_position']
                 if self.opt.no_load_sigma_mu or self.opt.diff_fg_init:
                     keys = list(state_dict.keys())
