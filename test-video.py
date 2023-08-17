@@ -32,21 +32,20 @@ set_seed(opt.seed)
 manipulation = False
 
 spherical = False # False for spiral
-suffix = 'spherical' if spherical else 'spiral'
-if manipulation:
-	suffix += '_manipulation'
+# suffix = 'spherical' if spherical else 'spiral'
+suffix = '_manipulation' if opt.move2center else ''
 
-wanted_indices = [x for x in range(15)]
+wanted_indices = [x for x in range(45, 60)]
 
 for j, data in enumerate(dataset):
 
-	if j not in wanted_indices:
+	if j not in wanted_indices and not wanted_indices is None:
 		continue
 
 	print('Visualizing scene No.: ', j)
 
 	web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
-							f'{opt.testset_name}/scene{j}_{suffix}')  # define the website directory
+							f'{opt.testset_name}/scene{j}_{opt.video_mode}{suffix}')  # define the website directory
 	print('creating web directory', web_dir)
 	webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
@@ -82,11 +81,13 @@ for j, data in enumerate(dataset):
 		theta = torch.acos((cam2world_input[:, 2, 3]) / radius)
 		radius, theta, z = radius.item(), theta.item(), cam2world_input[:, 2, 3].item()
 
-		if spherical:
+		if opt.video_mode == 'spherical':
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
-		else:
+		elif opt.video_mode == 'spiral':
 			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 60, height_range=(0.85, 1.45))
 			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 20)
+		else:
+			assert False
 
 		# cam2worlds = torch.from_numpy(cam2worlds).float()
 

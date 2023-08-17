@@ -36,9 +36,9 @@ set_seed(opt.seed)
 # wanted_indices = [x for x in range(140) if x % 3 == 0]
 wanted_indices = [553]
 
-manipulation = True # if true, move all object to the scene center
+center = opt.move2center # if true, move all object to the scene center
 
-suffix = '_center' if manipulation else ''
+suffix = '_center' if center else ''
 
 for idx, data in enumerate(dataset):
 
@@ -52,7 +52,7 @@ for idx, data in enumerate(dataset):
 
 	visualizer.reset()
 	model.set_input(data)  # unpack data from data loader
-	if not manipulation:
+	if not center:
 		visual_names = ['slot0_view0_unmasked'] + [f'slot{i}_view0' for i in range(1, opt.num_slots)] + ['x_rec0']
 	else:
 		visual_names = [f'slot{i}_view0_unmasked' for i in range(0, opt.num_slots)] + ['x_rec0']
@@ -66,7 +66,7 @@ for idx, data in enumerate(dataset):
 		save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
 
 		# modify the position of the slots
-		if manipulation:
+		if center:
 			fg_slot_position = torch.zeros((opt.num_slots-1, 2))
 			fg_slot_position[0] = torch.tensor([0, 0])
 			fg_slot_position[1] = torch.tensor([0, 0])

@@ -29,7 +29,7 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 100 --n_im
     --load_size 128 --input_size 128 --render_size 8 --frustum_size 128 --bottom \
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' --learnable_slot_init --fixed_locality --near 6 --far 20 \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/ablation/uORF-4obj-GAN-fixed-QBO' \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/ablation/uORF-4obj-GAN-fixed-QBO-new' \
     --attn_iter 3 --testset_name 'regular_test_240end_debug' \
 # done
 echo "Done"

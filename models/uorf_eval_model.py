@@ -122,6 +122,9 @@ class uorfEvalModel(BaseModel):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
 		dev = self.x[0:1].device
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
+		if self.opt.fixed_locality: # divide the translation part by self.opt.nss_scale
+			nss2cam0 = torch.cat([torch.cat([nss2cam0[:, :3, :3], nss2cam0[:, :3, 3:4]/self.opt.nss_scale], dim=2), 
+									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
 
 		# Encoding images
 		feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW

@@ -22,19 +22,21 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/real/planters/4obj-train'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/test-1obj-proof-size'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=0 python test-slot-video.py --dataroot $DATAROOT --n_scenes 745 --n_img_each_scene 1  \
-    --checkpoints_dir 'checkpoints' --name 'planters' --results_dir 'results' \
+python test-interpolate.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 4  \
+    --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 \
-    --load_size 128 --input_size 128 --render_size 32 --frustum_size 128 \
-    --n_samp 256 --num_slots 6 \
-    --model 'uorf_general_eval' \
+    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
+    --model 'uorf_eval' \
+    --num_slots 2 --attn_iter 4 \
+    --z_dim 64 \
+    --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/planters/4obj-load4obj-ttt-745' \
-    --shape_dim 48 --color_dim 48 --bottom --color_in_attn --fixed_locality --video_mode 'spherical' \
-    --attn_iter 4 --no_loss --recon_only --video --testset_name test_slot_video \
+    --obj_scale 4.5 --near_plane 8 --far_plane 18 \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/ablation/uORF-1obj' \
+    --dummy_info 'regular test' --testset_name 'proof-size' \
 
 
 # can try the following to list out which GPU you have access to

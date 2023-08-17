@@ -237,7 +237,7 @@ class uorfGeneralEvalModel(BaseModel):
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
 
-		if not self.opt.no_loss:
+		if not self.opt.no_loss and not self.opt.video:
 			x_recon_novel, x_novel = x_recon[1:], x[1:]
 			self.loss_recon = self.L2_loss(x_recon_novel, x_novel)
 			self.loss_lpips = self.LPIPS_loss(x_recon_novel, x_novel).mean()
@@ -393,7 +393,7 @@ class uorfGeneralEvalModel(BaseModel):
 				_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
 				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
-				mask_maps.append(mask_map.view(N, H, W))
+				# mask_maps.append(mask_map.view(N, H, W))
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 				x_recon = rendered * 2 - 1
 				for i in range(N):

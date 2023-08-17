@@ -30,9 +30,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 --print_freq 50 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
-    --coarse_epoch 120 --no_locality_epoch 60  --num_slots 5 --near 8 --far 18 \
-    --dual_route_encoder --shape_dim 72 --color_dim 24 \
+    --coarse_epoch 120 --niter 240 --no_locality_epoch 60  --num_slots 5 --near 8 --far 18 \
+    --dual_route_encoder --shape_dim 72 --color_dim 24 --seed 2025 \
     --model 'uorf_nogan_DINO' --bottom --encoder_type 'DINO' --encoder_size 896 \
-    --pos_emb --exp_id 'ablation/uORF-4obj-DINO-dualroute' \
+    --pos_emb --exp_id 'ablation/uORF-4obj-DINO-dualroute-r2' \
 # done
 echo "Done"

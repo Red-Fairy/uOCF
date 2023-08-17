@@ -30,7 +30,7 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 100 --n_im
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' \
     --fixed_locality --near_plane 6 --far_plane 20 \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/ablation/uORF-4obj-GAN-fixed' \
-    --attn_iter 3 --testset_name 'regular_test_240end'  \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/ablation/uORF-4obj-GAN-fixed-new' \
+    --attn_iter 3 --testset_name 'regular_test_96'  \
 # done
 echo "Done"
