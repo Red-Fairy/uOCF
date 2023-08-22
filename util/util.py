@@ -377,7 +377,7 @@ class GroupMeters(object):
 import numpy as np
 import torch
 
-def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range={0.75, 1.25}):
+def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range={0.8, 1.25}):
 	"""
 	Get spiral camera to world matrix
 	radius: radius of the spiral
@@ -506,6 +506,19 @@ def get_spherical_cam2world(radius, theta, n_views=48, radians=True):
 	cam2world_matrices = np.stack(cam2world_matrices)
 
 	return torch.from_numpy(cam2world_matrices).float()
+
+def parse_wanted_indice(wanted_indices):
+	if wanted_indices is None:
+		return None
+	if isinstance(wanted_indices, str):
+		if '-' in wanted_indices:
+			wanted_indices = wanted_indices.split('-')
+			wanted_indices = [int(i) for i in wanted_indices]
+			wanted_indices = list(range(wanted_indices[0], wanted_indices[1]+1))
+		else:
+			wanted_indices = wanted_indices.split(',')
+			wanted_indices = [int(i) for i in wanted_indices]
+	return wanted_indices
 
 
 

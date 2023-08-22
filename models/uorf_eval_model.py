@@ -63,12 +63,14 @@ class uorfEvalModel(BaseModel):
 		- define loss function, visualization images, model names, and optimizers
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
-		self.loss_names = ['ari', 'fgari', 'nvari', 'psnr', 'ssim', 'lpips']
+		self.loss_names = ['psnr', 'ssim', 'lpips'] if not self.opt.no_loss else []
+		if not opt.recon_only and not opt.video:
+			self.loss_names += ['ari', 'fgari', 'nvari']
 		n = opt.n_img_each_scene
 		self.visual_names = ['input_image',] + ['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
 							['x_rec{}'.format(i) for i in range(n)] + \
-							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
-							# ['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
+							['slot{}_view{}_unmasked'.format(k, i) for k in range(opt.num_slots) for i in range(n)] + \
+							['slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)]
 							# ['gt_mask{}'.format(i) for i in range(n)] + \
 							# ['render_mask{}'.format(i) for i in range(n)] + \
 							# ['slot{}_attn'.format(k) for k in range(opt.num_slots)]
@@ -236,16 +238,17 @@ class uorfEvalModel(BaseModel):
 			masked_raws = self.masked_raws  # KxNxDxHxWx4
 			unmasked_raws = self.unmasked_raws  # KxNxDxHxWx4
 			mask_maps = []
-			# for k in range(self.num_slots):
-			# 	raws = masked_raws[k]  # NxDxHxWx4
-			# 	_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
-			# 	raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			# 	rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
-			# 	mask_maps.append(mask_map.view(N, H, W))
-			# 	rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-			# 	x_recon = rendered * 2 - 1
-			# 	for i in range(N):
-			# 		setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
+
+			for k in range(self.num_slots):
+				raws = masked_raws[k]  # NxDxHxWx4
+				_, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
+				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
+				# mask_maps.append(mask_map.view(N, H, W))
+				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+				x_recon = rendered * 2 - 1
+				for i in range(N):
+					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
 				
 			for k in range(self.num_slots):
 				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
@@ -261,50 +264,51 @@ class uorfEvalModel(BaseModel):
 				for i in range(N):
 					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
 
-			mask_maps = torch.stack(mask_maps)  # KxNxHxW
-			mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
-			predefined_colors = []
-			obj_idxs = self.obj_idxs  # Kx1xHxW
-			gt_mask0 = self.gt_masks[0]  # 3xHxW
-			for k in range(self.num_slots):
-				mask_idx_this_slot = mask_idx[0:1] == k  # 1xHxW
-				iou_this_slot = []
-				for kk in range(self.num_slots):
-					try:
-						obj_idx = obj_idxs[kk, ...]  # 1xHxW
-					except IndexError:
-						break
-					iou = (obj_idx & mask_idx_this_slot).type(torch.float).sum() / (obj_idx | mask_idx_this_slot).type(torch.float).sum()
-					iou_this_slot.append(iou)
-				target_obj_number = torch.tensor(iou_this_slot).argmax()
-				target_obj_idx = obj_idxs[target_obj_number, ...].squeeze()  # HxW
-				obj_first_pixel_pos = target_obj_idx.nonzero()[0]  # 2
-				obj_color = gt_mask0[:, obj_first_pixel_pos[0], obj_first_pixel_pos[1]]
-				predefined_colors.append(obj_color)
-			predefined_colors = torch.stack(predefined_colors).permute([1,0])
-			mask_visuals = predefined_colors[:, mask_idx]  # 3xNxHxW
+			if not self.opt.recon_only and not self.opt.video:
+				mask_maps = torch.stack(mask_maps)  # KxNxHxW
+				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
+				predefined_colors = []
+				obj_idxs = self.obj_idxs  # Kx1xHxW
+				gt_mask0 = self.gt_masks[0]  # 3xHxW
+				for k in range(self.num_slots):
+					mask_idx_this_slot = mask_idx[0:1] == k  # 1xHxW
+					iou_this_slot = []
+					for kk in range(self.num_slots):
+						try:
+							obj_idx = obj_idxs[kk, ...]  # 1xHxW
+						except IndexError:
+							break
+						iou = (obj_idx & mask_idx_this_slot).type(torch.float).sum() / (obj_idx | mask_idx_this_slot).type(torch.float).sum()
+						iou_this_slot.append(iou)
+					target_obj_number = torch.tensor(iou_this_slot).argmax()
+					target_obj_idx = obj_idxs[target_obj_number, ...].squeeze()  # HxW
+					obj_first_pixel_pos = target_obj_idx.nonzero()[0]  # 2
+					obj_color = gt_mask0[:, obj_first_pixel_pos[0], obj_first_pixel_pos[1]]
+					predefined_colors.append(obj_color)
+				predefined_colors = torch.stack(predefined_colors).permute([1,0])
+				mask_visuals = predefined_colors[:, mask_idx]  # 3xNxHxW
 
-			nvari_meter = AverageMeter()
-			for i in range(N):
-				setattr(self, 'render_mask{}'.format(i), mask_visuals[:, i, ...])
-				setattr(self, 'gt_mask{}'.format(i), self.gt_masks[i])
-				this_mask_idx = mask_idx[i].flatten(start_dim=0)
-				gt_mask_idx = self.mask_idx[i]  # HW
-				fg_idx = self.fg_idx[i]
-				fg_idx_map = fg_idx.view([self.opt.frustum_size, self.opt.frustum_size])[None, ...]
-				fg_map = mask_visuals[0:1, i, ...].clone()
-				fg_map[fg_idx_map] = -1.
-				fg_map[~fg_idx_map] = 1.
-				setattr(self, 'bg_map{}'.format(i), fg_map)
-				if i == 0:
-					ari_score = adjusted_rand_score(gt_mask_idx, this_mask_idx)
-					fg_ari = adjusted_rand_score(gt_mask_idx[fg_idx], this_mask_idx[fg_idx])
-					self.loss_ari = ari_score
-					self.loss_fgari = fg_ari
-				else:
-					ari_score = adjusted_rand_score(gt_mask_idx, this_mask_idx)
-					nvari_meter.update(ari_score)
-				self.loss_nvari = nvari_meter.val
+				nvari_meter = AverageMeter()
+				for i in range(N):
+					setattr(self, 'render_mask{}'.format(i), mask_visuals[:, i, ...])
+					setattr(self, 'gt_mask{}'.format(i), self.gt_masks[i])
+					this_mask_idx = mask_idx[i].flatten(start_dim=0)
+					gt_mask_idx = self.mask_idx[i]  # HW
+					fg_idx = self.fg_idx[i]
+					fg_idx_map = fg_idx.view([self.opt.frustum_size, self.opt.frustum_size])[None, ...]
+					fg_map = mask_visuals[0:1, i, ...].clone()
+					fg_map[fg_idx_map] = -1.
+					fg_map[~fg_idx_map] = 1.
+					setattr(self, 'bg_map{}'.format(i), fg_map)
+					if i == 0:
+						ari_score = adjusted_rand_score(gt_mask_idx, this_mask_idx)
+						fg_ari = adjusted_rand_score(gt_mask_idx[fg_idx], this_mask_idx[fg_idx])
+						self.loss_ari = ari_score
+						self.loss_fgari = fg_ari
+					else:
+						ari_score = adjusted_rand_score(gt_mask_idx, this_mask_idx)
+						nvari_meter.update(ari_score)
+					self.loss_nvari = nvari_meter.val
 
 	def backward(self):
 		pass

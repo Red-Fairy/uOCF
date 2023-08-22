@@ -22,5 +22,6 @@ class TestOptions(BaseOptions):
         parser.add_argument('--recon_only', action='store_true', help='only visualize the reconstruction')
         parser.add_argument('--video_mode', type=str, default='spherical', help='spherical or spiral')
         parser.add_argument('--move2center', action='store_true', help='move the object to the center of the image')
+        parser.add_argument('--wanted_indices', type=str, default=None, help='indices of the images to visualize')
         self.isTrain = False
         return parser

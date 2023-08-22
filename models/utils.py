@@ -6,6 +6,10 @@ import torch.nn.functional as F
 from torch.nn import init
 from torchvision.models import vgg16
 from torch import autograd
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
 
 class PositionalEncoding(nn.Module):
     def __init__(self, min_deg=0, max_deg=5):
@@ -229,6 +233,26 @@ class PositionSetLoss(nn.Module):
         dist = torch.min(dist, dim=1)[0]
         return dist.mean()
     
+def debug(coordinates, fg_position=None, cam2world=None, save_name='debug'):
+    coordinates = coordinates.detach().cpu().numpy()
+    fg_position = fg_position.detach().cpu().numpy() if fg_position is not None else None
+    K = coordinates.shape[0]
+    colors = cm.rainbow(np.linspace(0, 1, 10))
+    fig = plt.figure(figsize=(40, 20))
+    for i in range(K):
+        ax = plt.subplot(2, 4, i+1, projection='3d')
+        # visualize the frustum
+        ax.scatter(coordinates[i,:,0], coordinates[i,:,1], coordinates[i,:,2], c=colors[i], marker='o', s=3)
+        # visualize the camera origin
+        if cam2world is not None:
+            cam2world = cam2world.cpu().numpy()
+            ax.scatter(cam2world[0,0,3], cam2world[0,1,3], cam2world[0,2,3], c='r', marker='o', s=20)
+        else:
+            ax.scatter(0, 0, 0, c='r', marker='o', s=20)
+        # visualize the foreground position
+        if fg_position is not None:
+            ax.scatter(fg_position[i, 0], fg_position[i, 1], fg_position[i, 2], c='r', marker='o', s=100)
+    fig.savefig(f'{save_name}.png')
 
 
 

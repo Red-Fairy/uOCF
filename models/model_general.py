@@ -1,5 +1,7 @@
 import math
 from os import X_OK
+
+from sympy import N
 from .op import conv2d_gradfix
 import torch
 from torch import nn
@@ -8,7 +10,7 @@ from torch.nn import init
 from torchvision.models import vgg16
 from torch import autograd
 
-from .utils import PositionalEncoding, sin_emb, build_grid
+from .utils import PositionalEncoding, sin_emb, build_grid, debug
 
 class Encoder(nn.Module):
 	def __init__(self, input_nc=3, z_dim=64, bottom=False, pos_emb=False):
@@ -627,12 +629,24 @@ class Decoder(nn.Module):
 			# first compute the originallocality constraint
 			if self.locality:
 				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
-			if self.rel_pos and invariant:
-				# then compute the transformed locality constraint
-				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
 			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
 			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
 			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
+			if self.rel_pos and invariant:
+				# transform fg_slot_position to the camera coordinate
+				fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # (K-1)x4
+				fg_slot_position = torch.matmul(fg_transform.squeeze(0), fg_slot_position.t()).t() # (K-1)x4
+				# print('Debug: ', fg_slot_position.shape, sampling_coor_fg.shape)
+				fg_slot_position = fg_slot_position[:, :3]  # (K-1)x3
+				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+			# if self.locality:
+			# 	outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
+			# if self.rel_pos and invariant:
+			# 	# then compute the transformed locality constraint
+			# 	sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+			# sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
+			# sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
+			# sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
 			if self.locality and local_locality_ratio is not None:
 				outsider_idx = outsider_idx | torch.any(sampling_coor_fg.abs() > local_locality_ratio, dim=-1)  # KxP
 		else:
@@ -669,6 +683,211 @@ class Decoder(nn.Module):
 		latent_fg = self.f_after_latent(tmp)  # ((K-1)xP)x64
 		fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
 		fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
+		if self.locality:
+			fg_raw_shape[outsider_idx] *= 0
+		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
+
+		all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # KxPx4
+		raw_masks = F.relu(all_raws[:, :, -1:], True)  # KxPx1
+		masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # KxPx1
+		raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
+		raw_sigma = raw_masks + dens_noise * torch.randn_like(raw_masks)
+
+		unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # KxPx4
+		masked_raws = unmasked_raws * masks
+		raws = masked_raws.sum(dim=0)
+
+		return raws, masked_raws, unmasked_raws, masks
+
+
+class DecoderBox(nn.Module):
+	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
+					project=False, rel_pos=True, fg_in_world=False, fg_object_size=None):
+		"""
+		freq: raised frequency
+		input_dim: pos emb dim + slot dim
+		z_dim: network latent dim
+		n_layers: #layers before/after skip connection.
+		locality: if True, for each obj slot, clamp sigma values to 0 outside obj_scale.
+		locality_ratio: if locality, what value is the boundary to clamp?
+		fixed_locality: if True, compute locality in world space instead of in transformed view space
+		"""
+		super().__init__()
+		super().__init__()
+		self.n_freq = n_freq
+		self.locality = locality
+		self.locality_ratio = locality_ratio
+		self.fixed_locality = fixed_locality
+		self.out_ch = 4
+		self.z_dim = z_dim
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers-1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		self.f_before = nn.Sequential(*before_skip)
+		self.f_after = nn.Sequential(*after_skip)
+		self.f_after_latent = nn.Linear(z_dim, z_dim)
+		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
+		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
+									 nn.ReLU(True),
+									 nn.Linear(z_dim//4, 3))
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers - 1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		after_skip.append(nn.Linear(z_dim, self.out_ch))
+		self.b_before = nn.Sequential(*before_skip)
+		self.b_after = nn.Sequential(*after_skip)
+
+		if project:
+			self.position_project = nn.Linear(2, self.z_dim)
+			self.position_project.weight.data.zero_()
+			self.position_project.bias.data.zero_()
+		else:
+			self.position_project = None
+		self.rel_pos = rel_pos
+		self.fg_in_world = fg_in_world
+		self.fg_object_size = fg_object_size
+
+	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg):
+		'''
+		Process the query points and the slot features
+		1. If self.fg_object_size is not None, do:
+			Remove the query point that is too far away from the slot center, 
+			the bouding box is defined as a cube with side length 2 * self.fg_object_size
+			store the new sampling_coor_fg and their indices
+		2. Do the pos emb by Fourier
+		3. Concatenate the pos emb and the slot features
+		4. If self.fg_object_size is not None, return the new sampling_coor_fg and their indices
+
+		input: sampling_coor_fg: (K-1)xPx3 (already transformed into the camera coordinate, and deducted the slot center)
+				sampling_coor_bg: Px3 (in world coordinate)
+				z_fg: (K-1)xC
+				z_bg: 1xC
+		return: input_fg: M * (60 + C) (M is the number of query points inside bbox), C is the slot feature dim, and 60 means increased-freq feat dim
+				input_bg: Px(60+C)
+				idx: M (indices of the query points inside bbox)
+		'''
+
+		P = sampling_coor_bg.shape[0]
+		K = z_fg.shape[0] + 1
+		sampling_coor_fg = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
+
+		# 1. Remove the query points too far away from the slot center
+		if self.fg_object_size is not None:
+			mask = torch.all(torch.abs(sampling_coor_fg) < self.fg_object_size, dim=-1)  # ((K-1)xP)
+			# distances = torch.norm(sampling_coor_fg, dim=1) # ((K-1)xP)
+			# print(min(distances), max(distances))
+			# mask = distances < self.fg_object_size  # Get boolean mask for distances within the boundary
+			sampling_coor_fg = sampling_coor_fg[mask]  # Update the coordinates using the mask
+			idx = mask.nonzero().squeeze()  # Indices of valid points
+		else:
+			idx = torch.arange(sampling_coor_fg.size(0))
+
+		print("Number of points inside bbox: ", idx.size(0), " out of ", (K-1)*P, 
+				'\n, ratio: ', idx.size(0) / ((K-1)*P))
+
+		# 2. Compute Fourier position embeddings
+		pos_emb_fg = sin_emb(sampling_coor_fg, n_freq=self.n_freq)  # Mx60, 60 means increased-freq feat dim
+		pos_emb_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
+
+		# 3. Concatenate the embeddings with z_fg and z_bg features
+		# Assuming z_fg and z_bg are repeated for each query point
+		# Also assuming K is the first dimension of z_fg and we need to repeat it for each query point
+		
+		z_fg = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
+		z_fg = z_fg[idx]  # MxC
+
+		input_fg = torch.cat([pos_emb_fg, z_fg], dim=-1)
+		input_bg = torch.cat([pos_emb_bg, z_bg.repeat(sampling_coor_bg.size(0), 1)], dim=-1)
+
+		# 4. Return required tensors
+		return input_fg, input_bg, idx
+
+	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, local_locality_ratio=None):
+		"""
+		1. pos emb by Fourier
+		2. for each slot, decode all points from coord and slot feature
+		input:
+			sampling_coor_bg: Px3, P = #points, typically P = NxDxHxW
+			sampling_coor_fg: (K-1)xPx3
+			z_slots: KxC, K: #slots, C: #feat_dim
+			z_slots_texture: KxC', K: #slots, C: #texture_dim
+			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
+			fg_slot_position: (K-1)x3 in nss space
+			dens_noise: Noise added to density
+		"""
+		K, C = z_slots.shape
+		P = sampling_coor_bg.shape[0]
+
+		print(sampling_coor_fg.shape, fg_transform.shape, fg_slot_position.shape)
+
+		debug(sampling_coor_fg, fg_slot_position, save_name='before_transform')
+
+		if self.fixed_locality:
+			# first compute the original locality constraint
+			if self.locality:
+				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
+			sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # KxPx4
+			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # KxPx4x1
+			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
+			if self.rel_pos and invariant:
+				# transform fg_slot_position to the camera coordinate
+				fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # (K-1)x4
+				fg_slot_position = torch.matmul(fg_transform[None, ...], fg_slot_position[..., None])
+				fg_slot_position = fg_slot_position.squeeze(-1)[:, :3]  # (K-1)x3
+				# print('Debug: ', fg_slot_position.shape, sampling_coor_fg.shape)
+				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+		else:
+			if self.locality:
+				sampling_coor_fg_temp = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # (K-1)xPx3
+				outsider_idx = torch.any(sampling_coor_fg_temp.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+			# relative position with fg slot position
+			if self.rel_pos and invariant:
+				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :] # KxPx3
+			sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None]).squeeze(-1)  # KxPx3
+
+		z_bg = z_slots[0:1, :]  # 1xC
+		z_fg = z_slots[1:, :]  # (K-1)xC
+
+		debug(sampling_coor_fg, save_name='after_transform')
+		print(min(torch.norm(sampling_coor_fg, dim=1))[0])
+
+		# print(z_fg.shape, sampling_coor_fg.shape, z_bg.shape, sampling_coor_bg.shape)
+
+		input_fg, input_bg, idx = self.processQueries(sampling_coor_fg, sampling_coor_bg, z_fg, z_bg)
+
+		# query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
+		# input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
+
+		# sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
+		# query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
+		# z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
+		# input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
+
+		tmp = self.b_before(input_bg)
+		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px5 -> 1xPx5
+
+		tmp = self.f_before(input_fg)
+		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
+		latent_fg = self.f_after_latent(tmp)  # Mx64
+		fg_raw_rgb = self.f_color(latent_fg) # Mx3
+		# put back the removed query points, put zeros for the removed points
+		fg_raw_rgb_full = torch.zeros(((K-1)*P, 3), device=fg_raw_rgb.device) # ((K-1)xP)x3
+		fg_raw_rgb_full[idx] = fg_raw_rgb
+		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
+
+		fg_raw_shape = self.f_after_shape(tmp) # Mx1
+		# put back the removed query points, put zeros for the removed points
+		fg_raw_shape_full = torch.zeros(((K-1)*P, 1), device=fg_raw_shape.device)
+		fg_raw_shape_full[idx] = fg_raw_shape
+		fg_raw_shape = fg_raw_shape_full.view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
 		if self.locality:
 			fg_raw_shape[outsider_idx] *= 0
 		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4

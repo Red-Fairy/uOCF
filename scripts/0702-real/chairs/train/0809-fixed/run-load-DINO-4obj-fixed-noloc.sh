@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -35,11 +35,11 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --freezeInit_steps 100000 \
-    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2025 \
+    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2023 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0809-fixed/1obj-scratch-pos-fixed' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --fixed_locality \
-    --exp_id '0810/4obj-loadPos-ttf-fixed-noloc' \
+    --fixed_locality --near 6 --far 20 \
+    --exp_id '0810/4obj-loadPos-ttf-fixed-noloc-r2' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss, 300 epoch' \
     
 

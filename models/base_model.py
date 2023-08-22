@@ -200,6 +200,8 @@ class BaseModel(ABC):
                 state_dict = torch.load(load_path, map_location=str(self.device))
                 if 'fg_position' in state_dict and self.opt.one2four:
                     del state_dict['fg_position']
+                # if 'fg_position' in state_dict:
+                #     del state_dict['fg_position']
                 if self.opt.no_load_sigma_mu or self.opt.diff_fg_init:
                     keys = list(state_dict.keys())
                     for key in keys:

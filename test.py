@@ -35,8 +35,8 @@ if __name__ == '__main__':
         model.test()           # run inference: forward + compute_visuals
 
         # save model.z_slots
-        save_path = os.path.join(model.save_dir, f'{model.opt.testset_name}_{model.opt.epoch}', f'z_slots_{i}.txt')
-        np.savetxt(save_path, model.z_slots[1].detach().cpu().numpy())
+        # save_path = os.path.join(model.save_dir, f'{model.opt.testset_name}_{model.opt.epoch}', f'z_slots_{i}.txt')
+        # np.savetxt(save_path, model.z_slots[1].detach().cpu().numpy())
 
         losses = model.get_current_losses()
         visualizer.print_test_losses(i, losses)

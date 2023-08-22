@@ -35,11 +35,12 @@ spherical = False # False for spiral
 # suffix = 'spherical' if spherical else 'spiral'
 suffix = '_manipulation' if opt.move2center else ''
 
-wanted_indices = [x for x in range(45, 60)]
+wanted_indices = [x for x in range(45, 95)]
+wanted_indices = [43, 94]
 
 for j, data in enumerate(dataset):
 
-	if j not in wanted_indices and not wanted_indices is None:
+	if not wanted_indices is None and j not in wanted_indices:
 		continue
 
 	print('Visualizing scene No.: ', j)

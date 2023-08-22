@@ -93,7 +93,7 @@ class Visualizer():
         elif not opt.video:
             os.makedirs(os.path.join(opt.results_dir, opt.name, opt.exp_id, f'{opt.testset_name}_{opt.epoch}'), exist_ok=True)
             self.log_name = os.path.join(opt.results_dir, opt.name, opt.exp_id, f'{opt.testset_name}_{opt.epoch}', 'loss_log.txt')
-        if not opt.video:
+        if self.isTrain or not opt.video:
             with open(self.log_name, "a") as log_file:
                 now = time.strftime("%c")
                 log_file.write('================ Loss (%s) ================\n' % now)

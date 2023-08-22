@@ -7,7 +7,7 @@ import os
 from util.util import AverageMeter, set_seed, write_location
 
 import torch
-from util.util import get_spherical_cam2world, tensor2im, get_spiral_cam2world
+from util.util import get_spherical_cam2world, tensor2im, get_spiral_cam2world, parse_wanted_indice
 import torchvision
 import cv2
 from tqdm import tqdm
@@ -34,7 +34,7 @@ set_seed(opt.seed)
 
 # wanted idx
 # wanted_indices = [x for x in range(140) if x % 3 == 0]
-wanted_indices = [553]
+wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
 center = opt.move2center # if true, move all object to the scene center
 
@@ -42,7 +42,7 @@ suffix = '_center' if center else ''
 
 for idx, data in enumerate(dataset):
 
-	if idx not in wanted_indices:
+	if not wanted_indices is None and idx not in wanted_indices:
 		continue
 
 	web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
@@ -84,7 +84,7 @@ for idx, data in enumerate(dataset):
 		if opt.video_mode == 'spherical':
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		elif opt.video_mode == 'spiral':
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 60, height_range=(0.85, 1.45))
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi * 5 / 12), 60, height_range=(0.85, 1.45))
 		else:
 			assert False
 
@@ -110,5 +110,3 @@ for idx, data in enumerate(dataset):
 
 		for video_writer in video_writers:
 			video_writer.release()
-		
-

@@ -40,7 +40,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 745 --n_img_each_sce
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --color_in_attn \
     --exp_id '4obj-load4obj-ttt-745' \
-    --continue_train --epoch_count 993 \
+    --continue_train --epoch_count 1449 \
     --dummy_info 'DINO load from 4 obj synthetic, 160 epoch' \
     
 # can try the following to list out which GPU you have access to

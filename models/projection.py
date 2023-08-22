@@ -4,6 +4,9 @@ import torch.nn.functional as F
 import math
 import matplotlib.pyplot as plt
 from matplotlib import cm
+import collections
+
+Rays = collections.namedtuple('Rays', ('origins', 'directions', 'viewdirs', 'radii', 'lossmult', 'near', 'far'))
 
 def pixel2world(slot_pixel_coord, cam2world, intrinsics=None, nss_scale=7.):
     '''
@@ -66,24 +69,6 @@ class Projection(object):
                                         [0, 0, 1/nss_scale, 0],
                                         [0, 0, 0, 1]]).unsqueeze(0).to(device)
         self.construct_intrinsic(intrinsics)
-        # if intrinsics is None:
-        #     self.focal_x = self.focal_ratio[0] * self.frustum_size[0]
-        #     self.focal_y = self.focal_ratio[1] * self.frustum_size[1]
-        #     bias_x = (self.frustum_size[0] - 1.) / 2.
-        #     bias_y = (self.frustum_size[1] - 1.) / 2.
-        # else: # intrinsics stores focal_ratio and principal point
-        #     self.focal_x = intrinsics[0, 0] * self.frustum_size[0]
-        #     self.focal_y = intrinsics[1, 1] * self.frustum_size[1]
-        #     bias_x = ((intrinsics[0, 2] + 1) * self.frustum_size[0] - 1.) / 2.
-        #     bias_y = ((intrinsics[1, 2] + 1) * self.frustum_size[1] - 1.) / 2.
-        #     # bias_x = (intrinsics[0, 2] + 1) * self.frustum_size[0] / 2.
-        #     # bias_y = (intrinsics[1, 2] + 1) * self.frustum_size[1] / 2.
-        # intrinsic_mat = torch.tensor([[self.focal_x, 0, bias_x, 0],
-        #                               [0, self.focal_y, bias_y, 0],
-        #                               [0, 0, 1, 0],
-        #                               [0, 0, 0, 1]]).to(torch.float32)
-        # self.cam2spixel = intrinsic_mat.to(self.device)
-        # self.spixel2cam = intrinsic_mat.inverse().to(self.device) 
 
     def construct_intrinsic(self, intrinsics=None):
         if intrinsics is None:
@@ -103,7 +88,7 @@ class Projection(object):
         self.cam2spixel = intrinsic_mat.to(self.device)
         self.spixel2cam = intrinsic_mat.inverse().to(self.device)
         
-    def construct_frus_coor(self, z_vals=None):
+    def construct_frus_coor(self, stratified=False, single_jitter=False):
         x = torch.arange(self.frustum_size[0])
         y = torch.arange(self.frustum_size[1])
         z = torch.arange(self.frustum_size[2])
@@ -113,7 +98,11 @@ class Projection(object):
         z_frus = z.flatten().to(self.device)
         # project frustum points to vol coord
         depth_range = torch.linspace(self.near, self.far, self.frustum_size[2]).to(self.device)
-        z_cam = depth_range[z_frus].to(self.device)
+        z_cam = depth_range[z_frus].to(self.device) # (WxHxD)
+
+        # # stratified sampling
+        # if stratified:
+        #     z_cam = z_cam + torch.rand_like(z_cam) * (self.far - self.near) / self.frustum_size[2]
 
         # print('z_cam', z_cam.shape, x_frus.shape)
         x_unnorm_pix = x_frus * z_cam
@@ -122,7 +111,7 @@ class Projection(object):
         pixel_coor = torch.stack([x_unnorm_pix, y_unnorm_pix, z_unnorm_pix, torch.ones_like(x_unnorm_pix)])
         return pixel_coor # 4x(WxHxD)
 
-    def construct_sampling_coor(self, cam2world, partitioned=False, intrinsics=None):
+    def construct_sampling_coor(self, cam2world, partitioned=False, intrinsics=None, frustum_size=None):
         """
         construct a sampling frustum coor in NSS space, and generate z_vals/ray_dir
         input:
@@ -134,6 +123,8 @@ class Projection(object):
         """
         if intrinsics is not None: # overwrite intrinsics
             self.construct_intrinsic(intrinsics)
+        if frustum_size is not None: # overwrite frustum_size
+            self.frustum_size = frustum_size
         N = cam2world.shape[0]
         W, H, D = self.frustum_size
         pixel_coor = self.construct_frus_coor()
@@ -265,22 +256,54 @@ class Projection(object):
         pixel_coor = pixel_coor / self.nss_scale
 
         return pixel_coor, z_vals
-    
-def debug(coordinates, cam2world=None, save_name='debug'):
-    coordinates = coordinates.reshape(1, 4, -1).permute(0, 2, 1).cpu().numpy()
-    colors = cm.rainbow(np.linspace(0, 1, 1))
-    fig = plt.figure(figsize=(40, 20))
-    for i in range(1):
-        ax = plt.subplot(2, 4, i+1, projection='3d')
-        # visualize the frustum
-        ax.scatter(coordinates[i,:,0], coordinates[i,:,1], coordinates[i,:,2], c=colors[i], marker='o', s=3)
-        # visualize the camera origin
-        if cam2world is not None:
-            cam2world = cam2world.cpu().numpy()
-            ax.scatter(cam2world[0,0,3], cam2world[0,1,3], cam2world[0,2,3], c='r', marker='o', s=20)
-        else:
-            ax.scatter(0, 0, 0, c='r', marker='o', s=20)
-    fig.savefig(f'{save_name}.png')
 
 if __name__ == '__main__':
     pass
+
+    # def generate_rays(self):
+    #     """Computes rays using a General Pinhole Camera Model
+    #     Assumes self.h, self.w, self.focal, and self.cam_to_world exist
+    #     """
+    #     W, H, D = self.frustum_size
+    #     # construct cam coord for ray_dir
+    #     x = torch.arange(self.frustum_size[0])
+    #     y = torch.arange(self.frustum_size[1])
+    #     X, Y = torch.meshgrid([x, y])
+    #     Z = torch.ones_like(X)
+    #     pix_coor = torch.stack([Y, X, Z]).to(self.device)  # 3xHxW, 3=xyz
+    #     cam_coor = torch.matmul(self.spixel2cam[:3, :3], pix_coor.flatten(start_dim=1).float())  # 3x(HxW)
+    #     ray_dir = cam_coor.permute([1, 0])  # (HxW)x3
+    #     ray_dir = ray_dir.view(H, W, 3)
+
+    #     x, y = np.meshgrid(
+    #         np.arange(self.w, dtype=np.float32),  # X-Axis (columns)
+    #         np.arange(self.h, dtype=np.float32),  # Y-Axis (rows)
+    #         indexing='xy')
+    #     camera_directions = np.stack(
+    #         [(x - self.w * 0.5 + 0.5) / self.focal,
+    #          -(y - self.h * 0.5 + 0.5) / self.focal,
+    #          -np.ones_like(x)],
+    #         axis=-1)
+    #     # Rotate ray directions from camera frame to the world frame
+    #     directions = ((camera_directions[None, ..., None, :] * self.cam_to_world[:, None, None, :3, :3]).sum(axis=-1))  # Translate camera frame's origin to the world frame
+    #     origins = np.broadcast_to(self.cam_to_world[:, None, None, :3, -1], directions.shape)
+    #     viewdirs = directions / np.linalg.norm(directions, axis=-1, keepdims=True)
+
+    #     # Distance from each unit-norm direction vector to its x-axis neighbor
+    #     dx = np.sqrt(np.sum((directions[:, :-1, :, :] - directions[:, 1:, :, :]) ** 2, -1))
+    #     dx = np.concatenate([dx, dx[:, -2:-1, :]], 1)
+
+    #     # Cut the distance in half, and then round it out so that it's
+    #     # halfway between inscribed by / circumscribed about the pixel.
+    #     radii = dx[..., None] * 2 / np.sqrt(12)
+
+    #     ones = np.ones_like(origins[..., :1])
+
+    #     self.rays = Rays(
+    #         origins=origins,
+    #         directions=directions,
+    #         viewdirs=viewdirs,
+    #         radii=radii,
+    #         lossmult=ones,
+    #         near=ones * self.near,
+    #         far=ones * self.far)

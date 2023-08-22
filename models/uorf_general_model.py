@@ -13,7 +13,7 @@ from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDSeparate, Encoder
-from .model_general import SlotAttention, Decoder
+from .model_general import SlotAttention, Decoder, DecoderBox
 from .utils import *
 import numpy as np
 
@@ -73,6 +73,8 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout', action='store_true', help='use dropout in feature map')
 		parser.add_argument('--all_dropout_ratio', type=float, default=0.25, help='dropout rate in all layers (* shape feat dropout rate)')
+		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
+		parser.add_argument('--fg_object_size', type=float, default=100, help='size of the foreground object')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -139,8 +141,13 @@ class uorfGeneralModel(BaseModel):
 							  gpu_ids=self.gpu_ids, init_type='normal')
 		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
+													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
+		# self.netDecoder = networks.init_net(DecoderBox(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		# 											locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+		# 											project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world,
+		# 											fg_object_size = opt.fg_object_size/opt.nss_scale,
+		# 											), gpu_ids=self.gpu_ids, init_type='xavier')
 
 		self.L2_loss = nn.MSELoss()
 		self.sfs_loss = SlotFeatureSlotLoss()
@@ -281,20 +288,20 @@ class uorfGeneralModel(BaseModel):
 
 		# Encoding images
 		feat_shape, feat_color = self.encode(0)
-		dropout_shape_rate = (self.opt.feat_dropout_min + 
-		       (self.opt.feat_dropout_max - self.opt.feat_dropout_min) 
-			   * (epoch - self.opt.feat_dropout_start) 
-			   / (self.opt.niter - self.opt.feat_dropout_start)) \
-				if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else None
-		dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
+		# dropout_shape_rate = (self.opt.feat_dropout_min + 
+		#        (self.opt.feat_dropout_max - self.opt.feat_dropout_min) 
+		# 	   * (epoch - self.opt.feat_dropout_start) 
+		# 	   / (self.opt.niter - self.opt.feat_dropout_start)) \
+		# 		if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else None
+		# dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
 	
 		# Slot Attention
 		if not self.opt.color_in_attn:
 			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
-							   dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)  # 1xKxC, 1xKx2, 1xKxN
+							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
 		else:
 			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), 
-							   feat_color=None, dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)
+							   feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics)  # Kx3
@@ -304,15 +311,25 @@ class uorfGeneralModel(BaseModel):
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 		if self.opt.stage == 'coarse':
-			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+			frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp] \
+							if epoch < self.opt.dense_sample_epoch \
+							else [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp*2]
+			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, 
+									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
+									    frustum_size=frustum_size)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
+			frustum_size = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp] \
+							if epoch < self.opt.dense_sample_epoch \
+							else [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp*2]
 			W, H, D = self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp
 			start_range = self.opt.frustum_size_fine - self.opt.render_size
 			rs = self.opt.render_size
-			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world, 
+										 intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
+										 frustum_size=frustum_size)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
@@ -326,7 +343,7 @@ class uorfGeneralModel(BaseModel):
 		sampling_coor_bg = frus_nss_coor  # Px3
 
 		local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
-		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
+		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp if epoch < self.opt.dense_sample_epoch else self.opt.n_samp*2
 		invariant = epoch >= self.opt.invariant_in
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 		raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
@@ -353,10 +370,10 @@ class uorfGeneralModel(BaseModel):
 			feat_shape_, feat_color_ = self.encode(1)
 			if not self.opt.color_in_attn:
 				_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None,
-						    dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)  # 1xKx2
+						    dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
 			else:
 				_, _, fg_slot_position_ = self.netSlotAttention(feat=torch.cat([feat_shape_, feat_color_], dim=-1), 
-						    feat_color=None, dropout_shape_rate=dropout_shape_rate, dropout_all_rate=dropout_all_rate)  # 1xKx2
+						    feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
 			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics)
 			# calculate the position loss (L2 loss between the two inferred positions)

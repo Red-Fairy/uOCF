@@ -23,7 +23,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 
 DATAROOT=${1:-'/svl/u/redfairy/datasets/CLEVR/test-567obj-large'}
 PORT=${2:-12783}
-CUDA_VISIBLE_DEVICES=0 python test-slot-video.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
+CUDA_VISIBLE_DEVICES=7 python test-slot-video.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
     --checkpoints_dir 'checkpoints' --name 'clevr_bg' --results_dir 'results' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --input_size 64 --render_size 8 --frustum_size 128 \
