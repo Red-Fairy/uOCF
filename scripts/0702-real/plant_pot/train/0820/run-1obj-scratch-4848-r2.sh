@@ -34,10 +34,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 970 --n_img_each_sce
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 48 --color_dim 48 --near 6 --far 20 \
-    --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2031 \
+    --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2027 \
     --position_loss --weight_pos 0.1 \
-    --exp_id '0820/1obj-scratch-pos-4848' \
-    --obj_scale 4.5 --world_obj_scale 4.5 --stratified \
+    --exp_id '0820/1obj-scratch-pos-4848-r2' \
+    --obj_scale 4.5 --world_obj_scale 4.5 \
     --fixed_locality --color_in_attn \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1' \
     

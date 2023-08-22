@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=10
-#SBATCH --mem=20G
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=32G
 
 # only use the following on partition with GPUs
 #SBATCH --gres=gpu:3090:1
@@ -36,9 +36,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 970 --n_img_each_sce
     --num_slots 2 --attn_iter 4 --shape_dim 48 --color_dim 48 --near 6 --far 20 \
     --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2031 \
     --position_loss --weight_pos 0.1 \
-    --exp_id '0820/1obj-scratch-pos-4848' \
-    --obj_scale 4.5 --world_obj_scale 4.5 --stratified \
-    --fixed_locality --color_in_attn \
+    --exp_id '0820/1obj-scratch-pos-4848-notransform' \
+    --obj_scale 4.5 --world_obj_scale 4.5 \
+    --color_in_attn --no_transform \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1' \
     
 

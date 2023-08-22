@@ -557,7 +557,7 @@ class SlotAttention(nn.Module):
 
 class Decoder(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
-					project=False, rel_pos=True, fg_in_world=False):
+					project=False, rel_pos=True, fg_in_world=False, no_transform=False):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
@@ -573,6 +573,7 @@ class Decoder(nn.Module):
 		self.locality = locality
 		self.locality_ratio = locality_ratio
 		self.fixed_locality = fixed_locality
+		self.no_transform = no_transform
 		self.out_ch = 4
 		self.z_dim = z_dim
 		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
@@ -625,7 +626,11 @@ class Decoder(nn.Module):
 		K, C = z_slots.shape
 		P = sampling_coor_bg.shape[0]
 
-		if self.fixed_locality:
+		if self.no_transform:
+			if self.locality:
+				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
+			sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+		elif self.fixed_locality:
 			# first compute the originallocality constraint
 			if self.locality:
 				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
@@ -702,7 +707,7 @@ class Decoder(nn.Module):
 
 class DecoderBox(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
-					project=False, rel_pos=True, fg_in_world=False, fg_object_size=None):
+					project=False, rel_pos=True, fg_in_world=False, fg_object_size=None, no_transform=False):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
@@ -718,6 +723,7 @@ class DecoderBox(nn.Module):
 		self.locality = locality
 		self.locality_ratio = locality_ratio
 		self.fixed_locality = fixed_locality
+		self.no_transform = no_transform
 		self.out_ch = 4
 		self.z_dim = z_dim
 		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
@@ -755,13 +761,14 @@ class DecoderBox(nn.Module):
 		self.fg_in_world = fg_in_world
 		self.fg_object_size = fg_object_size
 
-	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg):
+	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.1):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
 			Remove the query point that is too far away from the slot center, 
 			the bouding box is defined as a cube with side length 2 * self.fg_object_size
-			store the new sampling_coor_fg and their indices
+			for the points outside the bounding box, keep only keep_ratio of them
+			store the new sampling_coor_fg and the indices of the remaining points
 		2. Do the pos emb by Fourier
 		3. Concatenate the pos emb and the slot features
 		4. If self.fg_object_size is not None, return the new sampling_coor_fg and their indices
@@ -782,9 +789,8 @@ class DecoderBox(nn.Module):
 		# 1. Remove the query points too far away from the slot center
 		if self.fg_object_size is not None:
 			mask = torch.all(torch.abs(sampling_coor_fg) < self.fg_object_size, dim=-1)  # ((K-1)xP)
-			# distances = torch.norm(sampling_coor_fg, dim=1) # ((K-1)xP)
-			# print(min(distances), max(distances))
-			# mask = distances < self.fg_object_size  # Get boolean mask for distances within the boundary
+			# randomly take only keep_ratio of the points outside the bounding box
+			mask = mask | (torch.rand_like(mask) < keep_ratio)
 			sampling_coor_fg = sampling_coor_fg[mask]  # Update the coordinates using the mask
 			idx = mask.nonzero().squeeze()  # Indices of valid points
 		else:
@@ -826,11 +832,13 @@ class DecoderBox(nn.Module):
 		K, C = z_slots.shape
 		P = sampling_coor_bg.shape[0]
 
-		print(sampling_coor_fg.shape, fg_transform.shape, fg_slot_position.shape)
-
 		debug(sampling_coor_fg, fg_slot_position, save_name='before_transform')
 
-		if self.fixed_locality:
+		if self.no_transform:
+			if self.locality:
+				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP
+			sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
+		elif self.fixed_locality:
 			# first compute the original locality constraint
 			if self.locality:
 				outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # KxP

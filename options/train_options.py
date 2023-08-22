@@ -49,7 +49,7 @@ class TrainOptions(BaseOptions):
 
 		parser.add_argument('--one2four', action='store_true', help='one2four')
 
-		parser.add_argument('--stratified_sampling', action='store_true', help='stratified sampling')
+		parser.add_argument('--stratified', action='store_true', help='stratified sampling')
 
 		self.isTrain = True
 		return parser

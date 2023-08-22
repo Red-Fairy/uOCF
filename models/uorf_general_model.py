@@ -139,15 +139,16 @@ class uorfGeneralModel(BaseModel):
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world,
-													), gpu_ids=self.gpu_ids, init_type='xavier')
-		# self.netDecoder = networks.init_net(DecoderBox(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		# self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 		# 											locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
 		# 											project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world,
-		# 											fg_object_size = opt.fg_object_size/opt.nss_scale,
+		# 											no_transform=opt.no_transform,
 		# 											), gpu_ids=self.gpu_ids, init_type='xavier')
+		self.netDecoder = networks.init_net(DecoderBox(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
+													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world,
+													no_transform=opt.no_transform, fg_object_size = opt.fg_object_size/opt.nss_scale,
+													), gpu_ids=self.gpu_ids, init_type='xavier')
 
 		self.L2_loss = nn.MSELoss()
 		self.sfs_loss = SlotFeatureSlotLoss()
@@ -316,7 +317,7 @@ class uorfGeneralModel(BaseModel):
 							else [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp*2]
 			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, 
 									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
-									    frustum_size=frustum_size)
+									    frustum_size=frustum_size, stratified=self.opt.stratified)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -329,7 +330,7 @@ class uorfGeneralModel(BaseModel):
 			rs = self.opt.render_size
 			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world, 
 										 intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
-										 frustum_size=frustum_size)
+										 frustum_size=frustum_size, stratified=self.opt.stratified)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)

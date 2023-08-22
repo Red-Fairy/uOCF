@@ -88,7 +88,7 @@ class Projection(object):
         self.cam2spixel = intrinsic_mat.to(self.device)
         self.spixel2cam = intrinsic_mat.inverse().to(self.device)
         
-    def construct_frus_coor(self, stratified=False, single_jitter=False):
+    def construct_frus_coor(self, stratified=False):
         x = torch.arange(self.frustum_size[0])
         y = torch.arange(self.frustum_size[1])
         z = torch.arange(self.frustum_size[2])
@@ -97,12 +97,14 @@ class Projection(object):
         y_frus = y.flatten().to(self.device)
         z_frus = z.flatten().to(self.device)
         # project frustum points to vol coord
-        depth_range = torch.linspace(self.near, self.far, self.frustum_size[2]).to(self.device)
+        depth_range = torch.linspace(self.near, self.far, self.frustum_size[2]).to(self.device) # D
         z_cam = depth_range[z_frus].to(self.device) # (WxHxD)
 
-        # # stratified sampling
-        # if stratified:
-        #     z_cam = z_cam + torch.rand_like(z_cam) * (self.far - self.near) / self.frustum_size[2]
+        # stratified sampling
+        if stratified:
+            z_cam = z_cam.view(-1, self.frustum_size[2]) # (WxH)xD
+            z_cam = z_cam + torch.rand_like(z_cam) * (self.far - self.near) / self.frustum_size[2] / 2 # (WxH)xD
+            z_cam = z_cam.flatten() # (WxHxD)
 
         # print('z_cam', z_cam.shape, x_frus.shape)
         x_unnorm_pix = x_frus * z_cam
@@ -111,7 +113,7 @@ class Projection(object):
         pixel_coor = torch.stack([x_unnorm_pix, y_unnorm_pix, z_unnorm_pix, torch.ones_like(x_unnorm_pix)])
         return pixel_coor # 4x(WxHxD)
 
-    def construct_sampling_coor(self, cam2world, partitioned=False, intrinsics=None, frustum_size=None):
+    def construct_sampling_coor(self, cam2world, partitioned=False, intrinsics=None, frustum_size=None, stratified=False):
         """
         construct a sampling frustum coor in NSS space, and generate z_vals/ray_dir
         input:
@@ -127,7 +129,7 @@ class Projection(object):
             self.frustum_size = frustum_size
         N = cam2world.shape[0]
         W, H, D = self.frustum_size
-        pixel_coor = self.construct_frus_coor()
+        pixel_coor = self.construct_frus_coor(stratified=stratified) # 4x(WxHxD)
         frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float())  # 4x(WxHxD)
         # debug(frus_cam_coor, save_name='frus_cam_coor')
         frus_world_coor = torch.matmul(cam2world, frus_cam_coor)  # Nx4x(WxHxD)
@@ -149,6 +151,7 @@ class Projection(object):
 
         z_vals = (frus_cam_coor[2] - self.near) / (self.far - self.near)  # (WxHxD) range=[0,1]
         z_vals = z_vals.expand(N, W * H * D)  # Nx(WxHxD)
+
         if partitioned:
             z_vals = z_vals.view(N, W, H, D).permute([0, 2, 1, 3])  # NxHxWxD
             z_vals_ = []

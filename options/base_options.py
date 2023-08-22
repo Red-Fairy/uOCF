@@ -72,6 +72,7 @@ class BaseOptions():
 		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
 		parser.add_argument('--slot_attn_pos_emb', action='store_true', help='use position embedding in slot attention')
 		parser.add_argument('--learnable_slot_init', action='store_true', help='learnable slot initialization')
+		parser.add_argument('--no_transform', action='store_true', help='directly deduce slot position from query')
 		
 		self.initialized = True
 		return parser
