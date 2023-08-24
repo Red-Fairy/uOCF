@@ -12,6 +12,7 @@ import torchvision
 import cv2
 from tqdm import tqdm
 import numpy as np
+import imageio
 
 
 opt = TestOptions().parse()  # get test options
@@ -84,14 +85,17 @@ for idx, data in enumerate(dataset):
 		if opt.video_mode == 'spherical':
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		elif opt.video_mode == 'spiral':
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi * 5 / 12), 60, height_range=(0.85, 1.45))
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi * 1 / 4), 60, height_range=(0.95, 1.15))
 		else:
 			assert False
 
+		resolution = (256, 256)
 		video_writers = []
 		for j in range(0, opt.num_slots):
-			video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_slot{}.mp4'.format(j)), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128)))
-		video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_rec.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (128, 128)))
+			# video_writers.append(imageio.get_writer(os.path.join(web_dir, 'rendered_slot{}.gif'.format(j)), mode='I', duration=33))
+			video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_slot{}.mp4'.format(j)), cv2.VideoWriter_fourcc(*'mp4v'), 30, resolution))
+		# video_writers.append(imageio.get_writer(os.path.join(web_dir, 'rendered_rec.gif'), mode='I', duration=33))
+		video_writers.append(cv2.VideoWriter(os.path.join(web_dir, 'rendered_rec.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, resolution))
 
 		for i in tqdm(range(cam2worlds.shape[0])):
 			cam2world = cam2worlds[i:i+1]
@@ -103,10 +107,12 @@ for idx, data in enumerate(dataset):
 			for j, visual_name in enumerate(visual_names):
 				# img = visuals[visual_name].detach().cpu()
 				img = tensor2im(visuals[visual_name])
+				# video_writers[j].append_data(img)
 				img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 				video_writers[j].write(img)
 				# path = os.path.join(web_dir, 'images' ,'rendered_slot{}_{}.png'.format(j, i))
 				# torchvision.utils.save_image(img, path)
 
 		for video_writer in video_writers:
+			# video_writer.close()
 			video_writer.release()

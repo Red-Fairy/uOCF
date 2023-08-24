@@ -56,8 +56,9 @@ class MultiscenesDataset(BaseDataset):
         self.encoder_type = opt.encoder_type
         self.bg_color = opt.bg_color
 
-    def _transform(self, img):
-        img = TF.resize(img, (self.opt.load_size, self.opt.load_size))
+    def _transform(self, img, size=None):
+        size = self.opt.load_size if size is None else size
+        img = TF.resize(img, (size, size))
         img = TF.to_tensor(img)
         img = TF.normalize(img, [0.5] * img.shape[0], [0.5] * img.shape[0])  # [0,1] -> [-1,1]
         return img
@@ -123,6 +124,8 @@ class MultiscenesDataset(BaseDataset):
             if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.encoder_type != 'CNN':
                 normalize = False if self.encoder_type == 'SD' else True
                 ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
+            # if rd == 0 and self.opt.input_size != self.opt.load_size:
+            #     ret['img_data_input'] = self._transform(img, size=self.opt.input_size)
             if rd == 0 and os.path.isfile(path.replace('.png', '_intrinsics.txt')):
                 intrinsics_path = path.replace('.png', '_intrinsics.txt')
                 intrinsics = np.loadtxt(intrinsics_path)
@@ -189,6 +192,8 @@ def collate_fn(batch):
     }
     if 'img_data_large' in flat_batch[0]:
         ret['img_data_large'] = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
+    # if 'img_data_input' in flat_batch[0]:
+    #     ret['img_data_input'] = torch.stack([x['img_data_input'] for x in flat_batch if 'img_data_input' in x])
     if 'intrinsics' in flat_batch[0]:
         ret['intrinsics'] = torch.stack([x['intrinsics'] for x in flat_batch if 'intrinsics' in x])
     # if 'img_feats' in flat_batch[0]:

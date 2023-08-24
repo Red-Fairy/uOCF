@@ -395,22 +395,24 @@ def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radia
 
 	# Calculate the rotation angle for each view
 	if angle_range[0] != angle_range[1]:
-		rotation_angles = np.linspace(angle_range[0], angle_range[1], i1)
-		rotation_angles = np.append(rotation_angles, np.ones(i2-i1) * angle_range[1])
-		# from angle_range[1] to angle_range[0]
-		rotation_angles = np.append(rotation_angles, np.linspace(angle_range[1], angle_range[0], i3-i2))
-		rotation_angles = np.append(rotation_angles, np.ones(i4-i3) * angle_range[0])
+		rotation_angles = np.linspace(angle_range[0], angle_range[1], i2)
+		rotation_angles = np.append(rotation_angles, np.linspace(angle_range[1], angle_range[0], i4-i2))
+		# rotation_angles = np.linspace(angle_range[0], angle_range[1], i1)
+		# rotation_angles = np.append(rotation_angles, np.ones(i2-i1) * angle_range[1])
+		# rotation_angles = np.append(rotation_angles, np.linspace(angle_range[1], angle_range[0], i3-i2))
+		# rotation_angles = np.append(rotation_angles, np.ones(i4-i3) * angle_range[0])
 	else:
 		rotation_angles = np.ones(n_views) * angle_range[0]
 
 	# prepare z, from 0.75 to 1.5, then from 1.5 to 0.75, then from 0.75 to 1.5, then from 1.5 to 0.75
 	h_min, h_max = height_range
 	if angle_range[0] != angle_range[1]:
-		zs = np.zeros(n_views)
-		zs[:i1] = np.linspace(h_min, h_max, i1)
-		zs[i1:i2] = np.linspace(h_max, h_min, i2-i1)
-		zs[i2:i3] = np.linspace(h_min, h_max, i3-i2)
-		zs[i3:] = np.linspace(h_max, h_min, i4-i3)
+		zs = (h_min + h_max) / 2 + (h_max - h_min) / 2 * np.sin(np.linspace(0, 2*np.pi, n_views))
+		# zs = np.zeros(n_views)
+		# zs[:i1] = np.linspace(h_min, h_max, i1)
+		# zs[i1:i2] = np.linspace(h_max, h_min, i2-i1)
+		# zs[i2:i3] = np.linspace(h_min, h_max, i3-i2)
+		# zs[i3:] = np.linspace(h_max, h_min, i4-i3)
 		zs = zs * height
 	else:
 		zs = np.ones(n_views) * height

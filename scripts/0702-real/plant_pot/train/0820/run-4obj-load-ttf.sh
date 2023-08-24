@@ -25,7 +25,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/plant_pots/train-white-4obj-nofoot-viewrange-large-4050'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 2 \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 3 \
     --checkpoints_dir 'checkpoints' --name 'room_real_pots' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 20 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
@@ -35,12 +35,12 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 48 --color_dim 48 --near 6 --far 20 \
     --freezeInit_steps 100000 \
-    --coarse_epoch 120 --niter 240 --percept_in 20 --no_locality_epoch 0 --seed 2025 \
+    --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2025 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_pots/0820/1obj-scratch-pos-4848-r2' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
     --fixed_locality --color_in_attn --freeze_bg_only \
-    --exp_id '0820/4obj-load-freezeBG' --one2four \
-    --dummy_info 'DINO load from 1 obj scratch, 110 epoch' \
+    --exp_id '0820/4obj-load-freezeBG-5slot' --one2four \
+    --dummy_info 'DINO load from 1 obj scratch, 130 epoch' \
     
 
 # can try the following to list out which GPU you have access to

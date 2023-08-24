@@ -73,6 +73,8 @@ class BaseOptions():
 		parser.add_argument('--slot_attn_pos_emb', action='store_true', help='use position embedding in slot attention')
 		parser.add_argument('--learnable_slot_init', action='store_true', help='learnable slot initialization')
 		parser.add_argument('--no_transform', action='store_true', help='directly deduce slot position from query')
+		parser.add_argument('--keep_ratio', type=float, default=.0, help='keep ratio outside the bbox')
+		parser.add_argument('--fg_object_size', type=float, default=3, help='size of the foreground object')
 		
 		self.initialized = True
 		return parser

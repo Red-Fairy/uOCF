@@ -707,7 +707,7 @@ class Decoder(nn.Module):
 
 class DecoderBox(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False, 
-					project=False, rel_pos=True, fg_in_world=False, fg_object_size=None, no_transform=False):
+					project=False, rel_pos=True, fg_in_world=False, no_transform=False):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
@@ -759,9 +759,8 @@ class DecoderBox(nn.Module):
 			self.position_project = None
 		self.rel_pos = rel_pos
 		self.fg_in_world = fg_in_world
-		self.fg_object_size = fg_object_size
 
-	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.1):
+	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.05, fg_object_size=None, ssize=64):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
@@ -777,6 +776,7 @@ class DecoderBox(nn.Module):
 				sampling_coor_bg: Px3 (in world coordinate)
 				z_fg: (K-1)xC
 				z_bg: 1xC
+				ssize: supervision size (64)
 		return: input_fg: M * (60 + C) (M is the number of query points inside bbox), C is the slot feature dim, and 60 means increased-freq feat dim
 				input_bg: Px(60+C)
 				idx: M (indices of the query points inside bbox)
@@ -787,17 +787,19 @@ class DecoderBox(nn.Module):
 		sampling_coor_fg = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
 
 		# 1. Remove the query points too far away from the slot center
-		if self.fg_object_size is not None:
-			mask = torch.all(torch.abs(sampling_coor_fg) < self.fg_object_size, dim=-1)  # ((K-1)xP)
+		if fg_object_size is not None:
+			# remove abs(x) > fg_object_size | abs(y) > fg_object_size | z > fg_object_size
+			mask = torch.all(torch.abs(sampling_coor_fg) < fg_object_size, dim=-1)  # ((K-1)xP)
+			# keep points with indices mod 64*64 == 0 or -1 (the first and last point of each ray)
+			# mask = mask | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == 0) | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == ssize**2-1)
 			# randomly take only keep_ratio of the points outside the bounding box
-			mask = mask | (torch.rand_like(mask) < keep_ratio)
+			mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
 			sampling_coor_fg = sampling_coor_fg[mask]  # Update the coordinates using the mask
 			idx = mask.nonzero().squeeze()  # Indices of valid points
+			# print("Number of points inside bbox: ", idx.size(0), " out of ", (K-1)*P, 
+			# 		'\n, ratio: ', idx.size(0) / ((K-1)*P))
 		else:
 			idx = torch.arange(sampling_coor_fg.size(0))
-
-		print("Number of points inside bbox: ", idx.size(0), " out of ", (K-1)*P, 
-				'\n, ratio: ', idx.size(0) / ((K-1)*P))
 
 		# 2. Compute Fourier position embeddings
 		pos_emb_fg = sin_emb(sampling_coor_fg, n_freq=self.n_freq)  # Mx60, 60 means increased-freq feat dim
@@ -816,7 +818,8 @@ class DecoderBox(nn.Module):
 		# 4. Return required tensors
 		return input_fg, input_bg, idx
 
-	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, local_locality_ratio=None):
+	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, 
+	     		local_locality_ratio=None, fg_object_size=None, keep_ratio=0.05):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -832,7 +835,7 @@ class DecoderBox(nn.Module):
 		K, C = z_slots.shape
 		P = sampling_coor_bg.shape[0]
 
-		debug(sampling_coor_fg, fg_slot_position, save_name='before_transform')
+		# debug(sampling_coor_fg, fg_slot_position, save_name='before_transform')
 
 		if self.no_transform:
 			if self.locality:
@@ -848,9 +851,9 @@ class DecoderBox(nn.Module):
 			if self.rel_pos and invariant:
 				# transform fg_slot_position to the camera coordinate
 				fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # (K-1)x4
-				fg_slot_position = torch.matmul(fg_transform[None, ...], fg_slot_position[..., None])
-				fg_slot_position = fg_slot_position.squeeze(-1)[:, :3]  # (K-1)x3
+				fg_slot_position = torch.matmul(fg_transform.squeeze(0), fg_slot_position.t()).t() # (K-1)x4
 				# print('Debug: ', fg_slot_position.shape, sampling_coor_fg.shape)
+				fg_slot_position = fg_slot_position[:, :3]  # (K-1)x3
 				sampling_coor_fg = sampling_coor_fg - fg_slot_position[:, None, :]  # KxPx3
 		else:
 			if self.locality:
@@ -864,12 +867,10 @@ class DecoderBox(nn.Module):
 		z_bg = z_slots[0:1, :]  # 1xC
 		z_fg = z_slots[1:, :]  # (K-1)xC
 
-		debug(sampling_coor_fg, save_name='after_transform')
-		print(min(torch.norm(sampling_coor_fg, dim=1))[0])
+		# debug(sampling_coor_fg, save_name='after_transform')
 
-		# print(z_fg.shape, sampling_coor_fg.shape, z_bg.shape, sampling_coor_bg.shape)
-
-		input_fg, input_bg, idx = self.processQueries(sampling_coor_fg, sampling_coor_bg, z_fg, z_bg)
+		input_fg, input_bg, idx = self.processQueries(sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, 
+						keep_ratio=keep_ratio, fg_object_size=fg_object_size)
 
 		# query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
 		# input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
@@ -880,22 +881,26 @@ class DecoderBox(nn.Module):
 		# input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
 
 		tmp = self.b_before(input_bg)
-		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px5 -> 1xPx5
+		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px4 -> 1xPx4
 
 		tmp = self.f_before(input_fg)
 		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
 		latent_fg = self.f_after_latent(tmp)  # Mx64
 		fg_raw_rgb = self.f_color(latent_fg) # Mx3
-		# put back the removed query points, put zeros for the removed points
-		fg_raw_rgb_full = torch.zeros(((K-1)*P, 3), device=fg_raw_rgb.device) # ((K-1)xP)x3
+		# put back the removed query points, for indices between idx[i] and idx[i+1], put fg_raw_rgb[i] at idx[i]
+		fg_raw_rgb_full = torch.zeros((K-1)*P, 3, device=fg_raw_rgb.device) # ((K-1)xP)x3
 		fg_raw_rgb_full[idx] = fg_raw_rgb
 		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
+		''' Compute the lengths of intervals to be filled with each row of fg_raw_rgb, Use repeat_interleave to fill fg_raw_rgb_full'''
+		# lengths = torch.cat([idx[1:] - idx[:-1], torch.tensor([(K-1)*P - idx[-1]], device=fg_raw_rgb.device)])
+		# fg_raw_rgb = fg_raw_rgb.repeat_interleave(lengths, dim=0).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
 
 		fg_raw_shape = self.f_after_shape(tmp) # Mx1
-		# put back the removed query points, put zeros for the removed points
-		fg_raw_shape_full = torch.zeros(((K-1)*P, 1), device=fg_raw_shape.device)
+		fg_raw_shape_full = torch.zeros((K-1)*P, 1, device=fg_raw_shape.device) # ((K-1)xP)x1
 		fg_raw_shape_full[idx] = fg_raw_shape
 		fg_raw_shape = fg_raw_shape_full.view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
+		# fg_raw_shape = fg_raw_shape.repeat_interleave(lengths, dim=0).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
+
 		if self.locality:
 			fg_raw_shape[outsider_idx] *= 0
 		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
