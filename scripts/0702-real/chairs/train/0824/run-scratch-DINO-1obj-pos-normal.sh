@@ -28,16 +28,16 @@ python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 10 \
-    --load_size 256 --n_samp 64 --input_size 256 --supervision_size 128 --frustum_size 128 \
+    --load_size 256 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
     --model 'uorf_general' \
     --attn_decay_steps 200000 \
-    --bottom --double_bottom \
+    --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2025 \
     --position_loss \
-    --exp_id '0824/1obj-scratch-pos' \
-    --continue_train --epoch 100 --epoch_count 101 --stratified \
+    --exp_id '0824/1obj-scratch-pos-normal' \
+    --stratified \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1, strat from 100' \
     
 

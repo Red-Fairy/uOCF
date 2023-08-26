@@ -35,7 +35,7 @@ python test.py --dataroot $DATAROOT --n_scenes 140 --n_img_each_scene 3  \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
     --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/planters/0820/4obj-loadchairs-ttt-box-stratified-r3' \
-    --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --epoch 460 \
+    --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --epoch 560 \
     --nss_scale 7 \
     --dummy_info 'test_real' --testset_name 'regular_test' \
 

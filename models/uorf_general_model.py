@@ -328,7 +328,7 @@ class uorfGeneralModel(BaseModel):
 							else [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_dense_samp]
 			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, 
 									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
-									    frustum_size=frustum_size, stratified=self.opt.stratified)
+									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -341,7 +341,7 @@ class uorfGeneralModel(BaseModel):
 			rs = self.opt.supervision_size # originally render_size
 			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor_new(cam2world, 
 										 intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
-										 frustum_size=frustum_size, stratified=self.opt.stratified)
+										 frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)

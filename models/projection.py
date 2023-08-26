@@ -363,14 +363,13 @@ class Projection(object):
         else:
             # Broadcast t_vals to make the returned shape consistent.
             t_vals = torch.broadcast_to(t_vals, [batch_size, num_samples + 1])
+            
         ray_dir_ = ray_dir.unsqueeze(-2).expand(N*H*W, D, 3) # (NxHxW)xDx3
 
-
-        radii = 2. / torch.sqrt(torch.tensor(12.)).to(device) 
+        radii = self.radii * torch.ones_like(t_vals) # (NxHxW)xD
+        
         means, covs = self.cast_rays(t_vals, ray_origin, ray_dir_, radii, ray_shape)
         return t_vals, (means, covs), ray_dir
-
-
 
     # def sample_pdf(self, bins, weights, N_samples, det=True):
     #     # Get pdf
@@ -446,51 +445,3 @@ class Projection(object):
 
 if __name__ == '__main__':
     pass
-
-    # def generate_rays(self):
-    #     """Computes rays using a General Pinhole Camera Model
-    #     Assumes self.h, self.w, self.focal, and self.cam_to_world exist
-    #     """
-    #     W, H, D = self.frustum_size
-    #     # construct cam coord for ray_dir
-    #     x = torch.arange(self.frustum_size[0])
-    #     y = torch.arange(self.frustum_size[1])
-    #     X, Y = torch.meshgrid([x, y])
-    #     Z = torch.ones_like(X)
-    #     pix_coor = torch.stack([Y, X, Z]).to(self.device)  # 3xHxW, 3=xyz
-    #     cam_coor = torch.matmul(self.spixel2cam[:3, :3], pix_coor.flatten(start_dim=1).float())  # 3x(HxW)
-    #     ray_dir = cam_coor.permute([1, 0])  # (HxW)x3
-    #     ray_dir = ray_dir.view(H, W, 3)
-
-    #     x, y = np.meshgrid(
-    #         np.arange(self.w, dtype=np.float32),  # X-Axis (columns)
-    #         np.arange(self.h, dtype=np.float32),  # Y-Axis (rows)
-    #         indexing='xy')
-    #     camera_directions = np.stack(
-    #         [(x - self.w * 0.5 + 0.5) / self.focal,
-    #          -(y - self.h * 0.5 + 0.5) / self.focal,
-    #          -np.ones_like(x)],
-    #         axis=-1)
-    #     # Rotate ray directions from camera frame to the world frame
-    #     directions = ((camera_directions[None, ..., None, :] * self.cam_to_world[:, None, None, :3, :3]).sum(axis=-1))  # Translate camera frame's origin to the world frame
-    #     origins = np.broadcast_to(self.cam_to_world[:, None, None, :3, -1], directions.shape)
-    #     viewdirs = directions / np.linalg.norm(directions, axis=-1, keepdims=True)
-
-    #     # Distance from each unit-norm direction vector to its x-axis neighbor
-    #     dx = np.sqrt(np.sum((directions[:, :-1, :, :] - directions[:, 1:, :, :]) ** 2, -1))
-    #     dx = np.concatenate([dx, dx[:, -2:-1, :]], 1)
-
-    #     # Cut the distance in half, and then round it out so that it's
-    #     # halfway between inscribed by / circumscribed about the pixel.
-    #     radii = dx[..., None] * 2 / np.sqrt(12)
-
-    #     ones = np.ones_like(origins[..., :1])
-
-    #     self.rays = Rays(
-    #         origins=origins,
-    #         directions=directions,
-    #         viewdirs=viewdirs,
-    #         radii=radii,
-    #         lossmult=ones,
-    #         near=ones * self.near,
-    #         far=ones * self.far)
