@@ -5,6 +5,7 @@ import math
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import collections
+from .utils import conical_frustum_to_gaussian, cylinder_to_gaussian
 
 Rays = collections.namedtuple('Rays', ('origins', 'directions', 'viewdirs', 'radii', 'lossmult', 'near', 'far'))
 
@@ -69,6 +70,14 @@ class Projection(object):
                                         [0, 0, 1/nss_scale, 0],
                                         [0, 0, 0, 1]]).unsqueeze(0).to(device)
         self.construct_intrinsic(intrinsics)
+
+        # radii is the 2/sqrt(12) width of the pixel in nss world coordinates
+        # calculate the distance in world coord between point (0,0) and (0,1) of camera plane
+        ps = torch.tensor([[0, 0, 0, 1], [0, 1, 0, 1]]).to(torch.float32).to(device)
+        ps = torch.matmul(self.spixel2cam, ps.t()).t() # 2x4
+        ps = ps / ps[:, 3:] # 2x4
+        ps = ps[:, :3] # 2x3
+        self.radii = torch.norm(ps[1] - ps[0]) / torch.sqrt(torch.tensor(3.)).to(device) / self.nss_scale
 
     def construct_intrinsic(self, intrinsics=None):
         if intrinsics is None:
@@ -176,6 +185,7 @@ class Projection(object):
         cam_coor = torch.matmul(self.spixel2cam[:3, :3], pix_coor.flatten(start_dim=1).float())  # 3x(HxW)
         ray_dir = cam_coor.permute([1, 0])  # (HxW)x3
         ray_dir = ray_dir.view(H, W, 3)
+
         if partitioned:
             ray_dir = ray_dir.expand(N, H, W, 3)
             ray_dir_ = []
@@ -186,11 +196,14 @@ class Projection(object):
             ray_dir = ray_dir.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))x3
         else:
             ray_dir = ray_dir.expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
+
         return frus_nss_coor, z_vals, ray_dir
     
     def construct_origin_dir(self, cam2world):
         '''
         construct ray origin and direction for each pixel in the frustum
+        ray_origin: (NxHxW)x3, ray_dir: (NxHxW)x3
+        both are in world coord
         '''
         N, W, H = cam2world.shape[0], self.frustum_size[0], self.frustum_size[1]
         x = torch.arange(self.frustum_size[0])
@@ -200,9 +213,12 @@ class Projection(object):
         pix_coor = torch.stack([Y, X, Z]).to(self.device)  # 3xHxW, 3=xyz
         cam_coor = torch.matmul(self.spixel2cam[:3, :3], pix_coor.flatten(start_dim=1).float())  # 3x(HxW)
         ray_dir = cam_coor.permute([1, 0])  # (HxW)x3
-        ray_dir = ray_dir.view(H, W, 3)
-        ray_dir = ray_dir.expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
-        
+        ray_dir = ray_dir.view(H, W, 3).expand(N, H, W, 3).flatten(1, 2)  # Nx(HxW)x3
+        # convert to world coord, cam2world[:, :3, :3] is Nx3x3
+        ray_dir = torch.matmul(cam2world[:, :3, :3].unsqueeze(1).expand(-1, H * W, -1, -1), ray_dir.unsqueeze(-1)).squeeze(-1)  # Nx(HxW)x3
+        ray_dir = ray_dir.flatten(0, 1)  # (NxHxW)x3
+        # ray_dir = F.normalize(ray_dir, dim=-1).flatten(0, 1)  # (NxHxW)x3
+
         ray_origin = cam2world[:, :3, 3]  # Nx3
         ray_origin = ray_origin / self.nss_scale
         ray_origin = ray_origin.unsqueeze(1).unsqueeze(1).expand(N, H, W, 3).flatten(start_dim=0, end_dim=2)  # (NxHxW)x3
@@ -210,6 +226,151 @@ class Projection(object):
         near, far = self.near / self.nss_scale, self.far / self.nss_scale
 
         return ray_origin, ray_dir, near, far
+    
+    def construct_sampling_coor_new(self, cam2world, partitioned=False, intrinsics=None, frustum_size=None, stratified=False):
+        """
+        construct a sampling frustum coor in NSS space, and generate z_vals/ray_dir
+        input:
+            cam2world: Nx4x4, N: #images to render
+        output:
+            frus_nss_coor: (NxDxHxW)x3
+            z_vals: (NxHxW)xD
+            ray_dir: (NxHxW)x3
+        """
+        if intrinsics is not None: # overwrite intrinsics
+            self.construct_intrinsic(intrinsics)
+        if frustum_size is not None: # overwrite frustum_size
+            self.frustum_size = frustum_size
+        N = cam2world.shape[0]
+        W, H, D = self.frustum_size
+
+        ray_origin, ray_dir, near_nss, far_nss = self.construct_origin_dir(cam2world)
+        # sample frustum_size[2] points along each ray
+        z_vals = torch.linspace(near_nss, far_nss, D).to(self.device) # D
+        z_vals = z_vals.unsqueeze(0).expand(N*H*W, D) # (NxHxW)xD
+
+        if stratified:
+            z_vals = z_vals.view(N, H*W, D) # NxHxWxD
+            z_vals = z_vals + torch.rand_like(z_vals) * (far_nss - near_nss) / D / 2
+            z_vals = z_vals.flatten(start_dim=0, end_dim=1)
+
+        # construct sampling points
+        ray_dir_ = ray_dir.unsqueeze(-2).expand(N*H*W, D, 3) # (NxHxW)xDx3
+        ray_origin_ = ray_origin.unsqueeze(-2).expand(N*H*W, D, 3) # (NxHxW)xDx3
+        z_vals_ = z_vals.view(N*H*W, D, 1)
+        # print(ray_origin_.shape, ray_dir_.shape, z_vals_.shape)
+        sampling_points = ray_origin_ + ray_dir_ * z_vals_.view(N*H*W, D, 1) # (NxHxW)xDx3
+        sampling_points = sampling_points.view(N, H, W, D, 3).permute([0, 3, 1, 2, 4]).flatten(0, 3) # (NxDxHxW)x3
+
+        if partitioned:
+            scale = H // self.render_size[0]
+
+            sampling_points = sampling_points.view(N, D, H, W, 3)
+            sampling_points_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                sampling_points_.append(sampling_points[:, :, h::scale, w::scale, :])
+            sampling_points = torch.stack(sampling_points_, dim=0)  # 4xNxDx(H/s)x(W/s)x3
+            sampling_points = sampling_points.flatten(start_dim=1, end_dim=4)  # 4x(NxDx(H/s)x(W/s))x3
+
+            z_vals = z_vals.view(N, H, W, D)
+            z_vals_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                z_vals_.append(z_vals[:, h::scale, w::scale, :])
+            z_vals = torch.stack(z_vals_, dim=0)  # 4xNx(H/s)x(W/s)xD
+            z_vals = z_vals.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))xD
+
+            ray_dir = ray_dir.view(N, H, W, 3)
+            ray_dir_ = []
+            for i in range(scale ** 2):
+                h, w = divmod(i, scale)
+                ray_dir_.append(ray_dir[:, h::scale, w::scale, :])
+            ray_dir = torch.stack(ray_dir_, dim=0)  # 4xNx(H/s)x(W/s)x3
+            ray_dir = ray_dir.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))x3
+
+        # z_vals = (z_vals - near_nss) / (far_nss - near_nss) # (NxHxW)xD, put to range [0, 1] TODO: used in uORF, but is not correct
+
+        return sampling_points, z_vals, ray_dir
+    
+    def cast_rays(self, t_vals, origins, directions, radii, ray_shape='cone', diag=True):
+        """Cast rays (cone- or cylinder-shaped) and featurize sections of it.
+
+        Args:
+        t_vals: float array, the "fencepost" distances along the ray.
+        origins: float array, the ray origin coordinates.
+        directions: float array, the ray direction vectors.
+        radii: float array, the radii (base radii for cones) of the rays.
+        diag: boolean, whether or not the covariance matrices should be diagonal.
+
+        Returns:
+        a tuple of arrays of means and covariances.
+        """
+        t0 = t_vals[..., :-1]
+        t1 = t_vals[..., 1:]
+        if ray_shape == 'cone':
+            gaussian_fn = conical_frustum_to_gaussian
+        elif ray_shape == 'cylinder':
+            gaussian_fn = cylinder_to_gaussian
+        else:
+            assert False
+        means, covs = gaussian_fn(directions, t0, t1, radii, diag)
+        means = means + origins[..., None, :]
+        return means, covs
+
+    def sample_along_rays(self, cam2world, partitioned=False, intrinsics=None, frustum_size=None, stratified=True, ray_shape='cone'):
+        """Stratified sampling along the rays.
+
+        Args:
+        origins: torch.tensor(float32), [batch_size, 3], ray origins.
+        directions: torch.tensor(float32), [batch_size, 3], ray directions.
+        radii: torch.tensor(float32), [batch_size, 3], ray radii.
+        num_samples: int.
+        near: torch.tensor, [batch_size, 1], near clip.
+        far: torch.tensor, [batch_size, 1], far clip.
+        stratified: bool, use randomized stratified sampling.
+        lindisp: bool, sampling linearly in disparity rather than depth.
+
+        Returns:
+        t_vals: torch.tensor, [batch_size, num_samples], sampled z values.
+        means: torch.tensor, [batch_size, num_samples, 3], sampled means.
+        covs: torch.tensor, [batch_size, num_samples, 3, 3], sampled covariances.
+        ray_dir: torch.tensor, [batch_size, 3], ray directions.
+        """
+
+        if intrinsics is not None: # overwrite intrinsics
+            self.construct_intrinsic(intrinsics)
+        if frustum_size is not None: # overwrite frustum_size
+            self.frustum_size = frustum_size
+        N = cam2world.shape[0]
+        W, H, D = self.frustum_size
+
+        ray_origin, ray_dir, near_nss, far_nss = self.construct_origin_dir(cam2world)
+
+        batch_size = N * H * W
+        num_samples = D
+        device = ray_origin.device
+
+        t_vals = torch.linspace(0., 1., num_samples + 1,  device=device)
+        t_vals = near_nss * (1. - t_vals) + far_nss * t_vals
+
+        if stratified:
+            mids = 0.5 * (t_vals[..., 1:] + t_vals[..., :-1])
+            upper = torch.cat([mids, t_vals[..., -1:]], -1)
+            lower = torch.cat([t_vals[..., :1], mids], -1)
+            t_rand = torch.rand(batch_size, num_samples + 1, device=device)
+            t_vals = lower + (upper - lower) * t_rand
+        else:
+            # Broadcast t_vals to make the returned shape consistent.
+            t_vals = torch.broadcast_to(t_vals, [batch_size, num_samples + 1])
+        ray_dir_ = ray_dir.unsqueeze(-2).expand(N*H*W, D, 3) # (NxHxW)xDx3
+
+
+        radii = 2. / torch.sqrt(torch.tensor(12.)).to(device) 
+        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir_, radii, ray_shape)
+        return t_vals, (means, covs), ray_dir
+
+
 
     # def sample_pdf(self, bins, weights, N_samples, det=True):
     #     # Get pdf

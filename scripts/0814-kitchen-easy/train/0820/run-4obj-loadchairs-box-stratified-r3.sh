@@ -39,7 +39,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 730 --n_img_each_sce
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0709/4obj-loadPos-ttf-r5' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
-    --stratified --fg_object_size 2.8 --n_dense_samp 128 \
+    --stratified --fg_object_size 3 --n_dense_samp 128 \
     --exp_id 'dataset-0817-new/4obj-loadchairs-ttt-box-stratified-r3' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 160 epoch' \
     

@@ -13,19 +13,29 @@ from torch import autograd
 from .utils import PositionalEncoding, sin_emb, build_grid, debug
 
 class Encoder(nn.Module):
-	def __init__(self, input_nc=3, z_dim=64, bottom=False, pos_emb=False):
+	def __init__(self, input_nc=3, z_dim=64, bottom=False, double_bottom=False, pos_emb=False):
 
 		super().__init__()
 
 		self.bottom = bottom
+		self.double_bottom = double_bottom
+		assert double_bottom == False or bottom == True
 		print('Bottom for Encoder: ', self.bottom)
+		print('Double Bottom for Encoder: ', self.double_bottom)
 
 		input_nc = input_nc + 4 if pos_emb else input_nc
 		self.pos_emb = pos_emb
 
-		if self.bottom:
+		if self.bottom and self.double_bottom:
+			self.enc_down_00 = nn.Sequential(nn.Conv2d(input_nc, z_dim // 2, 3, stride=1, padding=1),
+				    											nn.ReLU(True))
+			self.enc_down_01 = nn.Sequential(nn.Conv2d(z_dim // 2, z_dim, 3, stride=2, padding=1),
+				    											nn.ReLU(True))
+	
+		elif self.bottom:
 			self.enc_down_0 = nn.Sequential(nn.Conv2d(input_nc, z_dim, 3, stride=1, padding=1),
 											nn.ReLU(True))
+			
 		self.enc_down_1 = nn.Sequential(nn.Conv2d(z_dim if bottom else input_nc, z_dim, 3, stride=2 if bottom else 1, padding=1),
 										nn.ReLU(True))
 		self.enc_down_2 = nn.Sequential(nn.Conv2d(z_dim, z_dim, 3, stride=2, padding=1),
@@ -41,8 +51,6 @@ class Encoder(nn.Module):
 		self.enc_up_1 = nn.Sequential(nn.Conv2d(z_dim * 2, z_dim, 3, stride=1, padding=1),
 									#   nn.ReLU(True)
 									  )
-		
-		
 
 	def forward(self, x):
 		"""
@@ -63,7 +71,11 @@ class Encoder(nn.Module):
 		else:
 			x_ = x
 
-		if self.bottom:
+		if self.bottom and self.double_bottom:
+			x_down_00 = self.enc_down_00(x_)
+			x_down_01 = self.enc_down_01(x_down_00)
+			x_down_1 = self.enc_down_1(x_down_01)
+		elif self.bottom:
 			x_down_0 = self.enc_down_0(x_)
 			x_down_1 = self.enc_down_1(x_down_0)
 		else:
@@ -134,10 +146,11 @@ class singleRouteEncoder(nn.Module):
 		return feat
 
 class dualRouteEncoderSeparate(nn.Module):
-	def __init__(self, bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
+	def __init__(self, bottom=False, double_bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
 		super().__init__()
 
-		self.Encoder = Encoder(bottom=bottom, z_dim=color_dim, pos_emb=pos_emb, input_nc=input_nc)
+		self.Encoder = Encoder(bottom=bottom, double_bottom=double_bottom, z_dim=color_dim, 
+			 					pos_emb=pos_emb, input_nc=input_nc)
 
 		self.shallow_encoder = nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
 											nn.ReLU(True),
@@ -147,7 +160,8 @@ class dualRouteEncoderSeparate(nn.Module):
 		'''
 		input:
 			input_feat: (B, input_dim, 64, 64)
-			x: input images of size (B, 3, 64, 64) or (B, 3, 128, 128) if bottom is True
+			x: input images of size (B, 3, 64, 64) or (B, 3, 128, 128) if bottom is True 
+				or (B, 3, 256, 256) if bottom and double_bottom are True
 		output:
 			spatial feature (B, shape_dim+color_dim, 64, 64)
 		'''
@@ -760,7 +774,7 @@ class DecoderBox(nn.Module):
 		self.rel_pos = rel_pos
 		self.fg_in_world = fg_in_world
 
-	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.05, fg_object_size=None, ssize=64):
+	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.05, fg_object_size=None, keep_idx=None):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
@@ -794,6 +808,7 @@ class DecoderBox(nn.Module):
 			# mask = mask | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == 0) | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == ssize**2-1)
 			# randomly take only keep_ratio of the points outside the bounding box
 			mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
+			# mask = mask & keep_idx if keep_idx is not None else mask
 			sampling_coor_fg = sampling_coor_fg[mask]  # Update the coordinates using the mask
 			idx = mask.nonzero().squeeze()  # Indices of valid points
 			# print("Number of points inside bbox: ", idx.size(0), " out of ", (K-1)*P, 
@@ -836,6 +851,9 @@ class DecoderBox(nn.Module):
 		P = sampling_coor_bg.shape[0]
 
 		# debug(sampling_coor_fg, fg_slot_position, save_name='before_transform')
+
+		# keep_idx = sampling_coor_fg.flatten(start_dim=0, end_dim=1)[:, 2] > -0.05 \
+		# 			if fg_object_size is not None else None
 
 		if self.no_transform:
 			if self.locality:

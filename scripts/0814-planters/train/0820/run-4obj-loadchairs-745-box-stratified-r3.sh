@@ -41,7 +41,7 @@ CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scen
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
-    --continue_train --epoch_count 251 \
+    --continue_train --epoch 440 --epoch_count 441 \
     --exp_id '0820/4obj-loadchairs-ttt-box-stratified-r3' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 160 epoch' \
     

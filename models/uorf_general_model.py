@@ -51,6 +51,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--locality_in', type=int, default=100000)
 		parser.add_argument('--locality_out', type=int, default=0)
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
+		parser.add_argument('--double_bottom', action='store_true', help='two more encoder layers on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
 		parser.add_argument('--frustum_size', type=int, default=64)
 		parser.add_argument('--frustum_size_fine', type=int, default=128) # frustum_size_fine must equal input_size
@@ -73,7 +74,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout', action='store_true', help='use dropout in feature map')
 		parser.add_argument('--all_dropout_ratio', type=float, default=0.25, help='dropout rate in all layers (* shape feat dropout rate)')
-		parser.add_argument('--dense_sample_epoch', type=int, default=1000, help='when to start dense sampling')
+		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
 		parser.add_argument('--n_dense_samp', type=int, default=128, help='number of dense sampling')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
@@ -114,17 +115,23 @@ class uorfGeneralModel(BaseModel):
 			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
 			self.pretrained_encoder = SAMViT(sam_model).to(self.device).eval()
 			vit_dim = 256
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=vit_dim),
+			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
+													bottom=opt.bottom, double_bottom=opt.double_bottom,
+													shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=vit_dim),
 													gpu_ids=self.gpu_ids, init_type='normal')
 		elif opt.encoder_type == 'DINO':
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
+			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
+													bottom=opt.bottom, double_bottom=opt.double_bottom,
+													shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
 					   								gpu_ids=self.gpu_ids, init_type='normal')
 		elif opt.encoder_type == 'SD':
 			from .SD.ldm_extractor import LdmExtractor
 			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
-			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
+			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, 
+								  				bottom=opt.bottom,
+												shape_dim=opt.shape_dim, color_dim=opt.color_dim),
 												gpu_ids=self.gpu_ids, init_type='normal')
 		elif opt.encoder_type == 'CNN':
 			self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
@@ -319,7 +326,7 @@ class uorfGeneralModel(BaseModel):
 			frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp] \
 							if epoch < self.opt.dense_sample_epoch \
 							else [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_dense_samp]
-			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, 
+			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, 
 									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 									    frustum_size=frustum_size, stratified=self.opt.stratified)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
@@ -332,7 +339,7 @@ class uorfGeneralModel(BaseModel):
 			W, H, D = self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp if epoch < self.opt.dense_sample_epoch else self.opt.n_dense_samp
 			start_range = self.opt.frustum_size_fine - self.opt.supervision_size
 			rs = self.opt.supervision_size # originally render_size
-			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world, 
+			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor_new(cam2world, 
 										 intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 										 frustum_size=frustum_size, stratified=self.opt.stratified)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
