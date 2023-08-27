@@ -322,6 +322,7 @@ class Projection(object):
         """Stratified sampling along the rays.
 
         Args:
+        batch_size: N*H*W
         origins: torch.tensor(float32), [batch_size, 3], ray origins.
         directions: torch.tensor(float32), [batch_size, 3], ray directions.
         radii: torch.tensor(float32), [batch_size, 3], ray radii.
@@ -343,33 +344,36 @@ class Projection(object):
         if frustum_size is not None: # overwrite frustum_size
             self.frustum_size = frustum_size
         N = cam2world.shape[0]
-        W, H, D = self.frustum_size
+        W, H, D = self.frustum_size # D: num_samples
 
-        ray_origin, ray_dir, near_nss, far_nss = self.construct_origin_dir(cam2world)
+        ray_origin, ray_dir, near_nss, far_nss = self.construct_origin_dir(cam2world) # (N*H*W)*3, (N*H*W)*3
+        # TODO: Broadcase near_nss, far_nss
 
         batch_size = N * H * W
-        num_samples = D
         device = ray_origin.device
 
-        t_vals = torch.linspace(0., 1., num_samples + 1,  device=device)
+        t_vals = torch.linspace(0., 1., D + 1,  device=device)
         t_vals = near_nss * (1. - t_vals) + far_nss * t_vals
 
         if stratified:
             mids = 0.5 * (t_vals[..., 1:] + t_vals[..., :-1])
             upper = torch.cat([mids, t_vals[..., -1:]], -1)
             lower = torch.cat([t_vals[..., :1], mids], -1)
-            t_rand = torch.rand(batch_size, num_samples + 1, device=device)
+            t_rand = torch.rand(batch_size, D + 1, device=device)
             t_vals = lower + (upper - lower) * t_rand
         else:
             # Broadcast t_vals to make the returned shape consistent.
-            t_vals = torch.broadcast_to(t_vals, [batch_size, num_samples + 1])
+            t_vals = torch.broadcast_to(t_vals, [batch_size, D + 1])
             
-        ray_dir_ = ray_dir.unsqueeze(-2).expand(N*H*W, D, 3) # (NxHxW)xDx3
+        # ray_dir_ = ray_dir.unsqueeze(-2).expand(N*H*W, D, 3) # (NxHxW)xDx3
 
-        radii = self.radii * torch.ones_like(t_vals) # (NxHxW)xD
+        radii = self.radii.unsqueeze(0).expand(batch_size, 1) # (NxHxW)x1
         
-        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir_, radii, ray_shape)
-        return t_vals, (means, covs), ray_dir
+        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape) # (N*H*W)*D*3, (N*H*W)*D*3*3
+
+        # print(means.shape, covs.shape, ray_dir.shape, t_vals.shape)
+
+        return (means, covs), t_vals[..., :D], ray_dir
 
     # def sample_pdf(self, bins, weights, N_samples, det=True):
     #     # Get pdf

@@ -774,7 +774,7 @@ class DecoderBox(nn.Module):
 		self.rel_pos = rel_pos
 		self.fg_in_world = fg_in_world
 
-	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.05, fg_object_size=None, keep_idx=None):
+	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.05, fg_object_size=None):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
@@ -834,7 +834,7 @@ class DecoderBox(nn.Module):
 		return input_fg, input_bg, idx
 
 	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, 
-	     		local_locality_ratio=None, fg_object_size=None, keep_ratio=0.05):
+	     		local_locality_ratio=None, fg_object_size=None, keep_ratio=0.0):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -930,6 +930,194 @@ class DecoderBox(nn.Module):
 		raw_sigma = raw_masks + dens_noise * torch.randn_like(raw_masks)
 
 		unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # KxPx4
+		masked_raws = unmasked_raws * masks
+		raws = masked_raws.sum(dim=0)
+
+		return raws, masked_raws, unmasked_raws, masks
+	
+class DecoderIPE(nn.Module):
+	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False):
+		"""
+		freq: raised frequency
+		input_dim: pos emb dim + slot dim
+		z_dim: network latent dim
+		n_layers: #layers before/after skip connection.
+		locality: if True, for each obj slot, clamp sigma values to 0 outside obj_scale.
+		locality_ratio: if locality, what value is the boundary to clamp?
+		fixed_locality: if True, compute locality in world space instead of in transformed view space
+		"""
+		super().__init__()
+		super().__init__()
+		self.n_freq = n_freq
+		self.locality = locality
+		self.locality_ratio = locality_ratio
+		self.fixed_locality = fixed_locality
+		assert self.fixed_locality == True
+		self.out_ch = 4
+		self.z_dim = z_dim
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers-1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		self.f_before = nn.Sequential(*before_skip)
+		self.f_after = nn.Sequential(*after_skip)
+		self.f_after_latent = nn.Linear(z_dim, z_dim)
+		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
+		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
+									 nn.ReLU(True),
+									 nn.Linear(z_dim//4, 3))
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers - 1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		after_skip.append(nn.Linear(z_dim, self.out_ch))
+		self.b_before = nn.Sequential(*before_skip)
+		self.b_after = nn.Sequential(*after_skip)
+
+		self.pos_enc = PositionalEncoding(max_deg=n_freq)
+
+	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, keep_ratio=0.0, fg_object_size=None):
+		'''
+		Process the query points and the slot features
+		1. If self.fg_object_size is not None, do:
+			Remove the query point that is too far away from the slot center, 
+			the bouding box is defined as a cube with side length 2 * self.fg_object_size
+			for the points outside the bounding box, keep only keep_ratio of them
+			store the new sampling_coor_fg and the indices of the remaining points
+		2. Do the pos emb by Fourier
+		3. Concatenate the pos emb and the slot features
+		4. If self.fg_object_size is not None, return the new sampling_coor_fg and their indices
+
+		input: 	mean: PxDx3
+				var: PxDx3x3
+				fg_transform: 1x4x4
+				fg_slot_position: (K-1)x3
+				z_fg: (K-1)xC
+				z_bg: 1xC
+				ssize: supervision size (64)
+		return: input_fg: M * (60 + C) (M is the number of query points inside bbox), C is the slot feature dim, and 60 means increased-freq feat dim
+				input_bg: Px(60+C)
+				idx: M (indices of the query points inside bbox)
+		'''
+
+		P, D = mean.shape[0], mean.shape[1]
+		K = z_fg.shape[0] + 1
+		
+		sampling_mean_fg = mean[None, ...].expand(K-1, -1, -1, -1).flatten(1, 2) # (K-1)*(P*D)*3
+		sampling_mean_fg = torch.cat([sampling_mean_fg, torch.ones_like(sampling_mean_fg[:, :, 0:1])], dim=-1)  # (K-1)*(P*D)*4
+		sampling_mean_fg = torch.matmul(fg_transform[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*4x1
+		sampling_mean_fg = sampling_mean_fg[:, :, :3]  # (K-1)*(P*D)*3
+
+		# transform fg_slot_position to the camera coordinate
+		fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # (K-1)x4
+		fg_slot_position = torch.matmul(fg_transform.squeeze(0), fg_slot_position.t()).t() # (K-1)x4
+		# print('Debug: ', fg_slot_position.shape, sampling_coor_fg.shape)
+		fg_slot_position = fg_slot_position[:, :3]  # (K-1)x3
+		sampling_mean_fg = sampling_mean_fg - fg_slot_position[:, None, :]  # (K-1)x(P*D)x3
+		sampling_mean_fg = sampling_mean_fg.view([K-1, P, D, 3]).flatten(0, 1)  # ((K-1)xP)xDx3
+		sampling_var_fg = var[None, ...].expand(K-1, -1, -1, -1, -1).flatten(0, 1)  # ((K-1)xP)xDx3x3
+
+		sampling_mean_bg, sampling_var_bg = mean, var
+
+		sampling_mean_fg_ = sampling_mean_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xPxD)x3
+
+		# 1. Remove the query points too far away from the slot center
+		if fg_object_size is not None:
+			# remove abs(x) > fg_object_size | abs(y) > fg_object_size | z > fg_object_size
+			mask = torch.all(torch.abs(sampling_mean_fg_) < fg_object_size, dim=-1)  # ((K-1)xP)
+			# keep points with indices mod 64*64 == 0 or -1 (the first and last point of each ray)
+			# mask = mask | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == 0) | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == ssize**2-1)
+			# randomly take only keep_ratio of the points outside the bounding box
+			mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
+			# mask = mask & keep_idx if keep_idx is not None else mask
+			idx = mask.nonzero().squeeze()  # Indices of valid points
+			# print("Number of points inside bbox: ", idx.size(0), " out of ", (K-1)*P, 
+			# 		'\n, ratio: ', idx.size(0) / ((K-1)*P))
+		else:
+			idx = torch.arange(sampling_mean_fg_.size(0))
+
+		pos_emb_fg = self.pos_enc(sampling_mean_fg, sampling_var_fg)[0]  # ((K-1)xP)xDx(6*n_freq)
+		pos_emb_bg = self.pos_enc(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq)
+
+		pos_emb_fg, pos_emb_bg = pos_emb_fg.flatten(0, 1)[idx], pos_emb_bg.flatten(0, 1)  # Mx(6*n_freq), (P*D)x(6*n_freq)
+
+		# 3. Concatenate the embeddings with z_fg and z_bg features
+		# Assuming z_fg and z_bg are repeated for each query point
+		# Also assuming K is the first dimension of z_fg and we need to repeat it for each query point
+		
+		z_fg = z_fg[:, None, :].expand(-1, P*D, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xPxD)xC
+		z_fg = z_fg[idx]  # MxC
+
+		input_fg = torch.cat([pos_emb_fg, z_fg], dim=-1)
+		input_bg = torch.cat([pos_emb_bg, z_bg.repeat(P*D, 1)], dim=-1) # (P*D)x(6*n_freq+C)
+
+		# 4. Return required tensors
+		return input_fg, input_bg, idx
+
+	def forward(self, mean, var, z_slots, fg_transform, fg_slot_position, dens_noise=0., 
+	     			fg_object_size=None, keep_ratio=0.0):
+		"""
+		1. pos emb by Fourier
+		2. for each slot, decode all points from coord and slot feature
+		input:
+			mean: P*D*3, P = (N*H*W)
+			var: P*D*3*3, P = (N*H*W)
+			z_slots: KxC, K: #slots, C: #feat_dim
+			z_slots_texture: KxC', K: #slots, C: #texture_dim
+			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
+			fg_slot_position: (K-1)x3 in nss space
+			dens_noise: Noise added to density
+		"""
+		K, C = z_slots.shape
+		P, D = mean.shape[0], mean.shape[1]
+
+		# debug(sampling_coor_fg, fg_slot_position, save_name='before_transform')
+
+		if self.locality:
+			outsider_idx = torch.any(mean.flatten(0,1).abs() > self.locality_ratio, dim=-1).unsqueeze(0).expand(K-1, -1) # (K-1)x(P*D)
+
+		z_bg = z_slots[0:1, :]  # 1xC
+		z_fg = z_slots[1:, :]  # (K-1)xC
+
+		# debug(sampling_coor_fg, save_name='after_transform')
+
+		input_fg, input_bg, idx = self.processQueries(mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
+						keep_ratio=keep_ratio, fg_object_size=fg_object_size)
+		
+		tmp = self.b_before(input_bg)
+		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P*D, self.out_ch])  # (P*D)x4 -> 1x(P*D)x4
+
+		tmp = self.f_before(input_fg)
+		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
+		latent_fg = self.f_after_latent(tmp)  # Mx64
+		fg_raw_rgb = self.f_color(latent_fg) # Mx3
+		# put back the removed query points, for indices between idx[i] and idx[i+1], put fg_raw_rgb[i] at idx[i]
+		fg_raw_rgb_full = torch.zeros((K-1)*P*D, 3, device=fg_raw_rgb.device) # ((K-1)xP*D)x3
+		fg_raw_rgb_full[idx] = fg_raw_rgb
+		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P*D, 3])  # ((K-1)xP*D)x3 -> (K-1)x(P*D)x3
+
+		fg_raw_shape = self.f_after_shape(tmp) # Mx1
+		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device) # ((K-1)xP*D)x1
+		fg_raw_shape_full[idx] = fg_raw_shape
+		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
+
+		if self.locality:
+			fg_raw_shape[outsider_idx] *= 0
+		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)x(P*D)x4
+
+		all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # Kx(P*D)x4
+		raw_masks = F.relu(all_raws[:, :, -1:], True)  # Kx(P*D)x1
+		masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # Kx(P*D)x1
+		raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
+		raw_sigma = raw_masks + dens_noise * torch.randn_like(raw_masks)
+
+		unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # Kx(P*D)x4
 		masked_raws = unmasked_raws * masks
 		raws = masked_raws.sum(dim=0)
 

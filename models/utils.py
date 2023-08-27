@@ -19,6 +19,7 @@ class PositionalEncoding(nn.Module):
         self.scales = nn.Parameter(torch.tensor([2 ** i for i in range(min_deg, max_deg)]), requires_grad=False)
 
     def forward(self, x, y=None):
+        x_ = x
         shape = list(x.shape[:-1]) + [-1]
         x_enc = (x[..., None, :] * self.scales[:, None]).reshape(shape)
         x_enc = torch.cat((x_enc, x_enc + 0.5 * torch.pi), -1)
@@ -28,11 +29,50 @@ class PositionalEncoding(nn.Module):
             y_enc = torch.cat((y_enc, y_enc), -1)
             x_ret = torch.exp(-0.5 * y_enc) * torch.sin(x_enc)
             y_ret = torch.maximum(torch.zeros_like(y_enc), 0.5 * (1 - torch.exp(-2 * y_enc) * torch.cos(2 * x_enc)) - x_ret ** 2)
+            
+            x_ret = torch.cat([x_ret, x_], dim=-1) # N*(6*(max_deg-min_deg)+3)
             return x_ret, y_ret
         else:
             # PE
             x_ret = torch.sin(x_enc)
             return x_ret
+    
+    def sin_emb(self, x, keep_ori=True):
+        """
+        create sin embedding for 3d coordinates
+        input:
+            x: Px3
+            n_freq: number of raised frequency
+        """
+        embedded = []
+        if keep_ori:
+            embedded.append(x)
+        emb_fns = [torch.sin, torch.cos]
+        freqs = 2. ** torch.linspace(self.min_deg, self.max_deg-1, steps=self.max_deg - self.min_deg)
+        for freq in freqs:
+            for emb_fn in emb_fns:
+                embedded.append(emb_fn(freq * x))
+        embedded_ = torch.cat(embedded, dim=1)
+        return embedded_
+        
+
+def sin_emb(x, n_freq=5, keep_ori=True):
+    """
+    create sin embedding for 3d coordinates
+    input:
+        x: Px3
+        n_freq: number of raised frequency
+    """
+    embedded = []
+    if keep_ori:
+        embedded.append(x)
+    emb_fns = [torch.sin, torch.cos]
+    freqs = 2. ** torch.linspace(0., n_freq - 1, steps=n_freq)
+    for freq in freqs:
+        for emb_fn in emb_fns:
+            embedded.append(emb_fn(freq * x))
+    embedded_ = torch.cat(embedded, dim=1)
+    return embedded_
         
 def lift_gaussian(d, t_mean, t_var, r_var, diag):
     """Lift a Gaussian defined along a ray to 3D coordinates."""
@@ -111,25 +151,6 @@ def cylinder_to_gaussian(d, t0, t1, radius, diag):
     r_var = radius ** 2 / 4
     t_var = (t1 - t0) ** 2 / 12
     return lift_gaussian(d, t_mean, t_var, r_var, diag)
-
-
-def sin_emb(x, n_freq=5, keep_ori=True, cov=None):
-    """
-    create sin embedding for 3d coordinates
-    input:
-        x: Px3
-        n_freq: number of raised frequency
-    """
-    embedded = []
-    if keep_ori:
-        embedded.append(x)
-    emb_fns = [torch.sin, torch.cos]
-    freqs = 2. ** torch.linspace(0., n_freq - 1, steps=n_freq)
-    for freq in freqs:
-        for emb_fn in emb_fns:
-            embedded.append(emb_fn(freq * x))
-    embedded_ = torch.cat(embedded, dim=1)
-    return embedded_
 
 def raw2outputs(raw, z_vals, rays_d, render_mask=False):
     """Transforms model's predictions to semantically meaningful values.
