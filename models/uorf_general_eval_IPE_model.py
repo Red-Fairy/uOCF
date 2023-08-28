@@ -10,7 +10,7 @@ import time
 from .projection import Projection, pixel2world
 from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
 from .model_general import SlotAttention
-from .model_general import Decoder, DecoderBox
+from .model_general import Decoder, DecoderBox, DecoderIPE
 from .utils import *
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
@@ -20,7 +20,7 @@ from piq import psnr as compute_psnr
 import numpy as np
 
 
-class uorfGeneralEvalModel(BaseModel):
+class uorfGeneralEvalIPEModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -114,9 +114,8 @@ class uorfGeneralEvalModel(BaseModel):
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(DecoderBox(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
+		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
@@ -193,7 +192,7 @@ class uorfGeneralEvalModel(BaseModel):
 				feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
 		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
 		feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
 		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
@@ -214,23 +213,21 @@ class uorfGeneralEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+		# scale**2x(NxHxW)xDx3, scale**2x(NxHxW)xDx3x3, scale**2x(NxHxW)xD, scale**2x(NxHxW)x3
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
-		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
+		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, 
-								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
-			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
-			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
 			masked_raws[..., h::scale, w::scale, :] = masked_raws_
 			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
 			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
@@ -258,7 +255,7 @@ class uorfGeneralEvalModel(BaseModel):
 			H_, W_ = feature_map.shape[2], feature_map.shape[3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bicubic')
+				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			setattr(self, 'attn', attn)
 
 			for i in range(self.opt.n_img_each_scene):
@@ -291,21 +288,21 @@ class uorfGeneralEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
-		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
+		
+		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, self.z_slots, nss2cam0, 
-								 self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
-			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
-			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
+			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, self.z_slots, 
+								 nss2cam0, self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
 			masked_raws[..., h::scale, w::scale, :] = masked_raws_
 			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
 			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
@@ -353,22 +350,22 @@ class uorfGeneralEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
-		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
+		
+		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # KxPx3
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0, 
-								 fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
-			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
-			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
 			masked_raws[..., h::scale, w::scale, :] = masked_raws_
 			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
 			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
@@ -391,9 +388,9 @@ class uorfGeneralEvalModel(BaseModel):
 		with torch.no_grad():
 			cam2world = self.cam2world[:self.opt.n_img_each_scene] if cam2world is None else cam2world.to(self.device)
 			# n_img_each_scene = cam2world.shape[0]
-			_, N, D, H, W, _ = self.masked_raws.shape
-			masked_raws = self.masked_raws  # KxNxDxHxWx4
-			unmasked_raws = self.unmasked_raws  # KxNxDxHxWx4
+			_, N, H, W, D, _ = self.masked_raws.shape
+			masked_raws = self.masked_raws  # KxNxHxWxDx4
+			unmasked_raws = self.unmasked_raws  # KxNxHxWxDx4
 			mask_maps = []
 			
 			for k in range(self.num_slots):
@@ -401,8 +398,8 @@ class uorfGeneralEvalModel(BaseModel):
 
 			for k in range(self.num_slots):
 				raws = masked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
 				# mask_maps.append(mask_map.view(N, H, W))
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
@@ -412,8 +409,8 @@ class uorfGeneralEvalModel(BaseModel):
 
 			for k in range(self.num_slots):
 				raws = unmasked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
 				mask_maps.append(mask_map.view(N, H, W))
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW

@@ -807,7 +807,7 @@ class DecoderBox(nn.Module):
 			# keep points with indices mod 64*64 == 0 or -1 (the first and last point of each ray)
 			# mask = mask | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == 0) | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == ssize**2-1)
 			# randomly take only keep_ratio of the points outside the bounding box
-			mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
+			# mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
 			# mask = mask & keep_idx if keep_idx is not None else mask
 			sampling_coor_fg = sampling_coor_fg[mask]  # Update the coordinates using the mask
 			idx = mask.nonzero().squeeze()  # Indices of valid points
@@ -1042,10 +1042,10 @@ class DecoderIPE(nn.Module):
 		else:
 			idx = torch.arange(sampling_mean_fg_.size(0))
 
-		pos_emb_fg = self.pos_enc(sampling_mean_fg, sampling_var_fg)[0]  # ((K-1)xP)xDx(6*n_freq)
-		pos_emb_bg = self.pos_enc(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq)
+		pos_emb_fg = self.pos_enc(sampling_mean_fg, sampling_var_fg)[0]  # ((K-1)xP)xDx(6*n_freq+3)
+		pos_emb_bg = self.pos_enc(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq+3)
 
-		pos_emb_fg, pos_emb_bg = pos_emb_fg.flatten(0, 1)[idx], pos_emb_bg.flatten(0, 1)  # Mx(6*n_freq), (P*D)x(6*n_freq)
+		pos_emb_fg, pos_emb_bg = pos_emb_fg.flatten(0, 1)[idx], pos_emb_bg.flatten(0, 1)  # Mx(6*n_freq+3), (P*D)x(6*n_freq+3)
 
 		# 3. Concatenate the embeddings with z_fg and z_bg features
 		# Assuming z_fg and z_bg are repeated for each query point
@@ -1055,7 +1055,7 @@ class DecoderIPE(nn.Module):
 		z_fg = z_fg[idx]  # MxC
 
 		input_fg = torch.cat([pos_emb_fg, z_fg], dim=-1)
-		input_bg = torch.cat([pos_emb_bg, z_bg.repeat(P*D, 1)], dim=-1) # (P*D)x(6*n_freq+C)
+		input_bg = torch.cat([pos_emb_bg, z_bg.repeat(P*D, 1)], dim=-1) # (P*D)x(6*n_freq+3+C)
 
 		# 4. Return required tensors
 		return input_fg, input_bg, idx

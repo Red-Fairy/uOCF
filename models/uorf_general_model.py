@@ -75,7 +75,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--feat_dropout', action='store_true', help='use dropout in feature map')
 		parser.add_argument('--all_dropout_ratio', type=float, default=0.25, help='dropout rate in all layers (* shape feat dropout rate)')
 		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
-		parser.add_argument('--n_dense_samp', type=int, default=128, help='number of dense sampling')
+		parser.add_argument('--n_dense_samp', type=int, default=256, help='number of dense sampling')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -265,12 +265,12 @@ class uorfGeneralModel(BaseModel):
 					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
 			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
 			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # BxCxHxW
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
 			feat_color = None
 
@@ -330,7 +330,7 @@ class uorfGeneralModel(BaseModel):
 									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
-			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
+			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bicubic', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
 			frustum_size = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp] \
@@ -400,7 +400,7 @@ class uorfGeneralModel(BaseModel):
 			H_, W_ = feat_shape.shape[1:3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+				attn = F.interpolate(attn, size=[H, W], mode='bicubic')
 			setattr(self, 'attn', attn)
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])

@@ -347,7 +347,6 @@ class Projection(object):
         W, H, D = self.frustum_size # D: num_samples
 
         ray_origin, ray_dir, near_nss, far_nss = self.construct_origin_dir(cam2world) # (N*H*W)*3, (N*H*W)*3
-        # TODO: Broadcase near_nss, far_nss
 
         batch_size = N * H * W
         device = ray_origin.device
@@ -370,8 +369,6 @@ class Projection(object):
         radii = self.radii.unsqueeze(0).expand(batch_size, 1) # (NxHxW)x1
         
         means, covs = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape) # (N*H*W)*D*3, (N*H*W)*D*3*3
-
-        # print(means.shape, covs.shape, ray_dir.shape, t_vals.shape)
 
         return (means, covs), t_vals[..., :D], ray_dir
 

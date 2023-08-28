@@ -75,7 +75,7 @@ class uorfGeneralIPEModel(BaseModel):
 		parser.add_argument('--feat_dropout', action='store_true', help='use dropout in feature map')
 		parser.add_argument('--all_dropout_ratio', type=float, default=0.25, help='dropout rate in all layers (* shape feat dropout rate)')
 		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
-		parser.add_argument('--n_dense_samp', type=int, default=128, help='number of dense sampling')
+		parser.add_argument('--n_dense_samp', type=int, default=256, help='number of dense sampling')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -146,11 +146,6 @@ class uorfGeneralIPEModel(BaseModel):
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		# self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-		# 											locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-		# 											project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world,
-		# 											no_transform=opt.no_transform,
-		# 											), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
@@ -263,12 +258,12 @@ class uorfGeneralIPEModel(BaseModel):
 					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
 			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
 			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
+			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # BxCxHxW
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
 			feat_color = None
 
@@ -327,8 +322,8 @@ class uorfGeneralIPEModel(BaseModel):
 			(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, 
 									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
-			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
-			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
+			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
+			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bicubic', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
 			frustum_size = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp] \
@@ -340,7 +335,7 @@ class uorfGeneralIPEModel(BaseModel):
 			(mean, var), z_vals, ray_dir = self.projection_fine.sample_along_rays(cam2world, 
 										 intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 										 frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
-			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
+			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
 			mean, var, z_vals, ray_dir = mean.view([N, H, W, D, 3]), var.view([N, H, W, D, 3, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
 			W_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
@@ -397,7 +392,7 @@ class uorfGeneralIPEModel(BaseModel):
 			H_, W_ = feat_shape.shape[1:3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+				attn = F.interpolate(attn, size=[H, W], mode='bicubic')
 			setattr(self, 'attn', attn)
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
