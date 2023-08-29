@@ -1,5 +1,5 @@
 #!/bin/bash
-DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-hard/4obj-tabletop-subA-test'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-hard-new/4obj-all-test'}
 PORT=${2:-12783}
 CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT \
     --n_scenes 15 --n_img_each_scene 2 \

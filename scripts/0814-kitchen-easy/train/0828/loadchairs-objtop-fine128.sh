@@ -37,12 +37,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_sce
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
     --freezeInit_steps 100000 \
     --coarse_epoch 250 --niter 1000 --percept_in 100 --no_locality_epoch 0 --seed 2025 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0709/4obj-loadPos-ttf-r5' \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
-    --exp_id 'dataset-0817-new/4obj-loadchairs-objtop-fine128' \
-    --dummy_info 'DINO load from 4 obj chairs synthetic, 160 epoch' \
+    --bg_density_loss \
+    --exp_id 'dataset-0817-0828/4obj-loadchairs-objtop-bg-fine128' \
+    --dummy_info 'DINO load from 4 obj chairs synthetic, 55 epoch' \
     
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

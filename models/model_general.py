@@ -28,9 +28,9 @@ class Encoder(nn.Module):
 
 		if self.bottom and self.double_bottom:
 			self.enc_down_00 = nn.Sequential(nn.Conv2d(input_nc, z_dim // 2, 3, stride=1, padding=1),
-				    											nn.ReLU(True))
+																nn.ReLU(True))
 			self.enc_down_01 = nn.Sequential(nn.Conv2d(z_dim // 2, z_dim, 3, stride=2, padding=1),
-				    											nn.ReLU(True))
+																nn.ReLU(True))
 	
 		elif self.bottom:
 			self.enc_down_0 = nn.Sequential(nn.Conv2d(input_nc, z_dim, 3, stride=1, padding=1),
@@ -774,7 +774,8 @@ class DecoderBox(nn.Module):
 		self.rel_pos = rel_pos
 		self.fg_in_world = fg_in_world
 
-	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, keep_ratio=0.05, fg_object_size=None):
+	def processQueries(self, sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, 
+		    keep_ratio=0.0, mask_ratio=0., fg_object_size=None):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
@@ -817,8 +818,14 @@ class DecoderBox(nn.Module):
 			idx = torch.arange(sampling_coor_fg.size(0))
 
 		# 2. Compute Fourier position embeddings
-		pos_emb_fg = sin_emb(sampling_coor_fg, n_freq=self.n_freq)  # Mx60, 60 means increased-freq feat dim
-		pos_emb_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
+		pos_emb_fg = sin_emb(sampling_coor_fg, n_freq=self.n_freq)  # Mx(6*n_freq+3)
+		pos_emb_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px(6*n_freq+3)
+
+		if mask_ratio > 0.0:
+			# mask the last ratio of the pos emb
+			n_mask = int(pos_emb_fg.shape[-1] * (1 - mask_ratio)) // 3 * 3 + 3
+			# pos_emb_fg[..., n_mask:] *= 0
+			pos_emb_bg[..., n_mask:] *= 0
 
 		# 3. Concatenate the embeddings with z_fg and z_bg features
 		# Assuming z_fg and z_bg are repeated for each query point
@@ -834,7 +841,7 @@ class DecoderBox(nn.Module):
 		return input_fg, input_bg, idx
 
 	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, 
-	     		local_locality_ratio=None, fg_object_size=None, keep_ratio=0.0):
+		 		local_locality_ratio=None, fg_object_size=None, keep_ratio=0.0, mask_ratio=0.):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -888,15 +895,7 @@ class DecoderBox(nn.Module):
 		# debug(sampling_coor_fg, save_name='after_transform')
 
 		input_fg, input_bg, idx = self.processQueries(sampling_coor_fg, sampling_coor_bg, z_fg, z_bg, 
-						keep_ratio=keep_ratio, fg_object_size=fg_object_size)
-
-		# query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
-		# input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
-
-		# sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
-		# query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
-		# z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
-		# input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
+						keep_ratio=keep_ratio, mask_ratio=mask_ratio, fg_object_size=fg_object_size)
 
 		tmp = self.b_before(input_bg)
 		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px4 -> 1xPx4
@@ -936,7 +935,8 @@ class DecoderBox(nn.Module):
 		return raws, masked_raws, unmasked_raws, masks
 	
 class DecoderIPE(nn.Module):
-	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False):
+	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 
+		  			locality_ratio=4/7, fixed_locality=False, use_viewdirs=False, n_freq_viewdirs=3):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
@@ -982,7 +982,21 @@ class DecoderIPE(nn.Module):
 
 		self.pos_enc = PositionalEncoding(max_deg=n_freq)
 
-	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, keep_ratio=0.0, fg_object_size=None):
+		self.use_viewdirs = use_viewdirs
+
+		if self.use_viewdirs:
+			self.viewdirs_encoding = PositionalEncoding(max_deg=n_freq_viewdirs)
+
+			self.fg_rgb_net0 = nn.Sequential(
+				nn.Linear(z_dim, z_dim)
+			)
+			self.fg_rgb_net1 = nn.Sequential(
+				nn.Linear(z_dim+6*n_freq_viewdirs+3, z_dim),
+				nn.ReLU(True),
+			)
+
+	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
+					keep_ratio=0.0, mask_ratio=0.0, fg_object_size=None):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
@@ -1001,6 +1015,7 @@ class DecoderIPE(nn.Module):
 				z_fg: (K-1)xC
 				z_bg: 1xC
 				ssize: supervision size (64)
+				mask_ratio: frequency mask ratio to the pos emb
 		return: input_fg: M * (60 + C) (M is the number of query points inside bbox), C is the slot feature dim, and 60 means increased-freq feat dim
 				input_bg: Px(60+C)
 				idx: M (indices of the query points inside bbox)
@@ -1045,6 +1060,12 @@ class DecoderIPE(nn.Module):
 		pos_emb_fg = self.pos_enc(sampling_mean_fg, sampling_var_fg)[0]  # ((K-1)xP)xDx(6*n_freq+3)
 		pos_emb_bg = self.pos_enc(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq+3)
 
+		if mask_ratio > 0.0:
+			# mask the last ratio of the pos emb
+			n_mask = int(pos_emb_fg.shape[-1] * (1 - mask_ratio)) // 3 * 3 + 3
+			# pos_emb_fg[..., n_mask:] *= 0
+			pos_emb_bg[..., n_mask:] *= 0
+
 		pos_emb_fg, pos_emb_bg = pos_emb_fg.flatten(0, 1)[idx], pos_emb_bg.flatten(0, 1)  # Mx(6*n_freq+3), (P*D)x(6*n_freq+3)
 
 		# 3. Concatenate the embeddings with z_fg and z_bg features
@@ -1061,13 +1082,14 @@ class DecoderIPE(nn.Module):
 		return input_fg, input_bg, idx
 
 	def forward(self, mean, var, z_slots, fg_transform, fg_slot_position, dens_noise=0., 
-	     			fg_object_size=None, keep_ratio=0.0):
+		 			fg_object_size=None, keep_ratio=0.0, mask_ratio=0.0, view_dirs=None):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
 		input:
 			mean: P*D*3, P = (N*H*W)
 			var: P*D*3*3, P = (N*H*W)
+			view_dirs: P*3, P = (N*H*W)
 			z_slots: KxC, K: #slots, C: #feat_dim
 			z_slots_texture: KxC', K: #slots, C: #texture_dim
 			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
@@ -1088,13 +1110,22 @@ class DecoderIPE(nn.Module):
 		# debug(sampling_coor_fg, save_name='after_transform')
 
 		input_fg, input_bg, idx = self.processQueries(mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
-						keep_ratio=keep_ratio, fg_object_size=fg_object_size)
+						keep_ratio=keep_ratio, mask_ratio=mask_ratio, fg_object_size=fg_object_size)
 		
 		tmp = self.b_before(input_bg)
 		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P*D, self.out_ch])  # (P*D)x4 -> 1x(P*D)x4
 
 		tmp = self.f_before(input_fg)
 		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
+
+		if self.use_viewdirs:
+			viewdirs_encoding = self.viewdirs_encoding(view_dirs) # Px(6*n_freq_viewdirs+3)
+			viewdirs_encoding = viewdirs_encoding.unsqueeze(0).unsqueeze(-2).expand(K-1, -1, D, -1).flatten(0, 2) # ((K-1)*P*D)x(6*n_freq_viewdirs+3)
+			viewdirs_encoding = viewdirs_encoding[idx] # Mx(6*n_freq_viewdirs+3)
+			tmp = self.fg_rgb_net0(tmp) # Mx64
+			tmp = torch.cat([tmp, viewdirs_encoding], dim=-1) # Mx(64+6*n_freq_viewdirs+3)
+			tmp = self.fg_rgb_net1(tmp) # Mx64
+
 		latent_fg = self.f_after_latent(tmp)  # Mx64
 		fg_raw_rgb = self.f_color(latent_fg) # Mx3
 		# put back the removed query points, for indices between idx[i] and idx[i+1], put fg_raw_rgb[i] at idx[i]

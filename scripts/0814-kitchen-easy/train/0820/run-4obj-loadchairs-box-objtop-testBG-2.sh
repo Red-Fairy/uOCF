@@ -28,7 +28,7 @@ python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
     --display_port $PORT --display_ncols 4 --print_freq 76 --display_freq 76 --save_epoch_freq 10 \
-    --load_size 128 --n_samp 64 --input_size 128 --frustum_size_fine 128 \
+    --load_size 256 --n_samp 64 --input_size 128 --frustum_size_fine 256 \
     --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general' \
     --attn_decay_steps 50000 \
@@ -41,7 +41,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_sce
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
-    --exp_id 'dataset-0817-new/4obj-loadchairs-objtop-fine128' \
+    --bg_density_loss \
+    --continue_train --epoch_count 241 --epoch 240 \
+    --exp_id 'dataset-0817-new/4obj-loadchairs-objtop-BG2-256' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 160 epoch' \
     
 # can try the following to list out which GPU you have access to

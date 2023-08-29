@@ -47,8 +47,8 @@ class uorfGeneralEvalModel(BaseModel):
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
 		parser.add_argument('--frustum_size', type=int, default=128, help='Size of rendered images')
-		parser.add_argument('--near_plane', type=float, default=8)
-		parser.add_argument('--far_plane', type=float, default=18)
+		parser.add_argument('--near_plane', type=float, default=6)
+		parser.add_argument('--far_plane', type=float, default=20)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--no_loss', action='store_true')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
@@ -193,7 +193,7 @@ class uorfGeneralEvalModel(BaseModel):
 				feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
 		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
 		feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
 		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
@@ -258,7 +258,7 @@ class uorfGeneralEvalModel(BaseModel):
 			H_, W_ = feature_map.shape[2], feature_map.shape[3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bicubic')
+				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			setattr(self, 'attn', attn)
 
 			for i in range(self.opt.n_img_each_scene):

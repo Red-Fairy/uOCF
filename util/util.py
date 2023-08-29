@@ -377,7 +377,7 @@ class GroupMeters(object):
 import numpy as np
 import torch
 
-def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range={0.8, 1.25}):
+def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range=(0.8, 1.25)):
 	"""
 	Get spiral camera to world matrix
 	radius: radius of the spiral

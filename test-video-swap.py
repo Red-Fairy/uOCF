@@ -31,8 +31,10 @@ set_seed(opt.seed)
 
 manipulation = True
 
-remove_obj_idx = [0, 1, 2, 3]
-suffix = f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
+obj_to_swap = [(2, 3), (0, 1)]
+suffix = f'swap_{"_".join([str(idx[0])+str(idx[1]) for idx in obj_to_swap])}'
+
+n_frames = 15
 
 wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
@@ -62,9 +64,10 @@ for j, data in enumerate(dataset):
 		save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
 
 		if manipulation:
-			num_slots = opt.num_slots if opt.n_objects_eval is None else opt.n_objects_eval
-			for idx in remove_obj_idx:
-				model.fg_slot_nss_position[idx] = torch.tensor([100, 100, 0]).to(model.device)
+			for i in range(len(obj_to_swap)):
+				obj1, obj2 = obj_to_swap[i]
+				pos1, pos2 = model.fg_slot_nss_position[obj1].clone(), model.fg_slot_nss_position[obj2].clone()
+				model.fg_slot_nss_position[obj1], model.fg_slot_nss_position[obj2] = pos2, pos1
 			model.forward_position()
 
 		cam2world_input = model.cam2world[0:1].cpu()
@@ -78,15 +81,9 @@ for j, data in enumerate(dataset):
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		elif opt.video_mode == 'spiral':
 			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 4), 60, height_range=(0.95, 1.15))
-			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 20)
 		else:
 			assert False
 
-		# cam2worlds = torch.from_numpy(cam2worlds).float()
-
-		# video writer in .avi format
-		# video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.avi'), cv2.VideoWriter_fourcc(*'XVID'), 30, (128, 128))
-		
 		for i in tqdm(range(cam2worlds.shape[0])):
 			cam2world = cam2worlds[i:i+1]
 			# print(cam2world)
@@ -96,21 +93,7 @@ for j, data in enumerate(dataset):
 			# model.compute_visuals(cam2world=cam2world)
 			visuals = model.get_current_visuals()
 			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
-			# visual_name = 'x_rec0'
-			# img = tensor2im(visuals[visual_name])
-			# img_pil = Image.fromarray(img)
-			# img_pil.save(os.path.join(web_dir, 'images_debug' , 'rendered_{}.png'.format(i)))
-			# write to video, transform to BGR
-			# img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-			# video_writer.write(img)
 
-		resolution = (256, 256)
 
-		video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, resolution)
-		visual_image_paths = list(filter(lambda x: 'rec0' in x, glob(os.path.join(web_dir, 'images', '*.png'))))
-		visual_image_paths.sort()
-		for visual_image_path in visual_image_paths:
-			img = cv2.imread(visual_image_path)
-			video_writer.write(img)
 
-		video_writer.release()
+

@@ -33,8 +33,9 @@ class PositionalEncoding(nn.Module):
             x_ret = torch.cat([x_ret, x_], dim=-1) # N*(6*(max_deg-min_deg)+3)
             return x_ret, y_ret
         else:
-            # PE
+            # PE (for viewdirs)
             x_ret = torch.sin(x_enc)
+            x_ret = torch.cat([x_ret, x_], dim=-1) # N*(6*(max_deg-min_deg)+3)
             return x_ret
     
     def sin_emb(self, x, keep_ori=True):

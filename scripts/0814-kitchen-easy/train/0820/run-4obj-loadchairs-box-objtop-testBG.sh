@@ -5,7 +5,7 @@
 #SBATCH --mem=48G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -41,7 +41,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_sce
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
-    --exp_id 'dataset-0817-new/4obj-loadchairs-objtop-fine128' \
+    --bg_density_loss \
+    --continue_train --epoch_count 241 --epoch 240 \
+    --exp_id 'dataset-0817-new/4obj-loadchairs-objtop-testBG' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 160 epoch' \
     
 # can try the following to list out which GPU you have access to

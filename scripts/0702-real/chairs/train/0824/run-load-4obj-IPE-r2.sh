@@ -25,7 +25,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/train-4obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 3 \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 5 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
@@ -38,10 +38,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2025 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/1obj-scratch-IPE-r2' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 25 --one2four \
-    --continue_train --epoch_count 25 
-    --exp_id '0824/4obj-load-IPE' \
-    --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
+    --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 20 --one2four \
+    --continue_train --epoch_count 20 \
+    --exp_id '0824/4obj-load-IPE-r2' \
+    --dummy_info 'DINO from scratch 1 obj with BG and position loss (120 epoch), dense sampling at 50' \
     
 
 # can try the following to list out which GPU you have access to

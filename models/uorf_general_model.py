@@ -59,8 +59,8 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--freezeInit_ratio', type=float, default=1)
 		parser.add_argument('--freezeInit_steps', type=int, default=100000)
 		parser.add_argument('--coarse_epoch', type=int, default=600)
-		parser.add_argument('--near_plane', type=float, default=8)
-		parser.add_argument('--far_plane', type=float, default=18)
+		parser.add_argument('--near_plane', type=float, default=6)
+		parser.add_argument('--far_plane', type=float, default=20)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 		parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
@@ -76,6 +76,10 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--all_dropout_ratio', type=float, default=0.25, help='dropout rate in all layers (* shape feat dropout rate)')
 		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
 		parser.add_argument('--n_dense_samp', type=int, default=256, help='number of dense sampling')
+		parser.add_argument('--bg_density_loss', action='store_true', help='use density loss for the background slot')
+		parser.add_argument('--bg_penalize_plane', type=int, default=9, help='penalize the background slot if it is too close to the plane')
+		parser.add_argument('--weight_bg_density', type=float, default=0.05, help='weight of the background plane penalty')
+		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -93,7 +97,13 @@ class uorfGeneralModel(BaseModel):
 		- define loss function, visualization images, model names, and optimizers
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
-		self.loss_names = ['recon', 'perc', 'sfs', 'pos']
+		self.loss_names = ['recon', 'perc']
+		if self.opt.sfs_loss:
+			self.loss_names += ['sfs']
+		if self.opt.position_loss:
+			self.loss_names += ['pos']
+		if self.opt.bg_density_loss:
+			self.loss_names += ['bg_density']
 		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		self.perceptual_net = get_perceptual_net().to(self.device)
@@ -265,12 +275,12 @@ class uorfGeneralModel(BaseModel):
 					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
 			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
 			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bicubic', align_corners=False))  # BxCxHxW
+			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
 			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
 			feat_color = None
 
@@ -291,6 +301,7 @@ class uorfGeneralModel(BaseModel):
 		self.loss_perc = 0
 		self.loss_sfs = 0
 		self.loss_pos = 0
+		self.loss_bg_density = 0
 		dev = self.x[0:1].device
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -330,7 +341,7 @@ class uorfGeneralModel(BaseModel):
 									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
-			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bicubic', align_corners=False)
+			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
 			frustum_size = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp] \
@@ -354,13 +365,14 @@ class uorfGeneralModel(BaseModel):
 		sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
 		sampling_coor_bg = frus_nss_coor  # Px3
 
+		mask_ratio = max(1 - epoch / (0.8 * self.opt.niter), 0.) if self.opt.frequency_mask else 0.
 		local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp if epoch < self.opt.dense_sample_epoch else self.opt.n_dense_samp
 		invariant = epoch >= self.opt.invariant_in
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, fg_slot_nss_position, 
-							    dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio,
-								keep_ratio=self.opt.keep_ratio, fg_object_size=fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+							    dens_noise=dens_noise, invariant=invariant, local_locality_ratio=local_locality_ratio, mask_ratio=mask_ratio,
+								fg_object_size=fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 		raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 		masked_raws = masked_raws.view([K, N, D, H, W, 4])
 		unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
@@ -368,6 +380,15 @@ class uorfGeneralModel(BaseModel):
 		# (NxHxW)x3, (NxHxW)
 		rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 		x_recon = rendered * 2 - 1
+
+		if self.opt.bg_density_loss:
+			# print(masked_raws.shape)
+			bg_density = masked_raws[0, ..., -1].permute([0, 2, 3, 1]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
+			# penalize the near-camera region, first define a mask
+			n_penalize = int(D*(self.opt.bg_penalize_plane-self.opt.near_plane)/(self.opt.far_plane-self.opt.near_plane))
+			mask = torch.zeros_like(bg_density)
+			mask[:, :n_penalize] = 1
+			self.loss_bg_density = self.opt.weight_bg_density * torch.sum(bg_density * mask) / (N*D*H*W)
 
 		self.loss_recon = self.L2_loss(x_recon, x)
 		x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
@@ -400,7 +421,7 @@ class uorfGeneralModel(BaseModel):
 			H_, W_ = feat_shape.shape[1:3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bicubic')
+				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			setattr(self, 'attn', attn)
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
@@ -443,7 +464,7 @@ class uorfGeneralModel(BaseModel):
 
 	def backward(self):
 		"""Calculate losses, gradients, and update network weights; called in every training iteration"""
-		loss = self.loss_recon + self.loss_perc + self.loss_sfs + self.loss_pos
+		loss = self.loss_recon + self.loss_perc + self.loss_sfs + self.loss_pos + self.loss_bg_density
 		loss.backward()
 		# self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 
