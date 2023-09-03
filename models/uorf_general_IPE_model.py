@@ -77,7 +77,7 @@ class uorfGeneralIPEModel(BaseModel):
 		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
 		parser.add_argument('--n_dense_samp', type=int, default=256, help='number of dense sampling')
 		parser.add_argument('--bg_density_loss', action='store_true', help='use density loss for the background slot')
-		parser.add_argument('--bg_penalize_plane', type=int, default=9, help='penalize the background slot if it is too close to the plane')
+		parser.add_argument('--bg_penalize_plane', type=int, default=10, help='penalize the background slot if it is too close to the plane')
 		parser.add_argument('--weight_bg_density', type=float, default=0.05, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--use_viewdirs', action='store_true', help='use viewdirs in the decoder')
@@ -348,8 +348,8 @@ class uorfGeneralIPEModel(BaseModel):
 			(mean, var), z_vals, ray_dir = self.projection_fine.sample_along_rays(cam2world, 
 										 intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 										 frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
-			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
-			mean, var, z_vals, ray_dir = mean.view([N, H, W, D, 3]), var.view([N, H, W, D, 3, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
+			# (NxHxW)xDx3, (NxHxW)xDx3, (NxHxW)xD, (NxHxW)x3
+			mean, var, z_vals, ray_dir = mean.view([N, H, W, D, 3]), var.view([N, H, W, D, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
 			W_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
 			z_vals_, ray_dir_ = z_vals[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], ray_dir[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :]
@@ -384,7 +384,7 @@ class uorfGeneralIPEModel(BaseModel):
 
 		if self.opt.bg_density_loss:
 			# print(masked_raws.shape)
-			bg_density = masked_raws[0, ..., -1].permute([0, 2, 3, 1]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
+			bg_density = masked_raws[0, ..., -1].flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
 			# penalize the near-camera region, first define a mask
 			n_penalize = int(D*(self.opt.bg_penalize_plane-self.opt.near_plane)/(self.opt.far_plane-self.opt.near_plane))
 			mask = torch.zeros_like(bg_density)

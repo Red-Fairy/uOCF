@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -28,8 +28,7 @@ python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 5 \
-    --load_size 128 --n_samp 64 --input_size 128 --frustum_size_fine 128 \
-    --supervision_size 64 --frustum_size 64 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general_IPE' \
     --attn_decay_steps 100000 \
     --bottom \
@@ -39,9 +38,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 40 --niter 80 --percept_in 20 --no_locality_epoch 0 --seed 2025 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/1obj-scratch-IPE-r2' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 20 --n_dense_samp 256 --one2four \
+    --stratified --fixed_locality --one2four \
     --continue_train --epoch_count 30 \
-    --exp_id '0824/4obj-load-IPE-r4' \
+    --exp_id '0824/4obj-load-IPE-nodense' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (156 epoch), dense sampling at 50' \
     
 

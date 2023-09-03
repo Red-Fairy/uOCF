@@ -217,7 +217,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		# scale**2x(NxHxW)xDx3, scale**2x(NxHxW)xDx3x3, scale**2x(NxHxW)xD, scale**2x(NxHxW)x3
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
-			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
@@ -225,11 +225,12 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
 								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
-			masked_raws[..., h::scale, w::scale, :] = masked_raws_
-			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
+			masked_raws[:, :, h::scale, w::scale, ...] = masked_raws_
+			unmasked_raws[:, :, h::scale, w::scale, ...] = unmasked_raws_
 			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
@@ -289,9 +290,9 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
 		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
+		#  4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
-			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
 		
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
@@ -303,8 +304,8 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
-			masked_raws[..., h::scale, w::scale, :] = masked_raws_
-			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
+			masked_raws[..., h::scale, w::scale, :, :] = masked_raws_
+			unmasked_raws[..., h::scale, w::scale, :, :] = unmasked_raws_
 			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
@@ -354,7 +355,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
-			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
 		
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
@@ -366,8 +367,8 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
-			masked_raws[..., h::scale, w::scale, :] = masked_raws_
-			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
+			masked_raws[..., h::scale, w::scale, :, :] = masked_raws_
+			unmasked_raws[..., h::scale, w::scale, :, :] = unmasked_raws_
 			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW

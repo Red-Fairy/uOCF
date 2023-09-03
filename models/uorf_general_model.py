@@ -77,8 +77,8 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
 		parser.add_argument('--n_dense_samp', type=int, default=256, help='number of dense sampling')
 		parser.add_argument('--bg_density_loss', action='store_true', help='use density loss for the background slot')
-		parser.add_argument('--bg_penalize_plane', type=int, default=9, help='penalize the background slot if it is too close to the plane')
-		parser.add_argument('--weight_bg_density', type=float, default=0.05, help='weight of the background plane penalty')
+		parser.add_argument('--bg_penalize_plane', type=int, default=9.5, help='penalize the background slot if it is too close to the plane')
+		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,

@@ -10,6 +10,96 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
+from einops import rearrange
+from functorch import jacrev, vmap
+
+def parameterization(means, covs):
+    '''
+    means: [B, N, 3]
+    covs: [B, N, 3, 3]
+    '''
+
+    B, N, _ = means.shape
+    means = means.reshape([-1, 3])
+    if len(covs.shape) == 4:
+        covs = covs.reshape(-1, 3, 3)
+    else:
+        covs = covs.reshape(-1, 3)
+    contr_mask = (torch.norm(means, dim=-1, keepdim=True) > 1).detach()
+    with torch.no_grad():
+        jac = vmap(jacrev(contract))(means)
+        print('11', jac.shape, covs.shape)
+    means = torch.where(contr_mask, contract(means), means)
+    covs = torch.where(contr_mask.unsqueeze(-1).expand(jac.shape), jac, covs)
+    return means.reshape([B, N, 3]), covs.reshape([B, N, 3, 3])
+
+def expected_sin(x, x_var):
+    """Estimates mean and variance of sin(z), z ~ N(x, var)."""
+    # When the variance is wide, shrink sin towards zero.
+    y = torch.exp(-0.5 * x_var) * torch.sin(x)  # [B, N, 2*3*L]
+    y_var = 0.5 * (1 - torch.exp(-2 * x_var) * torch.cos(2 * x)) - y ** 2
+    y_var = torch.maximum(torch.zeros_like(y_var), y_var)
+    return y, y_var
+
+def integrated_pos_enc_360(means_covs):
+    P = torch.tensor([[0.8506508, 0, 0.5257311],
+                      [0.809017, 0.5, 0.309017],
+                      [0.5257311, 0.8506508, 0],
+                      [1, 0, 0],
+                      [0.809017, 0.5, -0.309017],
+                      [0.8506508, 0, -0.5257311],
+                      [0.309017, 0.809017, -0.5],
+                      [0, 0.5257311, -0.8506508],
+                      [0.5, 0.309017, -0.809017],
+                      [0, 1, 0],
+                      [-0.5257311, 0.8506508, 0],
+                      [-0.309017, 0.809017, -0.5],
+                      [0, 0.5257311, 0.8506508],
+                      [-0.309017, 0.809017, 0.5],
+                      [0.309017, 0.809017, 0.5],
+                      [0.5, 0.309017, 0.809017],
+                      [0.5, -0.309017, 0.809017],
+                      [0, 0, 1],
+                      [-0.5, 0.309017, 0.809017],
+                      [-0.809017, 0.5, 0.309017],
+                      [-0.809017, 0.5, -0.309017]]).T
+    means, covs = means_covs
+    P = P.to(means.device)
+    means, x_cov = parameterization(means, covs)
+    y = torch.matmul(means, P)
+    y_var = torch.sum((torch.matmul(x_cov, P)) * P, -2)
+    return expected_sin(torch.cat([y, y + 0.5 * torch.tensor(np.pi)], dim=-1), torch.cat([y_var] * 2, dim=-1))[0]
+
+def integrated_pos_enc(means_covs, min_deg, max_deg, diagonal=True):
+    """Encode `means` with sinusoids scaled by 2^[min_deg:max_deg-1].
+    Args:
+        means_covs:[B, N, 3] a tuple containing: means, torch.Tensor, variables to be encoded.
+        covs, [B, N, 3] torch.Tensor, covariance matrices.
+        min_deg: int, the min degree of the encoding.
+        max_deg: int, the max degree of the encoding.
+        diagonal: bool, if true, expects input covariances to be diagonal (full otherwise).
+    Returns:
+        encoded: torch.Tensor, encoded variables.
+    """
+    if diagonal:
+        means, covs_diag = means_covs
+        scales = torch.tensor([2 ** i for i in range(min_deg, max_deg)], device=means.device)  # [L]
+        # [B, N, 1, 3] * [L, 1] = [B, N, L, 3]->[B, N, 3L]
+        y = rearrange(torch.unsqueeze(means, dim=-2) * torch.unsqueeze(scales, dim=-1),
+                      'batch sample scale_dim mean_dim -> batch sample (scale_dim mean_dim)')
+        # [B, N, 1, 3] * [L, 1] = [B, N, L, 3]->[B, N, 3L]
+        y_var = rearrange(torch.unsqueeze(covs_diag, dim=-2) * torch.unsqueeze(scales, dim=-1) ** 2,
+                          'batch sample scale_dim cov_dim -> batch sample (scale_dim cov_dim)')
+    else:
+        means, x_cov = means_covs
+        num_dims = means.shape[-1]
+        # [3, L]
+        basis = torch.cat([2 ** i * torch.eye(num_dims, device=means.device) for i in range(min_deg, max_deg)], 1)
+        y = torch.matmul(means, basis)  # [B, N, 3] * [3, 3L] = [B, N, 3L]
+        y_var = torch.sum((torch.matmul(x_cov, basis)) * basis, -2)
+    # sin(y + 0.5 * torch.tensor(np.pi)) = cos(y) 中国的学生脑子一定出现那句 “奇变偶不变 符号看象限”
+    return expected_sin(torch.cat([y, y + 0.5 * torch.tensor(np.pi)], dim=-1), torch.cat([y_var] * 2, dim=-1))[0]
+
 
 class PositionalEncoding(nn.Module):
     def __init__(self, min_deg=0, max_deg=5):
@@ -74,63 +164,64 @@ def sin_emb(x, n_freq=5, keep_ori=True):
             embedded.append(emb_fn(freq * x))
     embedded_ = torch.cat(embedded, dim=1)
     return embedded_
-        
-def lift_gaussian(d, t_mean, t_var, r_var, diag):
+
+def lift_gaussian(directions, t_mean, t_var, r_var, diagonal):
     """Lift a Gaussian defined along a ray to 3D coordinates."""
-    mean = d[..., None, :] * t_mean[..., None]
+    mean = torch.unsqueeze(directions, dim=-2) * torch.unsqueeze(t_mean, dim=-1)  # [B, 1, 3]*[B, N, 1] = [B, N, 3]
+    d_norm_denominator = torch.sum(directions ** 2, dim=-1, keepdim=True) + 1e-10
+    # min_denominator = torch.full_like(d_norm_denominator, 1e-10)
+    # d_norm_denominator = torch.maximum(min_denominator, d_norm_denominator)
 
-    d_mag_sq = torch.sum(d ** 2, dim=-1, keepdim=True) + 1e-10
-
-    if diag:
-        d_outer_diag = d ** 2
-        null_outer_diag = 1 - d_outer_diag / d_mag_sq
-        t_cov_diag = t_var[..., None] * d_outer_diag[..., None, :]
-        xy_cov_diag = r_var[..., None] * null_outer_diag[..., None, :]
+    if diagonal:
+        d_outer_diag = directions ** 2  # eq (16)
+        null_outer_diag = 1 - d_outer_diag / d_norm_denominator
+        t_cov_diag = torch.unsqueeze(t_var, dim=-1) * torch.unsqueeze(d_outer_diag,
+                                                                      dim=-2)  # [B, N, 1] * [B, 1, 3] = [B, N, 3]
+        xy_cov_diag = torch.unsqueeze(r_var, dim=-1) * torch.unsqueeze(null_outer_diag, dim=-2)
         cov_diag = t_cov_diag + xy_cov_diag
         return mean, cov_diag
     else:
-        d_outer = d[..., :, None] * d[..., None, :]
-        eye = torch.eye(d.shape[-1], device=d.device)
-        null_outer = eye - d[..., :, None] * (d / d_mag_sq)[..., None, :]
-        t_cov = t_var[..., None, None] * d_outer[..., None, :, :]
-        xy_cov = r_var[..., None, None] * null_outer[..., None, :, :]
+        d_outer = torch.unsqueeze(directions, dim=-1) * torch.unsqueeze(directions,
+                                                                        dim=-2)  # [B, 3, 1] * [B, 1, 3] = [B, 3, 3]
+        eye = torch.eye(directions.shape[-1], device=directions.device)  # [B, 3, 3]
+        # [B, 3, 1] * ([B, 3] / [B, 1])[..., None, :] = [B, 3, 3]
+        null_outer = eye - torch.unsqueeze(directions, dim=-1) * (directions / d_norm_denominator).unsqueeze(-2)
+        t_cov = t_var.unsqueeze(-1).unsqueeze(-1) * d_outer.unsqueeze(-3)  # [B, N, 1, 1] * [B, 1, 3, 3] = [B, N, 3, 3]
+        xy_cov = t_var.unsqueeze(-1).unsqueeze(-1) * null_outer.unsqueeze(
+            -3)  # [B, N, 1, 1] * [B, 1, 3, 3] = [B, N, 3, 3]
         cov = t_cov + xy_cov
         return mean, cov
 
 
-def conical_frustum_to_gaussian(d, t0, t1, base_radius, diag, stable=True):
+def conical_frustum_to_gaussian(directions, t0, t1, base_radius, diagonal, stable=True):
     """Approximate a conical frustum as a Gaussian distribution (mean+cov).
-
     Assumes the ray is originating from the origin, and base_radius is the
-    radius at dist=1. Doesn't assume `d` is normalized.
-
+    radius at dist=1. Doesn't assume `directions` is normalized.
     Args:
-    d: torch.float32 3-vector, the axis of the cone
-    t0: float, the starting distance of the frustum.
-    t1: float, the ending distance of the frustum.
-    base_radius: float, the scale of the radius as a function of distance.
-    diag: boolean, whether or the Gaussian will be diagonal or full-covariance.
-    stable: boolean, whether or not to use the stable computation described in
-      the paper (setting this to False will cause catastrophic failure).
-
+        directions: torch.tensor float32 3-vector, the axis of the cone
+        t0: float, the starting distance of the frustum.
+        t1: float, the ending distance of the frustum.
+        base_radius: float, the scale of the radius as a function of distance.
+        diagonal: boolean, whether or the Gaussian will be diagonal or full-covariance.
+        stable: boolean, whether or not to use the stable computation described in
+        the paper (setting this to False will cause catastrophic failure).
     Returns:
-    a Gaussian (mean and covariance).
+        a Gaussian (mean and covariance).
     """
     if stable:
         mu = (t0 + t1) / 2
         hw = (t1 - t0) / 2
-        t_mean = mu + (2 * mu * hw**2) / (3 * mu**2 + hw**2)
-        t_var = (hw**2) / 3 - (4 / 15) * ((hw**4 * (12 * mu**2 - hw**2)) /
-                                          (3 * mu**2 + hw**2)**2)
-        r_var = base_radius**2 * ((mu**2) / 4 + (5 / 12) * hw**2 - 4 / 15 *
-                                  (hw**4) / (3 * mu**2 + hw**2))
+        t_mean = mu + (2 * mu * hw ** 2) / (3 * mu ** 2 + hw ** 2)
+        t_var = (hw ** 2) / 3 - (4 / 15) * ((hw ** 4 * (12 * mu ** 2 - hw ** 2)) /
+                                            (3 * mu ** 2 + hw ** 2) ** 2)
+        r_var = base_radius ** 2 * ((mu ** 2) / 4 + (5 / 12) * hw ** 2 - 4 / 15 *
+                                    (hw ** 4) / (3 * mu ** 2 + hw ** 2))
     else:
-        t_mean = (3 * (t1**4 - t0**4)) / (4 * (t1**3 - t0**3))
-        r_var = base_radius**2 * (3 / 20 * (t1**5 - t0**5) / (t1**3 - t0**3))
-        t_mosq = 3 / 5 * (t1**5 - t0**5) / (t1**3 - t0**3)
-        t_var = t_mosq - t_mean**2
-    return lift_gaussian(d, t_mean, t_var, r_var, diag)
-
+        t_mean = (3 * (t1 ** 4 - t0 ** 4)) / (4 * (t1 ** 3 - t0 ** 3))
+        r_var = base_radius ** 2 * (3 / 20 * (t1 ** 5 - t0 ** 5) / (t1 ** 3 - t0 ** 3))
+        t_mosq = 3 / 5 * (t1 ** 5 - t0 ** 5) / (t1 ** 3 - t0 ** 3)
+        t_var = t_mosq - t_mean ** 2
+    return lift_gaussian(directions, t_mean, t_var, r_var, diagonal)
 
 def cylinder_to_gaussian(d, t0, t1, radius, diag):
     """Approximate a cylinder as a Gaussian distribution (mean+cov).

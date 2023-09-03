@@ -59,13 +59,15 @@ class MultiscenesDataset(BaseDataset):
 
     def _transform(self, img, size=None):
         size = self.opt.load_size if size is None else size
-        img = TF.resize(img, (size, size), interpolation=Image.BILINEAR)
+        img = img.resize((size, size), Image.BILINEAR)
+        # img = TF.resize(img, (size, size), interpolation=Image.BILINEAR)
         img = TF.to_tensor(img)
         img = TF.normalize(img, [0.5] * img.shape[0], [0.5] * img.shape[0])  # [0,1] -> [-1,1]
         return img
 
     def _transform_encoder(self, img, normalize=True):
-        img = TF.resize(img, (self.opt.encoder_size, self.opt.encoder_size), interpolation=Image.BILINEAR)
+        img = img.resize((self.opt.encoder_size, self.opt.encoder_size), Image.BILINEAR)
+        # img = TF.resize(img, (self.opt.encoder_size, self.opt.encoder_size), interpolation=Image.BILINEAR)
         img = TF.to_tensor(img)
         if normalize:
             img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])

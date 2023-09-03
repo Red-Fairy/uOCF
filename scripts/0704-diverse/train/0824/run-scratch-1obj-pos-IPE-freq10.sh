@@ -38,7 +38,6 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1200 --n_img_each_sc
     --position_loss --weight_position 0.1 \
     --fixed_locality \
     --exp_id '0827/1obj-scratch-pos-IPE' \
-    --continue_train --epoch 200 --epoch_count 201 \
     --dummy_info 'DINO from scratch 1 obj with BG' \
     
 

@@ -29,10 +29,11 @@ meters_tst = {stat: AverageMeter() for stat in model.loss_names}
 
 set_seed(opt.seed)
 
-manipulation = True
+manipulation = False
 
 remove_obj_idx = [0, 1, 2, 3]
-suffix = f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
+# suffix = f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
+suffix = ''
 
 wanted_indices = parse_wanted_indice(opt.wanted_indices)
 

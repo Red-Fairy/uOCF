@@ -292,31 +292,6 @@ class Projection(object):
         # z_vals = (z_vals - near_nss) / (far_nss - near_nss) # (NxHxW)xD, put to range [0, 1] TODO: used in uORF, but is not correct
 
         return sampling_points, z_vals, ray_dir
-    
-    def cast_rays(self, t_vals, origins, directions, radii, ray_shape='cone', diag=True):
-        """Cast rays (cone- or cylinder-shaped) and featurize sections of it.
-
-        Args:
-        t_vals: float array, the "fencepost" distances along the ray.
-        origins: float array, the ray origin coordinates.
-        directions: float array, the ray direction vectors.
-        radii: float array, the radii (base radii for cones) of the rays.
-        diag: boolean, whether or not the covariance matrices should be diagonal.
-
-        Returns:
-        a tuple of arrays of means and covariances.
-        """
-        t0 = t_vals[..., :-1]
-        t1 = t_vals[..., 1:]
-        if ray_shape == 'cone':
-            gaussian_fn = conical_frustum_to_gaussian
-        elif ray_shape == 'cylinder':
-            gaussian_fn = cylinder_to_gaussian
-        else:
-            assert False
-        means, covs = gaussian_fn(directions, t0, t1, radii, diag)
-        means = means + origins[..., None, :]
-        return means, covs
 
     def sample_along_rays(self, cam2world, partitioned=False, intrinsics=None, frustum_size=None, stratified=True, ray_shape='cone'):
         """Stratified sampling along the rays.
@@ -335,7 +310,7 @@ class Projection(object):
         Returns:
         t_vals: torch.tensor, [batch_size, num_samples], sampled z values.
         means: torch.tensor, [batch_size, num_samples, 3], sampled means.
-        covs: torch.tensor, [batch_size, num_samples, 3, 3], sampled covariances.
+        covs: torch.tensor, [batch_size, num_samples, 3], sampled covariances.
         ray_dir: torch.tensor, [batch_size, 3], ray directions.
         """
 
@@ -363,86 +338,106 @@ class Projection(object):
         else:
             # Broadcast t_vals to make the returned shape consistent.
             t_vals = torch.broadcast_to(t_vals, [batch_size, D + 1])
-            
-        # ray_dir_ = ray_dir.unsqueeze(-2).expand(N*H*W, D, 3) # (NxHxW)xDx3
 
         radii = self.radii.unsqueeze(0).expand(batch_size, 1) # (NxHxW)x1
         
-        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape) # (N*H*W)*D*3, (N*H*W)*D*3*3
+        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape) # (N*H*W)*D*3, (N*H*W)*D*3
 
+        if partitioned:
+            scale = H // self.render_size[0]
+            means = means.view(N, H, W, D, 3)
+            means_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                means_.append(means[:, h::scale, w::scale, ...])
+            means = torch.stack(means_, dim=0)  # 4xNx(H/s)x(W/s)xDx3
+            means = means.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))xDx3
+
+            covs = covs.view(N, H, W, D, 3)
+            covs_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                covs_.append(covs[:, h::scale, w::scale, ...])
+            covs = torch.stack(covs_, dim=0)  # 4xNx(H/s)x(W/s)xDx3
+            covs = covs.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))xDx3
+
+            t_vals = t_vals.view(N, H, W, D+1)
+            t_vals_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                t_vals_.append(t_vals[:, h::scale, w::scale, :])
+            t_vals = torch.stack(t_vals_, dim=0)  # 4xNx(H/s)x(W/s)x(D+1)
+            t_vals = t_vals.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))x(D+1)
+
+            ray_dir = ray_dir.view(N, H, W, 3)
+            ray_dir_ = []
+            for i in range(scale ** 2):
+                h, w = divmod(i, scale)
+                ray_dir_.append(ray_dir[:, h::scale, w::scale, :])
+            ray_dir = torch.stack(ray_dir_, dim=0)  # 4xNx(H/s)x(W/s)x3
+            ray_dir = ray_dir.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))x3
+        
         return (means, covs), t_vals[..., :D], ray_dir
 
-    # def sample_pdf(self, bins, weights, N_samples, det=True):
-    #     # Get pdf
-    #     # bins: [N_rays, N_samples_coarse-1]
-    #     # weights: [N_rays, N_samples_coarse-2]
-    #     weights = weights + 1e-5 # prevent nans
-    #     pdf = weights / torch.sum(weights, -1, keepdim=True)
-    #     cdf = torch.cumsum(pdf, -1)
-    #     cdf = torch.cat([torch.zeros_like(cdf[...,:1]), cdf], -1)  # (batch, len(bins))
+    def cast_rays(self, t_samples, origins, directions, radii, ray_shape, diagonal=True):
+        """Cast rays (cone- or cylinder-shaped) and featurize sections of it.
+        Args:
+            t_samples: float array [B, n_sample+1], the "fencepost" distances along the ray.
+            origins: float array [B, 3], the ray origin coordinates.
+            directions [B, 3]: float array, the ray direction vectors.
+            radii[B, 1]: float array, the radii (base radii for cones) of the rays.
+            ray_shape: string, the shape of the ray, must be 'cone' or 'cylinder'.
+            diagonal: boolean, whether or not the covariance matrices should be diagonal. 
+            if true, cov will only have 3 values, not 3*3.
+        Returns:
+            a tuple of arrays of means and covariances.
+        """
+        t0 = t_samples[..., :-1]  # [B, n_samples]
+        t1 = t_samples[..., 1:]
+        if ray_shape == 'cone':
+            gaussian_fn = conical_frustum_to_gaussian
+        elif ray_shape == 'cylinder':
+            raise NotImplementedError
+        else:
+            assert False
+        means, covs = gaussian_fn(directions, t0, t1, radii, diagonal)
+        means = means + torch.unsqueeze(origins, dim=-2)
+        return means, covs
+    
+    def sample_along_rays_360(self, cam2world, partitioned=False, intrinsics=None, frustum_size=None, stratified=True, ray_shape='cone'):
 
-    #     # Take uniform samples
-    #     if det:
-    #         u = torch.linspace(0., 1., steps=N_samples)
-    #         u = u.expand(list(cdf.shape[:-1]) + [N_samples])
-    #     else:
-    #         u = torch.rand(list(cdf.shape[:-1]) + [N_samples])
+        if intrinsics is not None: # overwrite intrinsics
+            self.construct_intrinsic(intrinsics)
+        if frustum_size is not None: # overwrite frustum_size
+            self.frustum_size = frustum_size
+        N = cam2world.shape[0]
+        W, H, D = self.frustum_size # D: num_samples
 
-    #     # Invert CDF
-    #     u = u.contiguous().to(cdf.device)
-    #     inds = torch.searchsorted(cdf, u, right=True)
-    #     below = torch.max(torch.zeros_like(inds-1), inds-1)
-    #     above = torch.min((cdf.shape[-1]-1) * torch.ones_like(inds), inds)
-    #     inds_g = torch.stack([below, above], -1)  # (batch, N_samples, 2)
+        ray_origin, ray_dir, near_nss, far_nss = self.construct_origin_dir(cam2world) # (N*H*W)*3, (N*H*W)*3
 
-    #     # cdf_g = tf.gather(cdf, inds_g, axis=-1, batch_dims=len(inds_g.shape)-2)
-    #     # bins_g = tf.gather(bins, inds_g, axis=-1, batch_dims=len(inds_g.shape)-2)
-    #     matched_shape = [inds_g.shape[0], inds_g.shape[1], cdf.shape[-1]]
-    #     cdf_g = torch.gather(cdf.unsqueeze(1).expand(matched_shape), 2, inds_g)
-    #     bins_g = torch.gather(bins.unsqueeze(1).expand(matched_shape), 2, inds_g)
+        batch_size = N * H * W
+        device = ray_origin.device
 
-    #     denom = (cdf_g[...,1]-cdf_g[...,0])
-    #     denom = torch.where(denom<1e-5, torch.ones_like(denom), denom)
-    #     t = (u-cdf_g[...,0])/denom
-    #     samples = bins_g[...,0] + t * (bins_g[...,1]-bins_g[...,0])
+        t_vals = torch.linspace(0., 1., D + 1,  device=device)
+        far_inv = 1 / far_nss
+        near_inv = 1 / near_nss
+        t_vals = near_inv * (1. - t_vals) + far_inv * t_vals
 
-    #     return samples
+        if stratified:
+            mids = 0.5 * (t_inv[..., 1:] + t_inv[..., :-1])
+            upper = torch.cat([mids, t_inv[..., -1:]], -1)
+            lower = torch.cat([t_inv[..., :1], mids], -1)
+            t_rand = torch.rand(batch_size, D + 1, device=device)
+            t_inv = lower + (upper - lower) * t_rand
+        else:
+            # Broadcast t_inv to make the returned shape consistent.
+            t_inv = torch.broadcast_to(t_inv, [batch_size, D + 1])
 
-    # def sample_importance(self, cam2world, z_vals, ray_dir, weights, N_inportance, size=(64, 64)):
-    #     '''
-    #     :param cam2world: (N, 4, 4)
-    #     :param z_vals: (NxHxW)xN_corase in range [0, 1]
-    #     :param weights: (NxHxW)xN_corase
-    #     :param N_samples: int
-    #     :param ray_dir: (NxHxW)x3, in camera space
-    #     :param size: (H, W), supervision size
-    #     :output z_vals: (NxHxW)x(N_inportance+N_coarse)
-    #     :output pixel_coor: (NxHxW)x(N_inportance+N_coarse)x3 in world space
-    #     '''
+        t_vals = 1 / t_inv
+        radii = self.radii.unsqueeze(0).expand(batch_size, 1) # (NxHxW)x1
 
-    #     N = cam2world.shape[0]
-    #     N_coarse = z_vals.shape[-1]
-    #     z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1]) # (NxHxW)x(N_coarse-1)
-    #     z_samples = self.sample_pdf(z_vals_mid, weights[...,1:-1], N_inportance)  # (NxHxW)xN_inportance
-    #     z_samples = z_samples.detach()
-
-    #     z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)  # (NxHxW)x(N_inportance+N_coarse)
-
-    #     z_pos = z_vals * (self.far - self.near) + self.near  # (NxHxW)x(N_inportance+N_coarse)
-
-    #     # constuct pixel coor, first in camera space, camera origin is (0, 0, 0)
-    #     pixel_coor = torch.einsum('ij,ikj->ikj', ray_dir, z_pos.unsqueeze(-1).expand(-1, -1, 3)) # (NxHxW)x(N_inportance+N_coarse)x3
-    #     # convert to world space, first reshape to (N, 3, ((N_inportance+N_coarse)*H*W), then multiply cam2world
-    #     pixel_coor = pixel_coor.reshape(N, *size, N_inportance+N_coarse, 3).permute(0, 4, 3, 1, 2).reshape(N, 3, -1) # Nx3x((N_inportance+N_coarse)*H*W)
-    #     pixel_coor = torch.cat([pixel_coor, torch.ones(N, 1, pixel_coor.shape[-1]).to(pixel_coor.device)], dim=1) # Nx4x((N_inportance+N_coarse)*H*W)
-    #     pixel_coor = torch.bmm(cam2world, pixel_coor) # Nx4x((N_inportance+N_coarse)*H*W)
-    #     pixel_coor = pixel_coor[:, :3, :] # Nx3x((N_inportance+N_coarse)*H*W)
-    #     pixel_coor = pixel_coor.permute(0, 2, 1).flatten(0, 1) # ((NxHxW)x(N_inportance+N_coarse))x3
-
-    #     # transform to nss space
-    #     pixel_coor = pixel_coor / self.nss_scale
-
-    #     return pixel_coor, z_vals
+        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape, False)
+        return t_inv, (means, covs)
 
 if __name__ == '__main__':
     pass
