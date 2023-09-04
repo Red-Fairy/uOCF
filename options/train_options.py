@@ -51,5 +51,7 @@ class TrainOptions(BaseOptions):
 
 		parser.add_argument('--stratified', action='store_true', help='stratified sampling')
 
+		parser.add_argument('--large_decoder_lr', action='store_true', help='large decoder lr')
+
 		self.isTrain = True
 		return parser

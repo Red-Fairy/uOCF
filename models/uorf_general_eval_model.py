@@ -129,8 +129,10 @@ class uorfGeneralEvalModel(BaseModel):
 							['input_image'] + \
 							['slot{}_view{}_unmasked'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
-							# ['gt_mask{}'.format(i) for i in range(n)] + \
-							# ['render_mask{}'.format(i) for i in range(n)]
+
+		if self.opt.vis_disparity:
+			self.visual_names += ['disparity{}'.format(i) for i in range(n)] + \
+								 ['disparity_rec{}'.format(i) for i in range(n)]
 		if add_mask:
 			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
 								 ['render_mask{}'.format(i) for i in range(n)]
@@ -170,6 +172,9 @@ class uorfGeneralEvalModel(BaseModel):
 			self.fg_idx = input['fg_idx']
 			self.obj_idxs = input['obj_idxs']  # (K+1)x1xHxW
 			self.masks_fg = input['obj_idxs_fg'].to(self.device)  # Kx1xHxW
+
+		if self.opt.vis_disparity:
+			self.disparity = input['depth'].to(self.device)
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -219,6 +224,8 @@ class uorfGeneralEvalModel(BaseModel):
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
+		if self.opt.vis_disparity:
+			disparity_rec = torch.zeros([N, 1, H, W], device=dev)
 		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
@@ -239,6 +246,9 @@ class uorfGeneralEvalModel(BaseModel):
 			rendered[..., h::scale, w::scale] = rendered_
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
+			if self.opt.vis_disparity:
+				disparity_rec_ = 1 / depth_map_.view(N, 1, H_, W_)
+				disparity_rec[..., h::scale, w::scale] = disparity_rec_
 
 		if not self.opt.no_loss and not self.opt.video:
 			x_recon_novel, x_novel = x_recon[1:], x[1:]
@@ -267,6 +277,9 @@ class uorfGeneralEvalModel(BaseModel):
 					setattr(self, 'input_image', x[i])
 				else:
 					setattr(self, 'gt_novel_view{}'.format(i), x[i])
+				if self.opt.vis_disparity: # normalize disparity to [0, 1]
+					setattr(self, 'disparity{}'.format(i), (self.disparity[i] - self.disparity[i].min()) / (self.disparity[i].max() - self.disparity[i].min()))
+					setattr(self, 'disparity_rec{}'.format(i), (disparity_rec[i] - disparity_rec[i].min()) / (disparity_rec[i].max() - disparity_rec[i].min()))
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())

@@ -77,9 +77,13 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--dense_sample_epoch', type=int, default=10000, help='when to start dense sampling')
 		parser.add_argument('--n_dense_samp', type=int, default=256, help='number of dense sampling')
 		parser.add_argument('--bg_density_loss', action='store_true', help='use density loss for the background slot')
+		parser.add_argument('--bg_density_in', type=int, default=250, help='when to start the background density loss')
 		parser.add_argument('--bg_penalize_plane', type=int, default=9.5, help='penalize the background slot if it is too close to the plane')
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
+		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
+		parser.add_argument('--weight_depth', type=float, default=50, help='weight of the depth supervision')
+		parser.add_argument('--depth_in', type=int, default=250, help='when to start the depth supervision')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -104,6 +108,8 @@ class uorfGeneralModel(BaseModel):
 			self.loss_names += ['pos']
 		if self.opt.bg_density_loss:
 			self.loss_names += ['bg_density']
+		if self.opt.depth_supervision:
+			self.loss_names += ['depth']
 		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		self.perceptual_net = get_perceptual_net().to(self.device)
@@ -179,6 +185,9 @@ class uorfGeneralModel(BaseModel):
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
+		if self.opt.depth_supervision:
+			self.visual_names += ['disparity{}'.format(i) for i in range(n)] + \
+								 ['disparity_rec{}'.format(i) for i in range(n)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -200,6 +209,13 @@ class uorfGeneralModel(BaseModel):
 	 							and (keyword_to_include is None or keyword_to_include in k) \
 								and (keyword_to_exclude is None or keyword_to_exclude not in k)]
 					return params
+				
+				def get_decoder_params(keys, reverse=False):
+					if not reverse:
+						params = [v for k, v in self.netDecoder.named_parameters() if k in keys]
+					else:
+						params = [v for k, v in self.netDecoder.named_parameters() if k not in keys]
+					return params
 
 				unloaded_params, loaded_params_frozen, loaded_params_trainable = get_params(unloaded_keys), get_params(loaded_keys_frozen), get_params(loaded_keys_trainable)
 				print('Unloaded params:', unloaded_keys, '\n', 'Length:', len(unloaded_keys))
@@ -214,12 +230,18 @@ class uorfGeneralModel(BaseModel):
 					configs = (opt.freezeInit_ratio, opt.freezeInit_steps, 0, opt.attn_decay_steps) # no warmup
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 				if len(loaded_params_trainable) > 0:
-					if not self.opt.diff_fg_bg_lr:
-						self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
-					else:
-						big_lr_params = get_params(loaded_keys_trainable, keyword_to_include='b_')
-						small_lr_params = get_params(loaded_keys_trainable, keyword_to_exclude='b_')
+					if self.opt.large_decoder_lr:
+						big_lr_params = get_decoder_params(loaded_keys_trainable, reverse=False)
+						small_lr_params = get_decoder_params(loaded_keys_trainable, reverse=True)
 						self.optimizers.append(optim.Adam([{'params': big_lr_params, 'lr': opt.lr}, {'params': small_lr_params, 'lr': opt.lr/3}]))
+					else:
+						self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
+					# if not self.opt.diff_fg_bg_lr:
+					# 	self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
+					# else:
+					# 	big_lr_params = get_params(loaded_keys_trainable, keyword_to_include='b_')
+					# 	small_lr_params = get_params(loaded_keys_trainable, keyword_to_exclude='b_')
+					# 	self.optimizers.append(optim.Adam([{'params': big_lr_params, 'lr': opt.lr}, {'params': small_lr_params, 'lr': opt.lr/3}]))
 					configs = (opt.freezeInit_ratio, 0, 0, opt.attn_decay_steps) # no warmup
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 			else:
@@ -242,16 +264,14 @@ class uorfGeneralModel(BaseModel):
 		"""
 		self.x = input['img_data'].to(self.device)
 		self.x_large = input['img_data_large'].to(self.device) if self.opt.encoder_type != 'CNN' else None
-		# if 'img_data_input' in input:
-		# 	self.x_input = input['img_data_input'].to(self.device)
-		# else:
-		# 	self.x_input = None
 		self.cam2world = input['cam2world'].to(self.device)
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 		if 'intrinsics' in input:
 			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 			# print('Overwrite the default intrinsics with the provided ones.')
+		if self.opt.depth_supervision:
+			self.disparity = input['depth'].to(self.device)
 
 	def encode(self, idx=0):
 		"""Encode the input image into a feature map.
@@ -297,11 +317,8 @@ class uorfGeneralModel(BaseModel):
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
 		# dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
 		dens_noise = 0
-		self.loss_recon = 0
-		self.loss_perc = 0
-		self.loss_sfs = 0
-		self.loss_pos = 0
-		self.loss_bg_density = 0
+		self.loss_recon, self.loss_perc, self.loss_sfs, \
+			self.loss_pos, self.loss_bg_density, self.loss_depth = 0, 0, 0, 0, 0, 0
 		dev = self.x[0:1].device
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -342,6 +359,8 @@ class uorfGeneralModel(BaseModel):
 									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
+			if self.opt.depth_supervision:
+				disparity = F.interpolate(self.disparity, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
 			frustum_size = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp] \
@@ -360,6 +379,8 @@ class uorfGeneralModel(BaseModel):
 			frus_nss_coor_, z_vals_, ray_dir_ = frus_nss_coor[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], z_vals[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], ray_dir[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :]
 			frus_nss_coor, z_vals, ray_dir = frus_nss_coor_.flatten(0, 3), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
+			if self.opt.depth_supervision:
+				disparity = self.disparity[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 
 		sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
@@ -376,12 +397,12 @@ class uorfGeneralModel(BaseModel):
 		raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 		masked_raws = masked_raws.view([K, N, D, H, W, 4])
 		unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
-		rgb_map, _, _ = raw2outputs(raws, z_vals, ray_dir)
+		rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
 		# (NxHxW)x3, (NxHxW)
 		rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 		x_recon = rendered * 2 - 1
 
-		if self.opt.bg_density_loss:
+		if self.opt.bg_density_loss and epoch >= self.opt.bg_density_in:
 			# print(masked_raws.shape)
 			bg_density = masked_raws[0, ..., -1].permute([0, 2, 3, 1]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
 			# penalize the near-camera region, first define a mask
@@ -389,6 +410,44 @@ class uorfGeneralModel(BaseModel):
 			mask = torch.zeros_like(bg_density)
 			mask[:, :n_penalize] = 1
 			self.loss_bg_density = self.opt.weight_bg_density * torch.sum(bg_density * mask) / (N*D*H*W)
+
+		if self.opt.depth_supervision and epoch >= self.opt.depth_in:
+			'''
+			add ranking loss, random pick M pairs of pixels from the disparity (gt) and disparity_rendered
+			each pair of pixel should be close (no more than 6 on height and width)
+			if the first pixel has smaller disparity than the second one on the ground truth,
+			if d1_gt < d2_gt, loss = max(0, d1_rendered - d2_rendered + margin)
+			else loss = max(0, d2_rendered - d1_rendered + margin)
+			'''
+			M = 32
+			diff_max = 8
+			scale = 1e-2
+			# sample M pairs of pixels, first sample height, then height difference, then width, then width difference
+			H, W = disparity.shape[2:]
+			idx = torch.zeros((2*M, 2, 2), device=dev, dtype=torch.long)
+			idx[:M, 0, 0] = torch.randint(low=0, high=H, size=(M,), device=dev)
+			idx[:M, 0, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[:M, 0, 0]
+			idx[:M, 1, 0] = torch.randint(low=0, high=W, size=(M,), device=dev)
+			idx[:M, 1, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[:M, 1, 0]
+			idx[M:, 0, 0] = torch.randint(low=0, high=H, size=(M,), device=dev)
+			idx[M:, 0, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[M:, 0, 0]
+			idx[M:, 1, 0] = torch.randint(low=0, high=W, size=(M,), device=dev)
+			idx[M:, 1, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[M:, 1, 0]
+			# flatten the indices to (2*M, 2)
+			idx_new = torch.zeros((2*M, 2), device=dev, dtype=torch.long)
+			idx_new[:M] = idx[:M, 0] * W + idx[:M, 1]
+			idx_new[M:] = idx[M:, 0] * W + idx[M:, 1] + H*W
+
+			disparity_gt_ = disparity.squeeze(1).flatten() # NxHxW
+			disparity_rendered = 1 / depth_map.view(N, H, W).clamp(min=1e-6).unsqueeze(1) # Nx1xHxW
+			disparity_rendered_ = disparity_rendered.squeeze(1).flatten() # NxHxW
+			disparity_gt_1, disparity_gt_2 = disparity_gt_[idx_new[:, 0]], disparity_gt_[idx_new[:, 1]]
+			disparity_rendered_1, disparity_rendered_2 = disparity_rendered_[idx_new[:, 0]], disparity_rendered_[idx_new[:, 1]]
+			margin = 1e-4
+			mask_gt = (disparity_gt_1 < disparity_gt_2).float()
+			disparity_diff_rendered = (disparity_rendered_1 - disparity_rendered_2) * scale
+			self.loss_depth = (torch.mean(torch.clamp(disparity_diff_rendered + margin, min=0) * mask_gt) + \
+						torch.mean(torch.clamp(-disparity_diff_rendered + margin, min=0) * (1 - mask_gt))) * self.opt.weight_depth
 
 		self.loss_recon = self.L2_loss(x_recon, x)
 		x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
@@ -426,6 +485,11 @@ class uorfGeneralModel(BaseModel):
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 				setattr(self, 'x{}'.format(i), x[i])
+				if self.opt.depth_supervision:
+					# normalize to 0-1
+					setattr(self, 'disparity{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
+					setattr(self, 'disparity_rec{}'.format(i), (disparity_rendered[i] - disparity_rendered[i].min()) / (disparity_rendered[i].max() - disparity_rendered[i].min()))
+					
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 			
@@ -464,7 +528,8 @@ class uorfGeneralModel(BaseModel):
 
 	def backward(self):
 		"""Calculate losses, gradients, and update network weights; called in every training iteration"""
-		loss = self.loss_recon + self.loss_perc + self.loss_sfs + self.loss_pos + self.loss_bg_density
+		loss = self.loss_recon + self.loss_perc + self.loss_sfs + \
+					self.loss_pos + self.loss_bg_density + self.loss_depth
 		loss.backward()
 		# self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 

@@ -211,11 +211,11 @@ def conical_frustum_to_gaussian(directions, t0, t1, base_radius, diagonal, stabl
     if stable:
         mu = (t0 + t1) / 2
         hw = (t1 - t0) / 2
-        t_mean = mu + (2 * mu * hw ** 2) / (3 * mu ** 2 + hw ** 2)
-        t_var = (hw ** 2) / 3 - (4 / 15) * ((hw ** 4 * (12 * mu ** 2 - hw ** 2)) /
-                                            (3 * mu ** 2 + hw ** 2) ** 2)
-        r_var = base_radius ** 2 * ((mu ** 2) / 4 + (5 / 12) * hw ** 2 - 4 / 15 *
-                                    (hw ** 4) / (3 * mu ** 2 + hw ** 2))
+        eps = torch.tensor(torch.finfo(torch.float32).eps)
+        t_mean = mu + (2 * mu * hw ** 2) / torch.maximum(eps, 3 * mu ** 2 + hw ** 2)
+        denom = torch.maximum(eps, 3 * mu ** 2 + hw ** 2)
+        t_var = (hw ** 2) / 3 - (4 / 15) * hw ** 4 * (12 * mu ** 2 - hw ** 2) / denom ** 2
+        r_var = (mu ** 2) / 4 + (5 / 12) * hw ** 2 - (4 / 15) * (hw ** 4) / denom
     else:
         t_mean = (3 * (t1 ** 4 - t0 ** 4)) / (4 * (t1 ** 3 - t0 ** 3))
         r_var = base_radius ** 2 * (3 / 20 * (t1 ** 5 - t0 ** 5) / (t1 ** 3 - t0 ** 3))

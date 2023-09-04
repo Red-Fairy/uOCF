@@ -30,8 +30,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 324 --n_img_each_sce
     --checkpoints_dir 'checkpoints' --name 'kitchen-hard' \
     --display_port $PORT --display_ncols 4 --print_freq 81 --save_epoch_freq 81 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
-    --coarse_epoch 500 --niter 1000 --no_locality_epoch 300 --z_dim 96 --num_slots 5 --near 6 --far 20 \
+    --coarse_epoch 1000 --niter 2000 --no_locality_epoch 500 --z_dim 96 --num_slots 5 --near 6 --far 20 \
     --model 'uorf_nogan' --bottom --fixed_locality \
-    --exp_id 'uORF-4obj' \
+    --exp_id 'uORF-4obj-intrisncis' \
 # done
 echo "Done"

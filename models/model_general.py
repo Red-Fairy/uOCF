@@ -1009,7 +1009,7 @@ class DecoderIPE(nn.Module):
 		4. If self.fg_object_size is not None, return the new sampling_coor_fg and their indices
 
 		input: 	mean: PxDx3
-				var: PxDx3x3
+				var: PxDx3
 				fg_transform: 1x4x4
 				fg_slot_position: (K-1)x3
 				z_fg: (K-1)xC
@@ -1020,7 +1020,6 @@ class DecoderIPE(nn.Module):
 				input_bg: Px(60+C)
 				idx: M (indices of the query points inside bbox)
 		'''
-
 		P, D = mean.shape[0], mean.shape[1]
 		K = z_fg.shape[0] + 1
 		
@@ -1036,7 +1035,8 @@ class DecoderIPE(nn.Module):
 		fg_slot_position = fg_slot_position[:, :3]  # (K-1)x3
 		sampling_mean_fg = sampling_mean_fg - fg_slot_position[:, None, :]  # (K-1)x(P*D)x3
 		sampling_mean_fg = sampling_mean_fg.view([K-1, P, D, 3]).flatten(0, 1)  # ((K-1)xP)xDx3
-		sampling_var_fg = var[None, ...].expand(K-1, -1, -1, -1, -1).flatten(0, 1)  # ((K-1)xP)xDx3x3
+
+		sampling_var_fg = var[None, ...].expand(K-1, -1, -1, -1).flatten(0, 1)  # ((K-1)xP)xDx3
 
 		sampling_mean_bg, sampling_var_bg = mean, var
 

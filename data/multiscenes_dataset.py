@@ -10,7 +10,7 @@ import numpy as np
 import random
 import torchvision
 import pickle
-
+import cv2
 
 
 class MultiscenesDataset(BaseDataset):
@@ -116,11 +116,15 @@ class MultiscenesDataset(BaseDataset):
             else:
                 azi_rot = np.loadtxt(azi_path)
             azi_rot = torch.tensor(azi_rot, dtype=torch.float32)
-            depth_path = path.replace('.png', '_depth.npy')
+            depth_path = path.replace('.png', '_depth.pfm')
             if os.path.isfile(depth_path):
-                depth = np.load(depth_path)  # HxWx1
-                depth = torch.from_numpy(depth)  # HxWx1
-                depth = depth.permute([2, 0, 1])  # 1xHxW
+                # read depth
+                depth = cv2.imread(depth_path, -1)
+                # resize to load_size
+                depth = cv2.resize(depth, (self.opt.load_size, self.opt.load_size), interpolation=Image.BILINEAR)
+                depth = depth.astype(np.float32)
+                depth = torch.from_numpy(depth)  # HxW
+                depth = depth.unsqueeze(0)  # 1xHxW
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
@@ -191,7 +195,7 @@ def collate_fn(batch):
         'paths': paths,
         'cam2world': cam2world,
         'azi_rot': azi_rot,
-        'depths': depths,
+        'depth': depths,
     }
     if 'img_data_large' in flat_batch[0]:
         ret['img_data_large'] = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW

@@ -26,12 +26,12 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-easy/4obj-all-train-0817'}
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 730 --n_img_each_scene 2  \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_scene 2  \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
-    --display_port $PORT --display_ncols 4 --print_freq 73 --save_epoch_freq 73 \
+    --display_port $PORT --display_ncols 4 --print_freq 76 --save_epoch_freq 76 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
-    --coarse_epoch 1000 --niter 2000 --no_locality_epoch 500 --z_dim 96 --num_slots 5 --near 6 --far 20 \
+    --coarse_epoch 500 --niter 1500 --no_locality_epoch 250 --z_dim 96 --num_slots 5 --near 6 --far 20 \
     --model 'uorf_nogan' --bottom --fixed_locality \
-    --exp_id 'uORF-4obj' \
+    --exp_id 'uORF-4obj-intrinsics' \
 # done
 echo "Done"

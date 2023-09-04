@@ -31,7 +31,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_sce
     --load_size 128 --n_samp 64 --input_size 128 --frustum_size_fine 128 \
     --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general_IPE' \
-    --attn_decay_steps 20000 \
+    --attn_decay_steps 25000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
@@ -41,7 +41,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_sce
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 --bg_density_loss \
-    --exp_id 'dataset-0817-0828/4obj-loadchairs-fine128-load80' \
+    --exp_id 'dataset-0817-0828/4obj-loadchairs-fine128-load80-r2' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 80 epoch' \
     
 # can try the following to list out which GPU you have access to
