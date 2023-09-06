@@ -418,7 +418,7 @@ class uorfGeneralIPEModel(BaseModel):
 			if the first pixel has smaller disparity than the second one on the ground truth, (i.e., disparity_1_gt < disparity_2_gt)
 			then loss = max(0, depth_2_rendered - depth_1_rendered + margin)
 			else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
-			L, diff_max = 16, 32
+			L, diff_max = 8, 5
 			margin = 1e-4
 
 			patch1_start_h, patch1_start_w = torch.randint(low=0, high=H-L-diff_max, size=(1,), device=dev), \
@@ -437,10 +437,20 @@ class uorfGeneralIPEModel(BaseModel):
 			self.loss_depth_ranking += (torch.mean(torch.clamp(depth_diff_rendered + margin, min=0) * (1 - mask_gt)) + \
 					  			torch.mean(torch.clamp(-depth_diff_rendered + margin, min=0) * mask_gt)) * self.opt.weight_depth_ranking		
 
-			'''add a total variance loss, to penalize the disparity map that is too noisy'''
-			rendered_depth_x_diff = depth_rendered[:, :, :, :-1] - depth_rendered[:, :, :, 1:]
-			rendered_depth_y_diff = depth_rendered[:, :, :-1, :] - depth_rendered[:, :, 1:, :]
-			self.loss_depth_continuity += self.opt.weight_depth_continuity * (torch.mean(torch.abs(rendered_depth_x_diff)) + torch.mean(torch.abs(rendered_depth_y_diff)))
+			'''add a continuity loss, randomly pick M=32 pixels, for each pixel, find the nearest P=4 pixels in its (2T+1)*(2T+1) neighborhood 
+			in terms of the disparity on the ground truth,
+			then calculate the average depth difference between p and its nearest T pixels on the rendered depth map
+			'''
+			M, T, P = 32, 2, 4
+			margin = 1e-4
+			# sample M pixels
+			for _ in range(M):
+				px, py = torch.randint(low=T, high=H-T, size=(1,), device=dev), torch.randint(low=T, high=W-T, size=(1,), device=dev)
+				neighborhood = disparity[0, 0, px-T:px+T+1, py-T:py+T+1].flatten() # (2T+1)**2
+				distances = torch.abs(neighborhood - disparity[0, 0, px, py])
+				nearest_indices = torch.argsort(distances)[:P+1]
+				depth_diff_rendered = torch.mean(torch.abs(depth_rendered[0, 0, px, py] - depth_rendered[0, 0, px-T:px+T+1, py-T:py+T+1].flatten()[nearest_indices]))
+				self.loss_depth_continuity += torch.clamp(depth_diff_rendered - margin, min=0) * self.opt.weight_depth_continuity
 
 
 		if self.opt.sfs_loss:
