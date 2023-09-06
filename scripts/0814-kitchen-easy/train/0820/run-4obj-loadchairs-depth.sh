@@ -5,7 +5,7 @@
 #SBATCH --mem=48G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -25,10 +25,10 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-easy/4obj-all-train-0817'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_scene 2 \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 730 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
-    --display_port $PORT --display_ncols 4 --print_freq 76 --display_freq 76 --save_epoch_freq 20 \
-    --load_size 256 --n_samp 64 --input_size 128 --frustum_size_fine 256 \
+    --display_port $PORT --display_ncols 4 --print_freq 73 --display_freq 73 --save_epoch_freq 20 \
+    --load_size 128 --n_samp 64 --input_size 128 --frustum_size_fine 128 \
     --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general' \
     --attn_decay_steps 50000 \
@@ -40,10 +40,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_sce
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0709/4obj-loadPos-ttf-r5' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
-    --continue_train --epoch 600 --epoch_count 601 --lr 0.001 \
+    --continue_train --epoch 900 --epoch_count 901 \
     --depth_supervision \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
-    --exp_id 'dataset-0817-new/4obj-loadchairs-fine256-depth' \
+    --exp_id 'dataset-0817-new/4obj-loadchairs-fine128-depth-3' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 160 epoch' \
     
 # can try the following to list out which GPU you have access to

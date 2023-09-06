@@ -13,14 +13,14 @@ from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDSeparate, Encoder
-from .model_general import SlotAttention, Decoder, DecoderBox, DecoderIPE
+from .model_general import SlotAttention, DecoderIPESG
 from .utils import *
 import numpy as np
 
 
 import torchvision
 
-class uorfGeneralIPEModel(BaseModel):
+class uorfGeneralIPESGModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -164,7 +164,7 @@ class uorfGeneralIPEModel(BaseModel):
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		self.netDecoder = networks.init_net(DecoderIPESG(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													use_viewdirs=opt.use_viewdirs, 
 													), gpu_ids=self.gpu_ids, init_type='xavier')
@@ -321,12 +321,6 @@ class uorfGeneralIPEModel(BaseModel):
 
 		# Encoding images
 		feat_shape, feat_color = self.encode(0)
-		# dropout_shape_rate = (self.opt.feat_dropout_min + 
-		#        (self.opt.feat_dropout_max - self.opt.feat_dropout_min) 
-		# 	   * (epoch - self.opt.feat_dropout_start) 
-		# 	   / (self.opt.niter - self.opt.feat_dropout_start)) \
-		# 		if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else None
-		# dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
 	
 		# Slot Attention
 		if not self.opt.color_in_attn:
@@ -366,7 +360,7 @@ class uorfGeneralIPEModel(BaseModel):
 										 intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
 										 frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxHxW)xDx3, (NxHxW)xDx3, (NxHxW)xD, (NxHxW)x3
-			mean, var, z_vals, ray_dir = mean.view([N, H, W, D, 3]), var.view([N, H, W, D, 3]), z_vals.view([N, H, W, D+1]), ray_dir.view([N, H, W, 3])
+			mean, var, z_vals, ray_dir = mean.view([N, H, W, D, 3]), var.view([N, H, W, D, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
 			W_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)
 			z_vals_, ray_dir_ = z_vals[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], ray_dir[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :]

@@ -39,9 +39,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 730 --n_img_each_sce
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-nodense' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
-    --stratified --fg_object_size 3.5 --n_dense_samp 256 --bg_density_loss --bg_density_in 200 \
-    --continue_train --epoch_count 101 --epoch 100 \
-    --exp_id 'dataset-0817-0828/4obj-loadchairs-fine128-load80-r4' \
+    --stratified --fg_object_size 3 --n_dense_samp 256 --bg_density_loss --bg_density_in 200 \
+    --depth_supervision \
+    --exp_id 'dataset-0817-0828/4obj-loadchairs-fine128-load80-depth' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 80 epoch' \
     
 # can try the following to list out which GPU you have access to

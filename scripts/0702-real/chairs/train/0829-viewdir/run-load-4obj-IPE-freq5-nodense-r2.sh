@@ -35,13 +35,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --freezeInit_steps 50000 \
-    --coarse_epoch 40 --niter 80 --percept_in 20 --no_locality_epoch 0 --seed 2027 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0828-viewdir/1obj-scratch-IPE-freq10' \
+    --coarse_epoch 40 --niter 80 --percept_in 20 --no_locality_epoch 0 --seed 2023 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0828-viewdir/1obj-scratch-IPE-freq5' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_freeze' \
-    --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 20 --one2four \
-    --n_dense_samp 128 --n_freq 10 --use_viewdirs \
-    --exp_id '0828-viewdir/4obj-load-IPE-freq10-r1' \
-    --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
+    --stratified --fixed_locality --fg_object_size 3 --one2four \
+    --n_dense_samp 128 --use_viewdirs \
+    --exp_id '0828-viewdir/4obj-load-IPE-freq5-nodense-r2' \
+    --dummy_info 'DINO from scratch 1 obj with BG and position loss (190 epoch)' \
     
 
 # can try the following to list out which GPU you have access to

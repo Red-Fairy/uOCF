@@ -13,12 +13,15 @@ from matplotlib import cm
 from einops import rearrange
 from functorch import jacrev, vmap
 
+def contract(x):
+    # x: [N, 3]
+    return (2 - 1 / (torch.norm(x, dim=-1, keepdim=True))) * x / torch.norm(x, dim=-1, keepdim=True)
+
 def parameterization(means, covs):
     '''
     means: [B, N, 3]
     covs: [B, N, 3, 3]
     '''
-
     B, N, _ = means.shape
     means = means.reshape([-1, 3])
     if len(covs.shape) == 4:
@@ -70,7 +73,7 @@ def integrated_pos_enc_360(means_covs):
     y_var = torch.sum((torch.matmul(x_cov, P)) * P, -2)
     return expected_sin(torch.cat([y, y + 0.5 * torch.tensor(np.pi)], dim=-1), torch.cat([y_var] * 2, dim=-1))[0]
 
-def integrated_pos_enc(means_covs, min_deg, max_deg, diagonal=True):
+def integrated_pos_enc(means, covs, min_deg, max_deg, diagonal=True):
     """Encode `means` with sinusoids scaled by 2^[min_deg:max_deg-1].
     Args:
         means_covs:[B, N, 3] a tuple containing: means, torch.Tensor, variables to be encoded.
@@ -82,24 +85,21 @@ def integrated_pos_enc(means_covs, min_deg, max_deg, diagonal=True):
         encoded: torch.Tensor, encoded variables.
     """
     if diagonal:
-        means, covs_diag = means_covs
         scales = torch.tensor([2 ** i for i in range(min_deg, max_deg)], device=means.device)  # [L]
         # [B, N, 1, 3] * [L, 1] = [B, N, L, 3]->[B, N, 3L]
         y = rearrange(torch.unsqueeze(means, dim=-2) * torch.unsqueeze(scales, dim=-1),
                       'batch sample scale_dim mean_dim -> batch sample (scale_dim mean_dim)')
         # [B, N, 1, 3] * [L, 1] = [B, N, L, 3]->[B, N, 3L]
-        y_var = rearrange(torch.unsqueeze(covs_diag, dim=-2) * torch.unsqueeze(scales, dim=-1) ** 2,
+        y_var = rearrange(torch.unsqueeze(covs, dim=-2) * torch.unsqueeze(scales, dim=-1) ** 2,
                           'batch sample scale_dim cov_dim -> batch sample (scale_dim cov_dim)')
     else:
-        means, x_cov = means_covs
-        num_dims = means.shape[-1]
-        # [3, L]
+        num_dims = means.shape[-1] # [3, L]
         basis = torch.cat([2 ** i * torch.eye(num_dims, device=means.device) for i in range(min_deg, max_deg)], 1)
         y = torch.matmul(means, basis)  # [B, N, 3] * [3, 3L] = [B, N, 3L]
-        y_var = torch.sum((torch.matmul(x_cov, basis)) * basis, -2)
-    # sin(y + 0.5 * torch.tensor(np.pi)) = cos(y) 中国的学生脑子一定出现那句 “奇变偶不变 符号看象限”
-    return expected_sin(torch.cat([y, y + 0.5 * torch.tensor(np.pi)], dim=-1), torch.cat([y_var] * 2, dim=-1))[0]
+        y_var = torch.sum((torch.matmul(covs, basis)) * basis, -2)
 
+    ret = expected_sin(torch.cat([y, y + 0.5 * torch.tensor(np.pi)], dim=-1), torch.cat([y_var] * 2, dim=-1))[0]
+    return torch.cat([ret, means], dim=-1)
 
 class PositionalEncoding(nn.Module):
     def __init__(self, min_deg=0, max_deg=5):
@@ -123,7 +123,7 @@ class PositionalEncoding(nn.Module):
             x_ret = torch.cat([x_ret, x_], dim=-1) # N*(6*(max_deg-min_deg)+3)
             return x_ret, y_ret
         else:
-            # PE (for viewdirs)
+            # PE
             x_ret = torch.sin(x_enc)
             x_ret = torch.cat([x_ret, x_], dim=-1) # N*(6*(max_deg-min_deg)+3)
             return x_ret
@@ -211,11 +211,11 @@ def conical_frustum_to_gaussian(directions, t0, t1, base_radius, diagonal, stabl
     if stable:
         mu = (t0 + t1) / 2
         hw = (t1 - t0) / 2
-        eps = torch.tensor(torch.finfo(torch.float32).eps)
-        t_mean = mu + (2 * mu * hw ** 2) / torch.maximum(eps, 3 * mu ** 2 + hw ** 2)
-        denom = torch.maximum(eps, 3 * mu ** 2 + hw ** 2)
-        t_var = (hw ** 2) / 3 - (4 / 15) * hw ** 4 * (12 * mu ** 2 - hw ** 2) / denom ** 2
-        r_var = (mu ** 2) / 4 + (5 / 12) * hw ** 2 - (4 / 15) * (hw ** 4) / denom
+        t_mean = mu + (2 * mu * hw ** 2) / (3 * mu ** 2 + hw ** 2)
+        t_var = (hw ** 2) / 3 - (4 / 15) * ((hw ** 4 * (12 * mu ** 2 - hw ** 2)) /
+                                            (3 * mu ** 2 + hw ** 2) ** 2)
+        r_var = base_radius ** 2 * ((mu ** 2) / 4 + (5 / 12) * hw ** 2 - 4 / 15 *
+                                    (hw ** 4) / (3 * mu ** 2 + hw ** 2))
     else:
         t_mean = (3 * (t1 ** 4 - t0 ** 4)) / (4 * (t1 ** 3 - t0 ** 3))
         r_var = base_radius ** 2 * (3 / 20 * (t1 ** 5 - t0 ** 5) / (t1 ** 3 - t0 ** 3))
@@ -244,7 +244,7 @@ def cylinder_to_gaussian(d, t0, t1, radius, diag):
     t_var = (t1 - t0) ** 2 / 12
     return lift_gaussian(d, t_mean, t_var, r_var, diag)
 
-def raw2outputs(raw, z_vals, rays_d, render_mask=False):
+def raw2outputs(raw, z_vals, rays_d, render_mask=False, mip=False):
     """Transforms model's predictions to semantically meaningful values.
     Args:
         raw: [num_rays, num_samples along ray, 4]. Prediction from model.
@@ -258,7 +258,8 @@ def raw2outputs(raw, z_vals, rays_d, render_mask=False):
     device = raw.device
 
     dists = z_vals[..., 1:] - z_vals[..., :-1]
-    dists = torch.cat([dists, torch.tensor([1e-2], device=device).expand(dists[..., :1].shape)], -1)  # [N_rays, N_samples]
+    if not mip:
+        dists = torch.cat([dists, torch.tensor([1e-2], device=device).expand(dists[..., :1].shape)], -1)  # [N_rays, N_samples]
 
     dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
 
@@ -271,7 +272,12 @@ def raw2outputs(raw, z_vals, rays_d, render_mask=False):
 
     weights_norm = weights.detach() + 1e-5
     weights_norm /= weights_norm.sum(dim=-1, keepdim=True) # [N_rays, N_samples]
-    depth_map = torch.sum(weights_norm * z_vals, -1)
+    if not mip:
+        depth_map = torch.sum(weights_norm * z_vals, -1) # [N_rays,]
+    else:
+        z_mids = 0.5 * (z_vals[..., :-1] + z_vals[..., 1:])
+        depth_map = torch.sum(weights_norm * z_mids, -1) # [N_rays,]
+    depth_map = torch.clamp(torch.nan_to_num(depth_map), z_vals[:, 0], z_vals[:, -1])
 
     if render_mask:
         density = raw[..., 3]  # [N_rays, N_samples]

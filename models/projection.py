@@ -377,7 +377,7 @@ class Projection(object):
             ray_dir = torch.stack(ray_dir_, dim=0)  # 4xNx(H/s)x(W/s)x3
             ray_dir = ray_dir.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))x3
         
-        return (means, covs), t_vals[..., :D], ray_dir
+        return (means, covs), t_vals, ray_dir
 
     def cast_rays(self, t_samples, origins, directions, radii, ray_shape, diagonal=True):
         """Cast rays (cone- or cylinder-shaped) and featurize sections of it.
@@ -419,25 +419,66 @@ class Projection(object):
         device = ray_origin.device
 
         t_vals = torch.linspace(0., 1., D + 1,  device=device)
-        far_inv = 1 / far_nss
-        near_inv = 1 / near_nss
-        t_vals = near_inv * (1. - t_vals) + far_inv * t_vals
+        t_vals = near_nss * (1. - t_vals) + far_nss * t_vals
 
         if stratified:
-            mids = 0.5 * (t_inv[..., 1:] + t_inv[..., :-1])
-            upper = torch.cat([mids, t_inv[..., -1:]], -1)
-            lower = torch.cat([t_inv[..., :1], mids], -1)
+            mids = 0.5 * (t_vals[..., 1:] + t_vals[..., :-1])
+            upper = torch.cat([mids, t_vals[..., -1:]], -1)
+            lower = torch.cat([t_vals[..., :1], mids], -1)
             t_rand = torch.rand(batch_size, D + 1, device=device)
-            t_inv = lower + (upper - lower) * t_rand
+            t_vals = lower + (upper - lower) * t_rand
         else:
-            # Broadcast t_inv to make the returned shape consistent.
-            t_inv = torch.broadcast_to(t_inv, [batch_size, D + 1])
+            # Broadcast t_vals to make the returned shape consistent.
+            t_vals = torch.broadcast_to(t_vals, [batch_size, D + 1])
 
-        t_vals = 1 / t_inv
         radii = self.radii.unsqueeze(0).expand(batch_size, 1) # (NxHxW)x1
 
-        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape, False)
-        return t_inv, (means, covs)
+        means, covs = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape, diagnal=False)
+        _, covs_diag = self.cast_rays(t_vals, ray_origin, ray_dir, radii, ray_shape, diagnal=True)
+
+        if partitioned:
+            scale = H // self.render_size[0]
+            means = means.view(N, H, W, D, 3)
+            means_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                means_.append(means[:, h::scale, w::scale, ...])
+            means = torch.stack(means_, dim=0)  # 4xNx(H/s)x(W/s)xDx3
+            means = means.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))xDx3
+
+            covs = covs.view(N, H, W, D, 3, 3)
+            covs_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                covs_.append(covs[:, h::scale, w::scale, ...])
+            covs = torch.stack(covs_, dim=0)  # 4xNx(H/s)x(W/s)xDx3x3
+            covs = covs.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))xDx3x3
+
+            covs_diag = covs_diag.view(N, H, W, D, 3)
+            covs_diag_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                covs_diag_.append(covs_diag[:, h::scale, w::scale, ...])
+            covs_diag = torch.stack(covs_diag_, dim=0)  # 4xNx(H/s)x(W/s)xDx3
+            covs_diag = covs_diag.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))xDx3
+
+            t_vals = t_vals.view(N, H, W, D+1)
+            t_vals_ = []
+            for i in range(scale**2):
+                h, w = divmod(i, scale)
+                t_vals_.append(t_vals[:, h::scale, w::scale, :])
+            t_vals = torch.stack(t_vals_, dim=0)  # 4xNx(H/s)x(W/s)x(D+1)
+            t_vals = t_vals.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))x(D+1)
+
+            ray_dir = ray_dir.view(N, H, W, 3)
+            ray_dir_ = []
+            for i in range(scale ** 2):
+                h, w = divmod(i, scale)
+                ray_dir_.append(ray_dir[:, h::scale, w::scale, :])
+            ray_dir = torch.stack(ray_dir_, dim=0)  # 4xNx(H/s)x(W/s)x3
+            ray_dir = ray_dir.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))x3
+
+        return t_vals, (means, covs, covs_diag), ray_dir
 
 if __name__ == '__main__':
     pass

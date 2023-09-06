@@ -114,7 +114,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
@@ -231,7 +231,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
 			masked_raws[:, :, h::scale, w::scale, ...] = masked_raws_
 			unmasked_raws[:, :, h::scale, w::scale, ...] = unmasked_raws_
-			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_, mip=True)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			rendered[..., h::scale, w::scale] = rendered_
@@ -306,7 +306,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
 			masked_raws[..., h::scale, w::scale, :, :] = masked_raws_
 			unmasked_raws[..., h::scale, w::scale, :, :] = unmasked_raws_
-			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_, mip=True)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			rendered[..., h::scale, w::scale] = rendered_
@@ -369,7 +369,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
 			masked_raws[..., h::scale, w::scale, :, :] = masked_raws_
 			unmasked_raws[..., h::scale, w::scale, :, :] = unmasked_raws_
-			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_, mip=True)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			rendered[..., h::scale, w::scale] = rendered_
@@ -401,7 +401,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 				raws = masked_raws[k]  # NxDxHxWx4
 				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True, mip=True)
 				# mask_maps.append(mask_map.view(N, H, W))
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 				x_recon = rendered * 2 - 1
@@ -412,7 +412,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 				raws = unmasked_raws[k]  # NxDxHxWx4
 				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True, mip=True)
 				mask_maps.append(mask_map.view(N, H, W))
 				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 				x_recon = rendered * 2 - 1

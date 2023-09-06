@@ -28,7 +28,7 @@ python -m visdom.server -p $PORT &>/dev/null &
 CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 24 --start_scene_idx 0 --n_img_each_scene 2  \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
     --display_port $PORT --display_ncols 4 \
-    --load_size 256 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 256 \
+    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
     --model 'uorf_general_eval_IPE' \
     --num_slots 5 --attn_iter 4 \
     --shape_dim 72 --color_dim 24 \
@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 24 --start
     --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-hard/0828/4obj-loadchairs-bg-fine256-load30' \
     --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --show_recon_stats \
     --nss_scale 7 --epoch 1000 \
-    --dummy_info 'test_real' --testset_name 'test4obj_cabinet_load256' \
+    --dummy_info 'test_real' --testset_name 'test4obj_cabinet_load128' \
 
 
 # can try the following to list out which GPU you have access to

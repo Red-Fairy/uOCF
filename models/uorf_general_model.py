@@ -45,6 +45,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
 		parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
 		parser.add_argument('--weight_percept', type=float, default=0.006)
+		parser.add_argument('--weight_recon', type=float, default=1)
 		parser.add_argument('--percept_in', type=int, default=100)
 		parser.add_argument('--mask_in', type=int, default=0)
 		parser.add_argument('--no_locality_epoch', type=int, default=600)
@@ -82,7 +83,8 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
-		parser.add_argument('--weight_depth', type=float, default=50, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_ranking', type=float, default=50, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_continuity', type=float, default=50, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=250, help='when to start the depth supervision')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
@@ -109,7 +111,7 @@ class uorfGeneralModel(BaseModel):
 		if self.opt.bg_density_loss:
 			self.loss_names += ['bg_density']
 		if self.opt.depth_supervision:
-			self.loss_names += ['depth']
+			self.loss_names	+= ['depth_ranking', 'depth_continuity']
 		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		self.perceptual_net = get_perceptual_net().to(self.device)
@@ -317,8 +319,8 @@ class uorfGeneralModel(BaseModel):
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
 		# dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
 		dens_noise = 0
-		self.loss_recon, self.loss_perc, self.loss_sfs, \
-			self.loss_pos, self.loss_bg_density, self.loss_depth = 0, 0, 0, 0, 0, 0
+		self.loss_recon, self.loss_perc, self.loss_sfs, self.loss_pos, \
+			self.loss_bg_density, self.loss_depth_ranking, self.loss_depth_continuity = 0, 0, 0, 0, 0, 0, 0
 		dev = self.x[0:1].device
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -412,44 +414,90 @@ class uorfGeneralModel(BaseModel):
 			self.loss_bg_density = self.opt.weight_bg_density * torch.sum(bg_density * mask) / (N*D*H*W)
 
 		if self.opt.depth_supervision and epoch >= self.opt.depth_in:
-			'''
-			add ranking loss, random pick M pairs of pixels from the disparity (gt) and disparity_rendered
-			each pair of pixel should be close (no more than 6 on height and width)
-			if the first pixel has smaller disparity than the second one on the ground truth,
-			if d1_gt < d2_gt, loss = max(0, d1_rendered - d2_rendered + margin)
-			else loss = max(0, d2_rendered - d1_rendered + margin)
-			'''
-			M = 32
-			diff_max = 8
-			scale = 1e-2
-			# sample M pairs of pixels, first sample height, then height difference, then width, then width difference
-			H, W = disparity.shape[2:]
-			idx = torch.zeros((2*M, 2, 2), device=dev, dtype=torch.long)
-			idx[:M, 0, 0] = torch.randint(low=0, high=H, size=(M,), device=dev)
-			idx[:M, 0, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[:M, 0, 0]
-			idx[:M, 1, 0] = torch.randint(low=0, high=W, size=(M,), device=dev)
-			idx[:M, 1, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[:M, 1, 0]
-			idx[M:, 0, 0] = torch.randint(low=0, high=H, size=(M,), device=dev)
-			idx[M:, 0, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[M:, 0, 0]
-			idx[M:, 1, 0] = torch.randint(low=0, high=W, size=(M,), device=dev)
-			idx[M:, 1, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[M:, 1, 0]
-			# flatten the indices to (2*M, 2)
-			idx_new = torch.zeros((2*M, 2), device=dev, dtype=torch.long)
-			idx_new[:M] = idx[:M, 0] * W + idx[:M, 1]
-			idx_new[M:] = idx[M:, 0] * W + idx[M:, 1] + H*W
-
-			disparity_gt_ = disparity.squeeze(1).flatten() # NxHxW
-			disparity_rendered = 1 / depth_map.view(N, H, W).clamp(min=1e-6).unsqueeze(1) # Nx1xHxW
-			disparity_rendered_ = disparity_rendered.squeeze(1).flatten() # NxHxW
-			disparity_gt_1, disparity_gt_2 = disparity_gt_[idx_new[:, 0]], disparity_gt_[idx_new[:, 1]]
-			disparity_rendered_1, disparity_rendered_2 = disparity_rendered_[idx_new[:, 0]], disparity_rendered_[idx_new[:, 1]]
+			depth_rendered = depth_map.view(N, H, W).clamp(min=1e-6).unsqueeze(1) # Nx1xHxW
+			disparity_rendered = 1 / depth_rendered # Nx1xHxW
+			''' add ranking loss, randomly pick a patch of length L, 
+			and a nearby patch of length L (no more than 32 pixels away), forming L**2 pairs. For each pair of pixels,
+			if the first pixel has smaller disparity than the second one on the ground truth, (i.e., disparity_1_gt < disparity_2_gt)
+			then loss = max(0, depth_2_rendered - depth_1_rendered + margin)
+			else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
+			L, diff_max = 8, 5
 			margin = 1e-4
-			mask_gt = (disparity_gt_1 < disparity_gt_2).float()
-			disparity_diff_rendered = (disparity_rendered_1 - disparity_rendered_2) * scale
-			self.loss_depth = (torch.mean(torch.clamp(disparity_diff_rendered + margin, min=0) * mask_gt) + \
-						torch.mean(torch.clamp(-disparity_diff_rendered + margin, min=0) * (1 - mask_gt))) * self.opt.weight_depth
 
-		self.loss_recon = self.L2_loss(x_recon, x)
+			patch1_start_h, patch1_start_w = torch.randint(low=0, high=H-L-diff_max, size=(1,), device=dev), \
+											torch.randint(low=0, high=W-L-diff_max, size=(1,), device=dev)
+			patch2_start_h, patch2_start_w = torch.randint(low=0, high=diff_max, size=(1,), device=dev) + patch1_start_h, \
+											torch.randint(low=0, high=diff_max, size=(1,), device=dev) + patch1_start_w
+
+			disparity_gt_1 = disparity[:, 0, patch1_start_h:patch1_start_h+L, patch1_start_w:patch1_start_w+L].flatten() # N*L**2
+			disparity_gt_2 = disparity[:, 0, patch2_start_h:patch2_start_h+L, patch2_start_w:patch2_start_w+L].flatten() # N*L**2
+			mask_gt = (disparity_gt_1 < disparity_gt_2).float()
+
+			depth_rendered_1 = depth_rendered[:, 0, patch1_start_h:patch1_start_h+L, patch1_start_w:patch1_start_w+L].flatten() # N*L**2
+			depth_rendered_2 = depth_rendered[:, 0, patch2_start_h:patch2_start_h+L, patch2_start_w:patch2_start_w+L].flatten() # N*L**2
+
+			depth_diff_rendered = (depth_rendered_1 - depth_rendered_2)
+			self.loss_depth_ranking += (torch.mean(torch.clamp(depth_diff_rendered + margin, min=0) * (1 - mask_gt)) + \
+					  			torch.mean(torch.clamp(-depth_diff_rendered + margin, min=0) * mask_gt)) * self.opt.weight_depth_ranking		
+
+			'''add a continuity loss, randomly pick M=32 pixels, for each pixel, find the nearest P=4 pixels in its (2T+1)*(2T+1) neighborhood 
+			in terms of the disparity on the ground truth,
+			then calculate the average depth difference between p and its nearest T pixels on the rendered depth map
+			'''
+			M, T, P = 32, 2, 4
+			margin = 1e-4
+			# sample M pixels
+			H, W = disparity.shape[2:]
+			for _ in range(M):
+				x, y = torch.randint(low=T, high=H-T, size=(1,), device=dev), torch.randint(low=T, high=W-T, size=(1,), device=dev)
+				neighborhood = disparity[0, 0, x-T:x+T+1, y-T:y+T+1].flatten() # (2T+1)**2
+				distances = torch.abs(neighborhood - disparity[0, 0, x, y])
+				nearest_indices = torch.argsort(distances)[:P]
+				depth_diff_rendered = torch.mean(torch.abs(depth_rendered[0, 0, x, y] - depth_rendered[0, 0].flatten()[nearest_indices]))
+				self.loss_depth_continuity += torch.clamp(depth_diff_rendered - margin, min=0) * self.opt.weight_depth_continuity
+
+			# M = 32
+			# diff_max = 8
+			# margin = 1e-4
+			# scale = 1e-2
+			# # sample M pairs of pixels, first sample height, then height difference, then width, then width difference
+			# H, W = disparity.shape[2:]
+			# idx = torch.zeros((2*M, 2, 2), device=dev, dtype=torch.long)
+			# idx[:M, 0, 0] = torch.randint(low=0, high=H-diff_max, size=(M,), device=dev)
+			# idx[:M, 0, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[:M, 0, 0]
+			# idx[:M, 1, 0] = torch.randint(low=0, high=W-diff_max, size=(M,), device=dev)
+			# idx[:M, 1, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[:M, 1, 0]
+			# idx[M:, 0, 0] = torch.randint(low=0, high=H-diff_max, size=(M,), device=dev)
+			# idx[M:, 0, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[M:, 0, 0]
+			# idx[M:, 1, 0] = torch.randint(low=0, high=W-diff_max, size=(M,), device=dev)
+			# idx[M:, 1, 1] = torch.randint(low=0, high=diff_max, size=(M,), device=dev) + idx[M:, 1, 0]
+			# # flatten the indices to (2*M, 2)
+			# idx_new = torch.zeros((2*M, 2), device=dev, dtype=torch.long)
+			# idx_new[:M] = idx[:M, 0] * W + idx[:M, 1]
+			# idx_new[M:] = idx[M:, 0] * W + idx[M:, 1] + H*W
+
+			# disparity_gt_ = disparity.squeeze(1).flatten() # NxHxW
+			# disparity_gt_1, disparity_gt_2 = disparity_gt_[idx_new[:, 0]], disparity_gt_[idx_new[:, 1]]
+			# mask_gt = (disparity_gt_1 < disparity_gt_2).float()
+			
+			# depth_rendered = depth_map.view(N, H, W).clamp(min=1e-6).unsqueeze(1) # Nx1xHxW
+			# disparity_rendered = 1 / depth_rendered # Nx1xHxW
+
+			# # use depth map as loss, smaller disparity means larger depth
+			# depth_rendered_ = depth_rendered.squeeze(1).flatten() # NxHxW
+			# depth_rendered_1, depth_rendered_2 = depth_rendered_[idx_new[:, 0]], depth_rendered_[idx_new[:, 1]]
+			# depth_diff_rendered = (depth_rendered_1 - depth_rendered_2) 
+			# self.loss_depth = (torch.mean(torch.clamp(depth_diff_rendered + margin, min=0) * (1 - mask_gt)) + \
+			# 			torch.mean(torch.clamp(-depth_diff_rendered + margin, min=0) * mask_gt)) * self.opt.weight_depth
+			
+			# use disparity map as loss
+			# disparity_rendered_ = disparity_rendered.squeeze(1).flatten() # NxHxW
+			# disparity_rendered_1, disparity_rendered_2 = disparity_rendered_[idx_new[:, 0]], disparity_rendered_[idx_new[:, 1]]
+			# disparity_diff_rendered = (disparity_rendered_1 - disparity_rendered_2) * scale
+			# self.loss_depth = (torch.mean(torch.clamp(disparity_diff_rendered + margin, min=0) * mask_gt) + \
+			# 			torch.mean(torch.clamp(-disparity_diff_rendered + margin, min=0) * (1 - mask_gt))) * self.opt.weight_depth
+
+		self.loss_recon = self.L2_loss(x_recon, x) * self.opt.weight_recon
 		x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
 		rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
 		self.loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
@@ -529,9 +577,8 @@ class uorfGeneralModel(BaseModel):
 	def backward(self):
 		"""Calculate losses, gradients, and update network weights; called in every training iteration"""
 		loss = self.loss_recon + self.loss_perc + self.loss_sfs + \
-					self.loss_pos + self.loss_bg_density + self.loss_depth
+					self.loss_pos + self.loss_bg_density + self.loss_depth_ranking + self.loss_depth_continuity
 		loss.backward()
-		# self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 
 	def optimize_parameters(self, ret_grad=False, epoch=0):
 		"""Update network weights; it will be called in every training iteration."""
