@@ -84,7 +84,7 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
 		parser.add_argument('--weight_depth_ranking', type=float, default=50, help='weight of the depth supervision')
-		parser.add_argument('--weight_depth_continuity', type=float, default=50, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_continuity', type=float, default=0.5, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=250, help='when to start the depth supervision')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
@@ -447,13 +447,12 @@ class uorfGeneralModel(BaseModel):
 			M, T, P = 32, 2, 4
 			margin = 1e-4
 			# sample M pixels
-			H, W = disparity.shape[2:]
 			for _ in range(M):
-				x, y = torch.randint(low=T, high=H-T, size=(1,), device=dev), torch.randint(low=T, high=W-T, size=(1,), device=dev)
-				neighborhood = disparity[0, 0, x-T:x+T+1, y-T:y+T+1].flatten() # (2T+1)**2
-				distances = torch.abs(neighborhood - disparity[0, 0, x, y])
-				nearest_indices = torch.argsort(distances)[:P]
-				depth_diff_rendered = torch.mean(torch.abs(depth_rendered[0, 0, x, y] - depth_rendered[0, 0].flatten()[nearest_indices]))
+				px, py = torch.randint(low=T, high=H-T, size=(1,), device=dev), torch.randint(low=T, high=W-T, size=(1,), device=dev)
+				neighborhood = disparity[0, 0, px-T:px+T+1, py-T:py+T+1].flatten() # (2T+1)**2
+				distances = torch.abs(neighborhood - disparity[0, 0, px, py])
+				nearest_indices = torch.argsort(distances)[:P+1]
+				depth_diff_rendered = torch.mean(torch.abs(depth_rendered[0, 0, px, py] - depth_rendered[0, 0, px-T:px+T+1, py-T:py+T+1].flatten()[nearest_indices]))
 				self.loss_depth_continuity += torch.clamp(depth_diff_rendered - margin, min=0) * self.opt.weight_depth_continuity
 
 			# M = 32

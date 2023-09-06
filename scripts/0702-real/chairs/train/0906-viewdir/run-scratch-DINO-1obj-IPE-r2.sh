@@ -28,7 +28,7 @@ python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 10 \
-    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
+    --load_size 128 --n_samp 56 --input_size 128 --supervision_size 128 --frustum_size 128 \
     --model 'uorf_general_IPESG' \
     --attn_decay_steps 200000 \
     --bottom \
