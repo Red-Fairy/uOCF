@@ -1,16 +1,22 @@
+from os import write
 import time
 from options.train_options import TrainOptions
 from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
 from util.util import AverageMeter, set_seed
-
+from torch.utils.tensorboard import SummaryWriter
+import os
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()   # get training options
     dataset = create_dataset(opt)  # create a dataset given opt.dataset_mode and other options
     dataset_size = len(dataset)    # get the number of images in the dataset.
     print('The number of training images = %d' % dataset_size)
+
+    # Create a tensorboard writer
+    os.makedirs(os.path.join(opt.checkpoints_dir, opt.name, opt.exp_id, 'logs'), exist_ok=True)
+    writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, opt.exp_id, 'logs'))
 
     model = create_model(opt)      # create a model given opt.model and other options
     model.setup(opt)               # regular setup: load and print networks; create schedulers
@@ -71,6 +77,8 @@ if __name__ == '__main__':
             model.save_networks(save_suffix)
 
         print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.niter + opt.niter_decay, time.time() - epoch_start_time))
+        for stat in model.loss_names:
+            writer.add_scalar(f'train/{stat}', meters_trn[stat].avg, epoch)
         if not opt.custom_lr:
             model.update_learning_rate()  # update learning rates at the end of every epoch.
 
