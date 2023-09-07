@@ -13,7 +13,7 @@ from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDSeparate, Encoder
-from .model_general import SlotAttention, Decoder, DecoderBox, DecoderIPE
+from .model_general import SlotAttention, Decoder, DecoderBox, DecoderIPE, DecoderIPEVD
 from .utils import *
 import numpy as np
 
@@ -82,8 +82,8 @@ class uorfGeneralIPEModel(BaseModel):
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
-		parser.add_argument('--weight_depth_ranking', type=float, default=50, help='weight of the depth supervision')
-		parser.add_argument('--weight_depth_continuity', type=float, default=50, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_ranking', type=float, default=3, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_continuity', type=float, default=0.05, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=250, help='when to start the depth supervision')
 		parser.add_argument('--use_viewdirs', action='store_true', help='use viewdirs in the decoder')
 
@@ -164,16 +164,22 @@ class uorfGeneralIPEModel(BaseModel):
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		if not opt.use_viewdirs:
+			self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=opt.use_viewdirs, 
+													use_viewdirs=False,
+													), gpu_ids=self.gpu_ids, init_type='xavier')
+		else:
+			self.netDecoder = networks.init_net(DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim+3, z_dim=z_dim, n_layers=opt.n_layer,
+													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
+													use_viewdirs=True,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 
 		self.L2_loss = nn.MSELoss()
 		self.sfs_loss = SlotFeatureSlotLoss()
 		self.pos_loss = PositionSetLoss()
 
-	def set_visual_names(self):
+	def set_visual_names(self, set_depth=False):
 		n = self.opt.n_img_each_scene
 		n_slot = self.opt.num_slots
 		self.visual_names = ['x{}'.format(i) for i in range(n)] + \
@@ -181,6 +187,9 @@ class uorfGeneralIPEModel(BaseModel):
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
+		if set_depth:
+			self.visual_names += ['disparity{}'.format(i) for i in range(n)] + \
+								 ['disparity_rec{}'.format(i) for i in range(n)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -307,6 +316,8 @@ class uorfGeneralIPEModel(BaseModel):
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
+		if epoch >= self.opt.depth_in and self.opt.depth_supervision:
+			self.set_visual_names(set_depth=True)
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
 		# dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
 		dens_noise = 0
@@ -352,7 +363,7 @@ class uorfGeneralIPEModel(BaseModel):
 									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
-			if self.opt.depth_supervision:
+			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = F.interpolate(self.disparity, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
@@ -373,7 +384,7 @@ class uorfGeneralIPEModel(BaseModel):
 			mean_, var_ = mean[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...], var[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...]
 			mean, var, z_vals, ray_dir = mean_.flatten(0, 2), var_.flatten(0, 2), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
-			if self.opt.depth_supervision:
+			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = self.disparity[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 
@@ -418,13 +429,13 @@ class uorfGeneralIPEModel(BaseModel):
 			if the first pixel has smaller disparity than the second one on the ground truth, (i.e., disparity_1_gt < disparity_2_gt)
 			then loss = max(0, depth_2_rendered - depth_1_rendered + margin)
 			else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
-			L, diff_max = 8, 5
+			L, diff_max = 32, 5
 			margin = 1e-4
 
-			patch1_start_h, patch1_start_w = torch.randint(low=0, high=H-L-diff_max, size=(1,), device=dev), \
-											torch.randint(low=0, high=W-L-diff_max, size=(1,), device=dev)
-			patch2_start_h, patch2_start_w = torch.randint(low=0, high=diff_max, size=(1,), device=dev) + patch1_start_h, \
-											torch.randint(low=0, high=diff_max, size=(1,), device=dev) + patch1_start_w
+			patch1_start_h, patch1_start_w = torch.randint(low=diff_max, high=H-L-diff_max, size=(1,), device=dev), \
+											torch.randint(low=diff_max, high=W-L-diff_max, size=(1,), device=dev)
+			patch2_start_h, patch2_start_w = torch.randint(low=-diff_max, high=diff_max, size=(1,), device=dev) + patch1_start_h, \
+											torch.randint(low=-diff_max, high=diff_max, size=(1,), device=dev) + patch1_start_w
 
 			disparity_gt_1 = disparity[:, 0, patch1_start_h:patch1_start_h+L, patch1_start_w:patch1_start_w+L].flatten() # N*L**2
 			disparity_gt_2 = disparity[:, 0, patch2_start_h:patch2_start_h+L, patch2_start_w:patch2_start_w+L].flatten() # N*L**2
@@ -448,10 +459,9 @@ class uorfGeneralIPEModel(BaseModel):
 				px, py = torch.randint(low=T, high=H-T, size=(1,), device=dev), torch.randint(low=T, high=W-T, size=(1,), device=dev)
 				neighborhood = disparity[0, 0, px-T:px+T+1, py-T:py+T+1].flatten() # (2T+1)**2
 				distances = torch.abs(neighborhood - disparity[0, 0, px, py])
-				nearest_indices = torch.argsort(distances)[:P+1]
-				depth_diff_rendered = torch.mean(torch.abs(depth_rendered[0, 0, px, py] - depth_rendered[0, 0, px-T:px+T+1, py-T:py+T+1].flatten()[nearest_indices]))
-				self.loss_depth_continuity += torch.clamp(depth_diff_rendered - margin, min=0) * self.opt.weight_depth_continuity
-
+				nearest_indices = torch.argsort(distances)[1:P+1]
+				depth_diff_rendered = torch.abs(depth_rendered[0, 0, px, py] - depth_rendered[0, 0, px-T:px+T+1, py-T:py+T+1].flatten()[nearest_indices]) # P
+				self.loss_depth_continuity += torch.mean(torch.clamp(depth_diff_rendered - margin, min=0)) * self.opt.weight_depth_continuity
 
 		if self.opt.sfs_loss:
 			# shape representations of foreground slots: z_slots[1:, :self.opt.shape_dim] # K*C
@@ -484,7 +494,7 @@ class uorfGeneralIPEModel(BaseModel):
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 				setattr(self, 'x{}'.format(i), x[i])
-				if self.opt.depth_supervision:
+				if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 					# normalize to 0-1
 					setattr(self, 'disparity{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
 					setattr(self, 'disparity_rec{}'.format(i), (disparity_rendered[i] - disparity_rendered[i].min()) / (disparity_rendered[i].max() - disparity_rendered[i].min()))

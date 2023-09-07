@@ -1160,7 +1160,7 @@ class DecoderIPE(nn.Module):
 
 		return raws, masked_raws, unmasked_raws, masks
 
-class DecoderIPESG(nn.Module):
+class DecoderIPEVD(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 
 		  			locality_ratio=4/7, fixed_locality=False, use_viewdirs=False, n_freq_viewdirs=3):
 		"""
@@ -1194,9 +1194,7 @@ class DecoderIPESG(nn.Module):
 		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
 		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
 									 nn.ReLU(True),
-									 nn.Linear(z_dim//4, 3),
-									 nn.Sigmoid() # new
-									 )
+									 nn.Linear(z_dim//4, 3))
 		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
 		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
 		for i in range(n_layers - 1):
@@ -1204,13 +1202,11 @@ class DecoderIPESG(nn.Module):
 			before_skip.append(nn.ReLU(True))
 			after_skip.append(nn.Linear(z_dim, z_dim))
 			after_skip.append(nn.ReLU(True))
-		# after_skip.append(nn.Linear(z_dim, self.out_ch))
+
 		self.b_before = nn.Sequential(*before_skip)
 		self.b_after = nn.Sequential(*after_skip)
 
-		self.b_color = nn.Sequential(nn.Linear(z_dim, 3),
-									 nn.Sigmoid()  # new
-									 )
+		self.b_color = nn.Linear(z_dim, 3)
 		self.b_shape = nn.Linear(z_dim, 1)
 
 		self.pos_enc = PositionalEncoding(max_deg=n_freq)

@@ -83,8 +83,8 @@ class uorfGeneralModel(BaseModel):
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
-		parser.add_argument('--weight_depth_ranking', type=float, default=0.5, help='weight of the depth supervision')
-		parser.add_argument('--weight_depth_continuity', type=float, default=0.01, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_continuity', type=float, default=0.025, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=250, help='when to start the depth supervision')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
@@ -179,7 +179,7 @@ class uorfGeneralModel(BaseModel):
 		self.sfs_loss = SlotFeatureSlotLoss()
 		self.pos_loss = PositionSetLoss()
 
-	def set_visual_names(self):
+	def set_visual_names(self, set_depth=False):
 		n = self.opt.n_img_each_scene
 		n_slot = self.opt.num_slots
 		self.visual_names = ['x{}'.format(i) for i in range(n)] + \
@@ -187,7 +187,7 @@ class uorfGeneralModel(BaseModel):
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
-		if self.opt.depth_supervision:
+		if set_depth:
 			self.visual_names += ['disparity{}'.format(i) for i in range(n)] + \
 								 ['disparity_rec{}'.format(i) for i in range(n)]
 
@@ -316,6 +316,8 @@ class uorfGeneralModel(BaseModel):
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
+		if epoch >= self.opt.depth_in and self.opt.depth_supervision:
+			self.set_visual_names(set_depth=True)
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
 		# dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
 		dens_noise = 0
@@ -361,7 +363,7 @@ class uorfGeneralModel(BaseModel):
 									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
-			if self.opt.depth_supervision:
+			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = F.interpolate(self.disparity, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
@@ -381,7 +383,7 @@ class uorfGeneralModel(BaseModel):
 			frus_nss_coor_, z_vals_, ray_dir_ = frus_nss_coor[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], z_vals[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :], ray_dir[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :]
 			frus_nss_coor, z_vals, ray_dir = frus_nss_coor_.flatten(0, 3), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
-			if self.opt.depth_supervision:
+			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = self.disparity[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 
@@ -532,7 +534,7 @@ class uorfGeneralModel(BaseModel):
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 				setattr(self, 'x{}'.format(i), x[i])
-				if self.opt.depth_supervision:
+				if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 					# normalize to 0-1
 					setattr(self, 'disparity{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
 					setattr(self, 'disparity_rec{}'.format(i), (disparity_rendered[i] - disparity_rendered[i].min()) / (disparity_rendered[i].max() - disparity_rendered[i].min()))

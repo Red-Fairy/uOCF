@@ -4,7 +4,7 @@ from models import create_model
 from util.visualizer import Visualizer, save_images
 from util.html import HTML
 import os
-from util.util import AverageMeter, set_seed, write_location
+from util.util import AverageMeter, set_seed, write_location, parse_wanted_indice
 
 import torch
 
@@ -22,50 +22,43 @@ meters_tst = {stat: AverageMeter() for stat in model.loss_names}
 
 set_seed(opt.seed)
 
-web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
-                        '{}_{}'.format(opt.testset_name, opt.epoch))  # define the website directory
-print('creating web directory', web_dir)
-webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
+wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
-file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w+')
+# file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w+')
 
-for i, data in enumerate(dataset):
-    visualizer.reset()
-    model.set_input(data)  # unpack data from data loader
-    # model.test()           # run inference: forward + compute_visuals
+suffix = 'swap'
 
-    file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, '{}_{}'.format(opt.testset_name, opt.epoch), 'slot_location.txt'), 'w')
+for j, data in enumerate(dataset):
 
-    with torch.no_grad():
-        model.forward()
-        fg_slot_position = torch.zeros((opt.num_slots-1, 2))
-        fg_slot_position[0] = torch.tensor([0, 0])
-        fg_slot_position[1] = torch.tensor([0, 0])
-        fg_slot_position[2] = torch.tensor([0, 0])
-        fg_slot_position[3] = torch.tensor([0, 0])
-        # fg_slot_position[4] = torch.tensor([0, 0.5])
-        # fg_slot_position[5] = torch.tensor([0, -0.5])
-        # fg_slot_position[6] = torch.tensor([0, 0])
-        model.forward_position(fg_slot_nss_position=fg_slot_position)
-        model.compute_visuals()
+	if not wanted_indices is None and j not in wanted_indices:
+		continue
+	  
+	visualizer.reset()
+	model.set_input(data)  # unpack data from data loader
+	# model.test()           # run inference: forward + compute_visuals
 
-    # losses = model.get_current_losses()
-    # visualizer.print_test_losses(i, losses)
-    # for loss_name in model.loss_names:
-    #     meters_tst[loss_name].update(float(losses[loss_name]))
+	web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
+							f'{opt.testset_name}/scene{j}_{suffix}')  # define the website directory
+	print('creating web directory', web_dir)
+	webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
-    visuals = model.get_current_visuals()
-    visualizer.display_current_results(visuals, epoch=None, save_result=False)
-    img_path = model.get_image_paths()
-    save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
-    print('process image... %s' % img_path)
-    # losses = {}
-    # for loss_name in model.loss_names:
-    #     losses[loss_name] = meters_tst[loss_name].avg
-    # visualizer.print_test_losses('average', losses)
+	with torch.no_grad():
+		model.forward()
 
-    # try:
-    #     write_location(file, model.fg_slot_image_position, i, description='(image position)')
-    #     write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
-    # except:
-    #     pass
+		fg_positions = model.fg_slot_nss_position.clone()
+		model.fg_slot_nss_position[0] = fg_positions[2]
+		model.fg_slot_nss_position[2] = fg_positions[0]
+		model.fg_slot_nss_position[1] = fg_positions[3]
+		model.fg_slot_nss_position[3] = fg_positions[1]
+		
+		# model.fg_slot_nss_position[0] = torch.tensor([0.4, 0.4, 0])
+		# model.fg_slot_nss_position[2] = torch.tensor([0.2, 0.2, 0])
+
+		model.forward_position()
+		model.compute_visuals()
+
+	visuals = model.get_current_visuals()
+	visualizer.display_current_results(visuals, epoch=None, save_result=False)
+	img_path = model.get_image_paths()
+	save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
+

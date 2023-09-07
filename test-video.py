@@ -31,7 +31,7 @@ set_seed(opt.seed)
 
 manipulation = False
 
-remove_obj_idx = [0, 1, 2, 3]
+remove_obj_idx = [0, 3]
 # suffix = f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
 suffix = ''
 
@@ -57,16 +57,15 @@ for j, data in enumerate(dataset):
 		model.forward()
 		img_path = model.get_image_paths()
 
-		model.compute_visuals()
-		visuals = model.get_current_visuals()
-		# visualizer.display_current_results(visuals, epoch=None, save_result=False)
-		save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
-
 		if manipulation:
 			num_slots = opt.num_slots if opt.n_objects_eval is None else opt.n_objects_eval
 			for idx in remove_obj_idx:
 				model.fg_slot_nss_position[idx] = torch.tensor([100, 100, 0]).to(model.device)
 			model.forward_position()
+
+		model.compute_visuals()
+		visuals = model.get_current_visuals()
+		save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
 
 		cam2world_input = model.cam2world[0:1].cpu()
 		radius = torch.sqrt(torch.sum(cam2world_input[:, :3, 3] ** 2, dim=1))
@@ -97,13 +96,6 @@ for j, data in enumerate(dataset):
 			# model.compute_visuals(cam2world=cam2world)
 			visuals = model.get_current_visuals()
 			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
-			# visual_name = 'x_rec0'
-			# img = tensor2im(visuals[visual_name])
-			# img_pil = Image.fromarray(img)
-			# img_pil.save(os.path.join(web_dir, 'images_debug' , 'rendered_{}.png'.format(i)))
-			# write to video, transform to BGR
-			# img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-			# video_writer.write(img)
 
 		resolution = (256, 256)
 

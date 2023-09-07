@@ -35,7 +35,7 @@ dst = torch.tensor([0.4, 0.4, 0]).to(model.device)
 n_frames = 15
 
 manipulation = True
-obj_to_swap = [(0, 1), (2, 3)]
+obj_to_swap = [(0, 2), (1, 3)]
 if manipulation:
 	suffix += f'swap_{"_".join([str(idx[0])+str(idx[1]) for idx in obj_to_swap])}'
 

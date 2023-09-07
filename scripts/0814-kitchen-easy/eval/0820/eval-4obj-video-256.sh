@@ -25,9 +25,9 @@ CUDA_VISIBLE_DEVICES=0 python test-video.py --dataroot $DATAROOT \
     --n_samp 256 --num_slots 5 \
     --model 'uorf_general_eval' \
     --encoder_size 896 --encoder_type 'DINO' --bottom --near 6 --far 20 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-new/4obj-loadchairs-ttt-box-stratified-fine128' \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-new/4obj-loadchairs-fine128-depth-3' \
     --shape_dim 72 --color_dim 24 --fixed_locality --video_mode 'spiral' --fg_object_size 3 \
-    --wanted_indices '95' --epoch 1000 \
+    --wanted_indices '95' --epoch 980 \
     --attn_iter 4 --no_loss --recon_only --video --testset_name test_video_256 \
 # done
 echo "Done"
