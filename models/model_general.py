@@ -936,7 +936,7 @@ class DecoderBox(nn.Module):
 	
 class DecoderIPE(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 
-		  			locality_ratio=4/7, fixed_locality=False, use_viewdirs=False, n_freq_viewdirs=3):
+		  			locality_ratio=4/7, fixed_locality=False, use_viewdirs=False):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
@@ -981,20 +981,6 @@ class DecoderIPE(nn.Module):
 		self.b_after = nn.Sequential(*after_skip)
 
 		self.pos_enc = PositionalEncoding(max_deg=n_freq)
-		# self.pos_enc_360 = lambda x, y, diag: integrated_pos_enc_360(x, y)
-
-		self.use_viewdirs = use_viewdirs
-
-		if self.use_viewdirs:
-			self.viewdirs_encoding = PositionalEncoding(max_deg=n_freq_viewdirs)
-
-			self.fg_rgb_net0 = nn.Sequential(
-				nn.Linear(z_dim, z_dim)
-			)
-			self.fg_rgb_net1 = nn.Sequential(
-				nn.Linear(z_dim+6*n_freq_viewdirs+3, z_dim),
-				nn.ReLU(True),
-			)
 
 	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
 					keep_ratio=0.0, mask_ratio=0.0, fg_object_size=None):
@@ -1121,16 +1107,6 @@ class DecoderIPE(nn.Module):
 
 		tmp = self.f_before(input_fg)
 		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
-
-		if self.use_viewdirs:
-			# transform view_dirs by fg_transform
-			view_dirs = torch.matmul(fg_transform.squeeze(0)[:3,:3], view_dirs.t()).t() # P*3
-			viewdirs_encoding = self.viewdirs_encoding(view_dirs) # Px(6*n_freq_viewdirs+3)
-			viewdirs_encoding = viewdirs_encoding.unsqueeze(0).unsqueeze(-2).expand(K-1, -1, D, -1).flatten(0, 2) # ((K-1)*P*D)x(6*n_freq_viewdirs+3)
-			viewdirs_encoding = viewdirs_encoding[idx] # Mx(6*n_freq_viewdirs+3)
-			tmp = self.fg_rgb_net0(tmp) # Mx64
-			tmp = torch.cat([tmp, viewdirs_encoding], dim=-1) # Mx(64+6*n_freq_viewdirs+3)
-			tmp = self.fg_rgb_net1(tmp) # Mx64
 
 		latent_fg = self.f_after_latent(tmp)  # Mx64
 		fg_raw_rgb = self.f_color(latent_fg) # Mx3

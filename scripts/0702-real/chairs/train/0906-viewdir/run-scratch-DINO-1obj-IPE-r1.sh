@@ -36,8 +36,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_sc
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
     --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2027 \
     --position_loss --position_in 75 \
-    --exp_id '0906-IPESG-viewdir/1obj-scratch-IPE-r1' --use_viewdirs \
-    --continue_train --epoch 10 --epoch_count 11 \
+    --exp_id '0906-viewdir/1obj-scratch-IPE-r1' --use_viewdirs \
     --stratified --fixed_locality --n_freq 5 \
     --dummy_info 'DINO from scratch 1 obj with BG, position loss in the nss space, weight position = 0.1, strat from 100' \
     
