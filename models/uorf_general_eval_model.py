@@ -50,7 +50,6 @@ class uorfGeneralEvalModel(BaseModel):
 		parser.add_argument('--near_plane', type=float, default=6)
 		parser.add_argument('--far_plane', type=float, default=20)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
-		parser.add_argument('--no_loss', action='store_true')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,

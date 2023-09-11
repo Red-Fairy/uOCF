@@ -99,8 +99,8 @@ for j, data in enumerate(dataset):
 
 		resolution = (opt.frustum_size, opt.frustum_size)
 
-		video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, resolution)
-		visual_image_paths = list(filter(lambda x: 'rec0' in x, glob(os.path.join(web_dir, 'images', '*.png'))))
+		video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 60, resolution)
+		visual_image_paths = list(filter(lambda x: 'rec0' in x and 'disparity' not in x, glob(os.path.join(web_dir, 'images', '*.png'))))
 		visual_image_paths.sort()
 		for visual_image_path in visual_image_paths:
 			img = cv2.imread(visual_image_path)

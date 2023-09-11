@@ -28,7 +28,7 @@ python -m visdom.server -p $PORT &>/dev/null &
 CUDA_VISIBLE_DEVICES=0 python test-video.py --dataroot $DATAROOT --n_scenes 100 --start_scene_idx 0 --n_img_each_scene 2  \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
     --display_port $PORT --display_ncols 4 \
-    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
+    --load_size 256 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 256 \
     --model 'uorf_general_eval_IPE' \
     --num_slots 5 --attn_iter 4 \
     --shape_dim 72 --color_dim 24 \
@@ -39,7 +39,7 @@ CUDA_VISIBLE_DEVICES=0 python test-video.py --dataroot $DATAROOT --n_scenes 100 
     --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --show_recon_stats \
     --nss_scale 7 --video_mode 'spiral' --vis_disparity \
     --wanted_indices '97' --epoch 1090 \
-    --dummy_info 'test_real' --testset_name 'test_video_128' \
+    --dummy_info 'test_real' --testset_name 'test_video_256' \
 
 
 # can try the following to list out which GPU you have access to

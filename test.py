@@ -4,7 +4,7 @@ from models import create_model
 from util.visualizer import Visualizer, save_images
 from util.html import HTML
 import os
-from util.util import AverageMeter, set_seed, write_location
+from util.util import AverageMeter, set_seed, write_location, parse_wanted_indice
 import numpy as np
 
 if __name__ == '__main__':
@@ -31,7 +31,12 @@ if __name__ == '__main__':
 
     file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, '{}_{}'.format(opt.testset_name, opt.epoch), 'slot_location.txt'), 'w+')
 
+    wanted_indices = parse_wanted_indice(opt.wanted_indices)
+
     for i, data in enumerate(dataset):
+        
+        if wanted_indices is not None and i not in wanted_indices:
+            continue
         visualizer.reset()
         model.set_input(data)  # unpack data from data loader
         model.test()           # run inference: forward + compute_visuals

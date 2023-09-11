@@ -1192,19 +1192,25 @@ class DecoderIPEVD(nn.Module):
 		if self.use_viewdirs:
 			self.viewdirs_encoding = PositionalEncoding(max_deg=n_freq_viewdirs)
 
-			self.fg_rgb_net0 = nn.Linear(z_dim, z_dim)
+			# self.fg_rgb_net0 = nn.Linear(z_dim, z_dim)
 
-			self.fg_rgb_net1 = nn.Sequential(
-				nn.Linear(z_dim+6*n_freq_viewdirs+3, z_dim),
-				nn.ReLU(True),
-			)
+			# self.fg_rgb_net1 = nn.Sequential(
+			# 	nn.Linear(z_dim+6*n_freq_viewdirs+3, z_dim),
+			# 	nn.ReLU(True),
+			# )
 
 			self.bg_rgb_net0 = nn.Linear(z_dim, z_dim)
+			# init as identity
+			self.bg_rgb_net0.weight.data.copy_(torch.eye(z_dim))
+			self.bg_rgb_net0.bias.data.copy_(torch.zeros(z_dim))
 
 			self.bg_rgb_net1 = nn.Sequential(
 				nn.Linear(z_dim+6*n_freq_viewdirs+3, z_dim),
 				nn.ReLU(True),
 			)
+			# init as identity
+			self.bg_rgb_net1[0].weight.data[:, :z_dim].copy_(torch.eye(z_dim))
+			self.bg_rgb_net1[0].bias.data.copy_(torch.zeros(z_dim))
 
 	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
 					keep_ratio=0.0, mask_ratio=0.0, fg_object_size=None):
@@ -1352,18 +1358,18 @@ class DecoderIPEVD(nn.Module):
 		fg_raw_shape_full[idx] = fg_raw_shape
 		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
 
-		if self.use_viewdirs:
-			if view_dirs is not None:
-				view_dirs = torch.matmul(fg_transform.squeeze(0)[:3,:3], view_dirs.t()).t() # P*3
-			else: # use dummy encodings
-				view_dirs = torch.zeros(P, 3).to(tmp.device)
-			viewdirs_encoding = self.viewdirs_encoding(view_dirs) # Px(6*n_freq_viewdirs+3)
-			viewdirs_encoding = viewdirs_encoding.unsqueeze(0).unsqueeze(-2).expand(K-1, -1, D, -1).flatten(0, 2) # ((K-1)*P*D)x(6*n_freq_viewdirs+3)
-			viewdirs_encoding = viewdirs_encoding[idx] # Mx(6*n_freq_viewdirs+3)
+		# if self.use_viewdirs:
+		# 	if view_dirs is not None:
+		# 		view_dirs = torch.matmul(fg_transform.squeeze(0)[:3,:3], view_dirs.t()).t() # P*3
+		# 	else: # use dummy encodings
+		# 		view_dirs = torch.zeros(P, 3).to(tmp.device)
+		# 	viewdirs_encoding = self.viewdirs_encoding(view_dirs) # Px(6*n_freq_viewdirs+3)
+		# 	viewdirs_encoding = viewdirs_encoding.unsqueeze(0).unsqueeze(-2).expand(K-1, -1, D, -1).flatten(0, 2) # ((K-1)*P*D)x(6*n_freq_viewdirs+3)
+		# 	viewdirs_encoding = viewdirs_encoding[idx] # Mx(6*n_freq_viewdirs+3)
 
-			tmp = self.fg_rgb_net0(tmp) # Mx64
-			tmp = torch.cat([tmp, viewdirs_encoding], dim=-1) # Mx(64+6*n_freq_viewdirs+3)
-			tmp = self.fg_rgb_net1(tmp) # Mx64
+		# 	tmp = self.fg_rgb_net0(tmp) # Mx64
+		# 	tmp = torch.cat([tmp, viewdirs_encoding], dim=-1) # Mx(64+6*n_freq_viewdirs+3)
+		# 	tmp = self.fg_rgb_net1(tmp) # Mx64
 
 		latent_fg = self.f_after_latent(tmp)  # Mx64
 		fg_raw_rgb = self.f_color(latent_fg) # Mx3

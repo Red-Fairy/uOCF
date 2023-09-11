@@ -15,6 +15,7 @@ class MultiscenesManipDataset(BaseDataset):
     @staticmethod
     def modify_commandline_options(parser, is_train):
         parser.set_defaults(input_nc=3, output_nc=3)
+        parser.add_argument('--start_scene_idx', type=int, default=0, help='start scene index')
         parser.add_argument('--n_scenes', type=int, default=1000, help='dataset length is #scenes')
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
@@ -46,7 +47,7 @@ class MultiscenesManipDataset(BaseDataset):
         filenames_set = image_filenames_set - mask_filenames_set - fg_mask_filenames_set - moved_filenames_set - changed_filenames_set - bg_in_filenames_set - bg_mask_filenames_set - bg_in_mask_filenames_set
         filenames = sorted(list(filenames_set))
         self.scenes = []
-        for i in range(self.n_scenes):
+        for i in range(opt.start_scene_idx, opt.start_scene_idx + self.n_scenes):
             scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
             self.scenes.append(scene_filenames)
 
@@ -88,8 +89,7 @@ class MultiscenesManipDataset(BaseDataset):
         for rd, path in enumerate(filenames):
             img = Image.open(path).convert('RGB')
             img_data = self._transform(img)
-            img_moved = Image.open(path.replace('.png', '_moved.png')).convert('RGB')
-            img_data_moved = self._transform(img_moved)
+
             # img_changed = Image.open(path.replace('.png', '_changed.png')).convert('RGB')
             # img_data_changed = self._transform(img_changed)
             # img_bg = Image.open(path.replace('.png', '_providing_bg.png')).convert('RGB')
@@ -140,13 +140,24 @@ class MultiscenesManipDataset(BaseDataset):
                 fg_idx = mask_l != bg_color  # 1xHxW, fg position = True
                 ret['mask_idx'] = mask_idx
                 ret['fg_idx'] = fg_idx
-            ret['img_data_moved'] = img_data_moved
 
-            if rd == 0 and self.opt.manipulate_mode == 'translation':
+            moved_path = path.replace('.png', '_moved.png')
+            if os.path.isfile(moved_path):
+                img_moved = Image.open(moved_path).convert('RGB')
+                img_data_moved = self._transform(img_moved)
+                ret['img_data_moved'] = img_data_moved
+
+            if rd == 0 and self.opt.manipulate_mode == 'translation' and os.path.isfile(path.replace('az00.png', 'movement.txt')):
                 movement_txt_filename = path.replace('az00.png', 'movement.txt')
                 x, y = np.loadtxt(movement_txt_filename)
                 movement = torch.tensor([x, y, 0], dtype=torch.float32)
                 ret['movement'] = movement
+
+            if rd == 0 and os.path.isfile(path.replace('.png', '_intrinsics.txt')):
+                intrinsics_path = path.replace('.png', '_intrinsics.txt')
+                intrinsics = np.loadtxt(intrinsics_path)
+                intrinsics = torch.tensor(intrinsics, dtype=torch.float32)
+                ret['intrinsics'] = intrinsics
 
             mask_path = path.replace('.png', '_mask_for_bg.png')
             if os.path.isfile(mask_path):
@@ -187,7 +198,6 @@ def collate_fn(batch):
     # "batch" is a list (len=batch_size) of list (len=n_img_each_scene) of dict
     flat_batch = [item for sublist in batch for item in sublist]
     img_data = torch.stack([x['img_data'] for x in flat_batch])
-    img_data_moved = torch.stack([x['img_data_moved'] for x in flat_batch])
     # movement = flat_batch[0]['movement']
     # img_data_changed = torch.stack([x['img_data_changed'] for x in flat_batch])
     # img_data_bg = torch.stack([x['img_data_bg'] for x in flat_batch])
@@ -200,7 +210,6 @@ def collate_fn(batch):
         depths = None
     ret = {
         'img_data': img_data,
-        'img_data_moved': img_data_moved,
         # 'img_data_changed': img_data_changed,
         # 'img_data_bg': img_data_bg,
         'paths': paths,
@@ -208,10 +217,14 @@ def collate_fn(batch):
         'azi_rot': azi_rot,
         'depths': depths
     }
+    if 'img_data_moved' in flat_batch[0]:
+        ret['img_data_moved'] = torch.stack([x['img_data_moved'] for x in flat_batch])
     if 'movement' in flat_batch[0]:
         ret['movement'] = flat_batch[0]['movement']
     if 'img_data_large' in flat_batch[0]:
         ret['img_data_large'] = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
+    if 'intrinsics' in flat_batch[0]:
+        ret['intrinsics'] = torch.stack([x['intrinsics'] for x in flat_batch if 'intrinsics' in x])
     # masks = torch.stack([x['mask_for_bg'] for x in flat_batch])
     # ret['mask_for_bg'] = masks
     # bg_idx = torch.stack([x['bg_idx'] for x in flat_batch])

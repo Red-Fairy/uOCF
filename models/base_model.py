@@ -213,14 +213,14 @@ class BaseModel(ABC):
                         if 'slots_logsigma' in key or 'slots_mu' in key:
                             del state_dict[key]
                 incompatible = net.load_state_dict(state_dict, strict=False)
-                if incompatible.missing_keys:
+                if incompatible.missing_keys and not self.opt.continue_train: # if continue train, ignore missing keys
                     for key in incompatible.missing_keys:
                         unloaded_keys.append(key)
-                if incompatible.unexpected_keys:
+                if incompatible.unexpected_keys and not self.opt.continue_train: # if continue train, ignore unexpected keys
                     assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
                     # add loaded keys to loaded_keys_frozen
                 for key, _ in net.named_parameters():
-                    if key not in incompatible.missing_keys:
+                    if key not in incompatible.missing_keys or self.opt.continue_train:
                         if (load_method == 'load_train' or (self.opt.freeze_bg_only and 'f_' in key) or (self.opt.freeze_fg_only and 'b_' in key)):
                             loaded_keys_trainable.append(key)
                         else: #load_method == 'load_freeze':
@@ -284,11 +284,13 @@ class BaseModel(ABC):
                     state_dict = torch.load(load_path, map_location=self.device)
                     if hasattr(state_dict, '_metadata'):
                         del state_dict._metadata
-                    try:
-                        net.load_state_dict(state_dict, strict=not self.opt.not_strict)
-                    except:
-                        del state_dict['fg_position']
-                        net.load_state_dict(state_dict, strict=False)
+                    result = net.load_state_dict(state_dict, strict=False)
+                    # print(result)
+                    # try:
+                    #     net.load_state_dict(state_dict, strict=not self.opt.not_strict)
+                    # except:
+                    #     del state_dict['fg_position']
+                    #     net.load_state_dict(state_dict, strict=False)
                 except FileNotFoundError:
                     assert False
                     print('not found: {} not found, skip {}'.format(load_path, name))

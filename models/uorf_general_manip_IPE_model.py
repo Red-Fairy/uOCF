@@ -50,7 +50,6 @@ class uorfGeneralManipIPEModel(BaseModel):
 		parser.add_argument('--near_plane', type=float, default=6)
 		parser.add_argument('--far_plane', type=float, default=20)
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
-		parser.add_argument('--no_loss', action='store_true')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 		parser.add_argument('--manipulate_mode', default='translation', choices=['translation', 'removal'], help='manipulation mode')
 
@@ -72,9 +71,9 @@ class uorfGeneralManipIPEModel(BaseModel):
 		- define loss function, visualization images, model names, and optimizers
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
-		self.loss_names = ['psnr_moving', 'ssim_moving', 'lpips_moving']
+		self.loss_names = ['psnr_moving', 'ssim_moving', 'lpips_moving'] if not opt.no_loss else []
 		n = opt.n_img_each_scene
-		self.set_visual_names(add_attn=False)
+		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
@@ -117,18 +116,20 @@ class uorfGeneralManipIPEModel(BaseModel):
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
-	def set_visual_names(self, add_mask=False, add_attn=False):
+	def set_visual_names(self):
 		n = self.opt.n_img_each_scene
 		n_slot = self.opt.num_slots
 		self.visual_names = ['input_view', 'our_recon'] + \
-							['gt_moved{}'.format(i) for i in range(n)] + \
-							['ours_moved{}'.format(i) for i in range(n)] + \
-							['individual_mask{}'.format(i) for i in range(n_slot-1)] + \
-							['fg_idx']
-		if add_mask:
+							['ours_moved{}'.format(i) for i in range(n)]
+
+		if not self.opt.no_loss:
+			self.visual_names += ['gt_moved{}'.format(i) for i in range(n)] + ['fg_idx'] + \
+								['individual_mask{}'.format(i) for i in range(n_slot-1)] 
+			
+		if self.opt.vis_mask:
 			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
 								 ['render_mask{}'.format(i) for i in range(n)]
-		if add_attn:
+		if self.opt.vis_attn:
 			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 		if self.opt.vis_disparity:
@@ -166,13 +167,14 @@ class uorfGeneralManipIPEModel(BaseModel):
 			self.gt_masks = input['masks']
 			self.mask_idx = input['mask_idx']
 			self.fg_idx = input['fg_idx']
+			self.gt_moved = input['img_data_moved'].to(self.device)  # Nx3xHxW
 
 		if self.opt.vis_disparity:
 			self.disparity = input['depth'].to(self.device)
 
-		if self.opt.manipulate_mode == 'translation':
+		if self.opt.manipulate_mode == 'translation' and 'movement' in input:
 			self.movement = input['movement'].to(self.device)  # Nx3
-		self.gt_moved = input['img_data_moved'].to(self.device)  # Nx3xHxW
+		
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -249,47 +251,48 @@ class uorfGeneralManipIPEModel(BaseModel):
 				disparity_rec[..., h::scale, w::scale] = disparity_rec_
 
 		setattr(self, 'our_recon', x_recon[0])
-
-		""" moving object """
-		mask_maps = []
-		for k in range(self.num_slots):
-			raws = masked_raws[k]  # NxHxWxDx4
-			_, z_vals_, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-			raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals_, ray_dir, render_mask=True, mip=True)
-			mask_maps.append(mask_map.view(N, H, W))
-
-		mask_maps = torch.stack(mask_maps)  # KxNxHxW
-		mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW, i.e., 1xHxW
-		predefined_colors = torch.tensor([[0.2510, 1.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.7373],
-										  [0.2510, 0.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 0.7373],
-										  [0.2510, 0.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.7373]])
-		mask_visuals = predefined_colors[:, mask_idx]  # 3xNxHxW
-		mask_visuals = mask_visuals * 2 - 1
-
 		setattr(self, 'input_view', self.x[0])
 
-		ious = []
-		fg_idx = self.fg_idx[0]
-		for k in range(1, self.num_slots):
-			mask_this_slot = mask_idx[0:1] == k
-			mask_this_slot_visual = mask_this_slot.type(torch.float32)  # 1xHxW, {0,1}
-			mask_this_slot_visaul = mask_this_slot_visual * 2 - 1
-			setattr(self, 'individual_mask{}'.format(k - 1), mask_this_slot_visaul)
-			setattr(self, 'fg_idx', fg_idx.type(torch.float32) * 2 - 1)
-			iou = (fg_idx & mask_this_slot).type(torch.float).sum() / (fg_idx | mask_this_slot).type(torch.float).sum()
-			print('{}-th slot IoU: {}'.format(k, iou))
-			ious.append(iou)
-		move_slot_idx = torch.tensor(ious).argmax()
-		print('to move: {}'.format(move_slot_idx))
+		""" moving object """
+		if not self.opt.no_loss:
+			mask_maps = []
+			for k in range(self.num_slots):
+				raws = masked_raws[k]  # NxHxWxDx4
+				_, z_vals_, ray_dir_ = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals_, ray_dir_, render_mask=True, mip=True)
+				mask_maps.append(mask_map.view(N, H, W))
+
+			mask_maps = torch.stack(mask_maps)  # KxNxHxW
+			mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW, i.e., 1xHxW
+			predefined_colors = torch.tensor([[0.2510, 1.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.7373],
+											[0.2510, 0.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 0.7373],
+											[0.2510, 0.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.7373]])
+			mask_visuals = predefined_colors[:, mask_idx]  # 3xNxHxW
+			mask_visuals = mask_visuals * 2 - 1
+
+			ious = []
+			fg_idx = self.fg_idx[0]
+			for k in range(1, self.num_slots):
+				mask_this_slot = mask_idx[0:1] == k
+				mask_this_slot_visual = mask_this_slot.type(torch.float32)  # 1xHxW, {0,1}
+				mask_this_slot_visaul = mask_this_slot_visual * 2 - 1
+				setattr(self, 'individual_mask{}'.format(k - 1), mask_this_slot_visaul)
+				setattr(self, 'fg_idx', fg_idx.type(torch.float32) * 2 - 1)
+				iou = (fg_idx & mask_this_slot).type(torch.float).sum() / (fg_idx | mask_this_slot).type(torch.float).sum()
+				print('{}-th slot IoU: {}'.format(k, iou))
+				ious.append(iou)
+			move_slot_idx = torch.tensor(ious).argmax()
+			print('to move: {}'.format(move_slot_idx))
+
+		else:
+			move_slot_idx = 2
+			self.movement = torch.tensor([1.5, 1.5, 0.], device=self.device)
 
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
 		
-		# print(z_vals.shape)
-		# print(fg_slot_nss_position)
 		fg_slot_nss_position[move_slot_idx] += self.movement / self.opt.nss_scale if self.opt.manipulate_mode == 'translation' else 100 # move it away
-		# print(fg_slot_nss_position)
 
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
@@ -311,14 +314,16 @@ class uorfGeneralManipIPEModel(BaseModel):
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
 
-		x_recon_novel, x_novel = x_recon, self.gt_moved
-		self.loss_recon_moving = self.L2_loss(x_recon_novel, x_novel)
-		self.loss_lpips_moving = self.LPIPS_loss(x_recon_novel, x_novel).mean()
-		self.loss_psnr_moving = compute_psnr(x_recon_novel / 2 + 0.5, x_novel / 2 + 0.5, data_range=1.)
-		self.loss_ssim_moving = compute_ssim(x_recon_novel / 2 + 0.5, x_novel / 2 + 0.5, data_range=1.)
+		if not self.opt.no_loss:
+			x_recon_novel, x_novel = x_recon, self.gt_moved
+			self.loss_recon_moving = self.L2_loss(x_recon_novel, x_novel)
+			self.loss_lpips_moving = self.LPIPS_loss(x_recon_novel, x_novel).mean()
+			self.loss_psnr_moving = compute_psnr(x_recon_novel / 2 + 0.5, x_novel / 2 + 0.5, data_range=1.)
+			self.loss_ssim_moving = compute_ssim(x_recon_novel / 2 + 0.5, x_novel / 2 + 0.5, data_range=1.)
 
 		for i in range(self.opt.n_img_each_scene):
-			setattr(self, 'gt_moved{}'.format(i), self.gt_moved[i])
+			if not self.opt.no_loss:
+				setattr(self, 'gt_moved{}'.format(i), self.gt_moved[i])
 			setattr(self, 'ours_moved{}'.format(i), x_recon[i])
 
 

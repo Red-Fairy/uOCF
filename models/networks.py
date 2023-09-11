@@ -872,7 +872,7 @@ def get_freezeInit_scheduler(optimizer, opt=None, params=None):
                 rate = float(current_step) / float(max(1, num_warmup_steps))
             else:
                 rate = decay_base ** (float(current_step - num_warmup_steps - n_start_decay) / float(num_decay_steps))
-                rate = min(rate, freezeInit_ratio)
+                rate = max(min(rate, freezeInit_ratio), 1e-4)
         return rate
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
     return scheduler

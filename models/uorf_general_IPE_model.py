@@ -129,52 +129,40 @@ class uorfGeneralIPEModel(BaseModel):
 		z_dim = opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
 
-		if opt.encoder_type == 'SAM':
-			from segment_anything import sam_model_registry
-			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-			self.pretrained_encoder = SAMViT(sam_model).to(self.device).eval()
-			vit_dim = 256
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
-													bottom=opt.bottom, double_bottom=opt.double_bottom,
-													shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=vit_dim),
-													gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'DINO':
+		if opt.encoder_type == 'DINO':
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
+			self.netEncoder = dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
 													bottom=opt.bottom, double_bottom=opt.double_bottom,
-													shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
-					   								gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'SD':
-			from .SD.ldm_extractor import LdmExtractor
-			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
-			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, 
-								  				bottom=opt.bottom,
-												shape_dim=opt.shape_dim, color_dim=opt.color_dim),
-												gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'CNN':
-			self.netEncoder = networks.init_net(Encoder(3, z_dim=z_dim, bottom=opt.bottom, pos_emb=opt.pos_emb),
-									gpu_ids=self.gpu_ids, init_type='normal')
+													shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
 		else:
 			assert False
 
-		self.netSlotAttention = networks.init_net(
-				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		self.netSlotAttention = SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb,
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
-							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad), 
-							  gpu_ids=self.gpu_ids, init_type='normal')
+							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad)
+							  
 		if not opt.use_viewdirs:
-			self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													use_viewdirs=False,
-													), gpu_ids=self.gpu_ids, init_type='xavier')
+													)
 		else:
-			self.netDecoder = networks.init_net(DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+			self.netDecoder = DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													use_viewdirs=True,
-													), gpu_ids=self.gpu_ids, init_type='xavier')
+													)
+			
+		if not (opt.load_pretrain or opt.continue_train):
+			self.netEncoder = networks.init_net(self.netEncoder, init_type='normal', gpu_ids=self.gpu_ids)
+			self.netSlotAttention = networks.init_net(self.netSlotAttention, init_type='xavier', gpu_ids=self.gpu_ids)
+			self.netDecoder = networks.init_net(self.netDecoder, init_type='xavier', gpu_ids=self.gpu_ids)
+		else: # move to device
+			self.netEncoder = self.netEncoder.to(self.device)
+			self.netSlotAttention = self.netSlotAttention.to(self.device)
+			self.netDecoder = self.netDecoder.to(self.device)
 
 		self.L2_loss = nn.MSELoss()
 		self.sfs_loss = SlotFeatureSlotLoss()
@@ -203,7 +191,7 @@ class uorfGeneralIPEModel(BaseModel):
 				unloaded_keys, loaded_keys_frozen, loaded_keys_trainable = self.load_pretrain_networks(opt.load_pretrain_path, opt.load_epoch)
 				def get_params(keys, keyword_to_include=None, keyword_to_exclude=None):
 					params = [v for k, v in self.netEncoder.named_parameters() if k in keys \
-	       						and (keyword_to_include is None or keyword_to_include in k) \
+		   						and (keyword_to_include is None or keyword_to_include in k) \
 								and (keyword_to_exclude is None or keyword_to_exclude not in k)] + \
 							 [v for k, v in self.netSlotAttention.named_parameters() if k in keys \
 	 							and (keyword_to_include is None or keyword_to_include in k) \
@@ -360,8 +348,8 @@ class uorfGeneralIPEModel(BaseModel):
 							if epoch < self.opt.dense_sample_epoch \
 							else [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_dense_samp]
 			(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, 
-									    intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
-									    frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
+										intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None,
+										frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
@@ -395,8 +383,8 @@ class uorfGeneralIPEModel(BaseModel):
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp if epoch < self.opt.dense_sample_epoch else self.opt.n_dense_samp
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
-							    dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
-							    view_dirs = ray_dir if (self.opt.use_viewdirs and not self.opt.dummy_viewdirs) else None,
+								dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
+								view_dirs = ray_dir if (self.opt.use_viewdirs and not self.opt.dummy_viewdirs) else None,
 								fg_object_size=fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 		
 		raws = raws.view([N, H, W, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
@@ -475,10 +463,10 @@ class uorfGeneralIPEModel(BaseModel):
 			feat_shape_, feat_color_ = self.encode(1)
 			if not self.opt.color_in_attn:
 				_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None,
-						    dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
+							dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
 			else:
 				_, _, fg_slot_position_ = self.netSlotAttention(feat=torch.cat([feat_shape_, feat_color_], dim=-1), 
-						    feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
+							feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
 			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics)
 			# calculate the position loss (L2 loss between the two inferred positions)
@@ -489,8 +477,8 @@ class uorfGeneralIPEModel(BaseModel):
 			attn = attn.detach().cpu()  # KxN
 			H_, W_ = feat_shape.shape[1:3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
-			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+			# if H_ != H:
+			# 	attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			setattr(self, 'attn', attn)
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
@@ -582,19 +570,37 @@ class uorfGeneralIPEModel(BaseModel):
 		super().load_networks(surfix)
 
 		if self.isTrain:
-			for i, opm in enumerate(self.optimizers):
-				load_filename = '{}_optimizer_{}.pth'.format(surfix, i)
-				load_path = os.path.join(self.save_dir, load_filename)
-				print('loading the optimizer from %s' % load_path)
-				state_dict = torch.load(load_path, map_location=str(self.device))
-				opm.load_state_dict(state_dict)
+			for i, (opm, sch) in enumerate(zip(self.optimizers, self.schedulers)):
+				load_opm_filename = '{}_optimizer_{}.pth'.format(surfix, i)
+				load_sch_filename = '{}_lr_scheduler_{}.pth'.format(surfix, i)
+				load_opm_path = os.path.join(self.save_dir, load_opm_filename)
+				load_sch_path = os.path.join(self.save_dir, load_sch_filename)
+				print('loading the optimizer from %s' % load_opm_path)
+				print('loading the lr scheduler from %s' % load_sch_path)
+				state_dict_opm = torch.load(load_opm_path, map_location=str(self.device))
+				state_dict_sch = torch.load(load_sch_path, map_location=str(self.device))
+				try:
+					opm.load_state_dict(state_dict_opm)
+					sch.load_state_dict(state_dict_sch)
+				except:
+					# pass
+					n_steps = int(state_dict_opm['state'][0]['step'].item())
+					for _ in range(n_steps):
+						sch.step()
 
-			for i, sch in enumerate(self.schedulers):
-				load_filename = '{}_lr_scheduler_{}.pth'.format(surfix, i)
-				load_path = os.path.join(self.save_dir, load_filename)
-				print('loading the lr scheduler from %s' % load_path)
-				state_dict = torch.load(load_path, map_location=str(self.device))
-				sch.load_state_dict(state_dict)
+			# for i, opm in enumerate(self.optimizers):
+			# 	load_filename = '{}_optimizer_{}.pth'.format(surfix, i)
+			# 	load_path = os.path.join(self.save_dir, load_filename)
+			# 	print('loading the optimizer from %s' % load_path)
+			# 	state_dict = torch.load(load_path, map_location=str(self.device))
+			# 	opm.load_state_dict(state_dict)
+
+			# for i, sch in enumerate(self.schedulers):
+			# 	load_filename = '{}_lr_scheduler_{}.pth'.format(surfix, i)
+			# 	load_path = os.path.join(self.save_dir, load_filename)
+			# 	print('loading the lr scheduler from %s' % load_path)
+			# 	state_dict = torch.load(load_path, map_location=str(self.device))
+			# 	sch.load_state_dict(state_dict)
 
 
 if __name__ == '__main__':
