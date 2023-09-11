@@ -377,7 +377,7 @@ class GroupMeters(object):
 import numpy as np
 import torch
 
-def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range=(0.8, 1.25)):
+def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range=(0.8, 1.25), radius_range=(1., 1.), origin=(0, 0)):
 	"""
 	Get spiral camera to world matrix
 	radius: radius of the spiral
@@ -421,22 +421,23 @@ def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radia
 	# Initialize a list to store the transformation matrices
 	cam2world_matrices = []
 
-	for angle, z in zip(rotation_angles, zs):
+	def i2radius(i):
+		return (radius_range[0] + radius_range[1]) / 2 + (radius_range[1] - radius_range[0]) / 2 * np.sin(i / n_views * 2 * np.pi)
+
+	for i, (angle, z) in enumerate(zip(rotation_angles, zs)):
 		# Calculate the camera position on the spiral
-		x = radius * np.cos(angle)
-		y = radius * np.sin(angle)
+		x = radius * np.cos(angle) * i2radius(i)
+		y = radius * np.sin(angle) * i2radius(i)
 	
-		# Calculte the cam2world matrix for the camera positioned at (x, y, z), pointing at the origin
-		forward_direction = torch.tensor([-x, -y, -z], dtype=torch.float32)
+		# Calculte the cam2world matrix for the camera positioned at (x, y, z), pointing at (origin[0], origin[1], 0)
+		forward_direction = torch.tensor([origin[0]-x, origin[1]-y, -z], dtype=torch.float32)
 		forward_direction = forward_direction / torch.norm(forward_direction)
 
 		# world up vector is (0, 1, 0)
-		up_direction = torch.tensor([x*z/(x**2 + y**2), y*z/(x**2 + y**2), -1], dtype=torch.float32)
+		# up_direction = torch.tensor([x*z/(x**2 + y**2), y*z/(x**2 + y**2), -1], dtype=torch.float32)
+		up_direction = torch.tensor([(x-origin[0])*z/((x-origin[0])**2 + (y-origin[1])**2), (y-origin[1])*z/((x-origin[0])**2 + (y-origin[1])**2), -1], dtype=torch.float32)
 		up_direction = up_direction / torch.norm(up_direction)
 		right_direction = torch.cross(up_direction, forward_direction)
-		# right_direction = torch.cross(forward_direction, torch.tensor([0, -1, 0], dtype=torch.float32))
-
-		# up_direction = torch.cross(right_direction, forward_direction)
 
 		# Construct the cam2world matrix
 		rotation_matrix = torch.stack([right_direction, up_direction, forward_direction], dim=1)

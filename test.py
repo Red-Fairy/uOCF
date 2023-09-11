@@ -20,6 +20,8 @@ if __name__ == '__main__':
     visualizer = Visualizer(opt)  # create a visualizer that display/save images and plots
     meters_tst = {stat: AverageMeter() for stat in model.loss_names}
 
+    model.eval()
+
     set_seed(opt.seed)
 
     web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,

@@ -10,7 +10,7 @@ import time
 from .projection import Projection, pixel2world
 from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
 from .model_general import SlotAttention
-from .model_general import Decoder, DecoderBox
+from .model_general import Decoder, DecoderBox, DecoderIPE
 from .utils import *
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
@@ -20,7 +20,7 @@ from piq import psnr as compute_psnr
 import numpy as np
 
 
-class uorfGeneralEvalModel(BaseModel):
+class uorfGeneralManipIPEModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -52,6 +52,7 @@ class uorfGeneralEvalModel(BaseModel):
 		parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 		parser.add_argument('--no_loss', action='store_true')
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
+		parser.add_argument('--manipulate_mode', default='translation', choices=['translation', 'removal'], help='manipulation mode')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -71,13 +72,9 @@ class uorfGeneralEvalModel(BaseModel):
 		- define loss function, visualization images, model names, and optimizers
 		"""
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
-		self.loss_names = ['psnr', 'ssim', 'lpips'] if not self.opt.no_loss else []
-		if not opt.recon_only and not opt.video:
-			self.loss_names += ['ari', 'fgari', 'nvari']
-		if opt.show_recon_stats:
-			self.loss_names += ['recon_psnr', 'recon_ssim', 'recon_lpips']
+		self.loss_names = ['psnr_moving', 'ssim_moving', 'lpips_moving']
 		n = opt.n_img_each_scene
-		self.set_visual_names()
+		self.set_visual_names(add_attn=False)
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
@@ -114,30 +111,29 @@ class uorfGeneralEvalModel(BaseModel):
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), 
 							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(DecoderBox(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality, 
-													project=opt.project, rel_pos=opt.relative_position, fg_in_world=opt.fg_in_world
+		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
+													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
-	def set_visual_names(self):
+	def set_visual_names(self, add_mask=False, add_attn=False):
 		n = self.opt.n_img_each_scene
 		n_slot = self.opt.num_slots
-		self.visual_names =	['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
-							['x_rec{}'.format(i) for i in range(n)] + \
-							['input_image'] + \
-							['slot{}_view{}_unmasked'.format(k, i) for k in range(n_slot) for i in range(n)] + \
-							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
+		self.visual_names = ['input_view', 'our_recon'] + \
+							['gt_moved{}'.format(i) for i in range(n)] + \
+							['ours_moved{}'.format(i) for i in range(n)] + \
+							['individual_mask{}'.format(i) for i in range(n_slot-1)] + \
+							['fg_idx']
+		if add_mask:
+			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
+								 ['render_mask{}'.format(i) for i in range(n)]
+		if add_attn:
+			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 		if self.opt.vis_disparity:
 			self.visual_names += ['disparity_{}'.format(i) for i in range(n)] + \
 								 ['disparity_rec{}'.format(i) for i in range(n)]
-		if self.opt.vis_mask:
-			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
-								 ['render_mask{}'.format(i) for i in range(n)]
-		if self.opt.vis_attn:
-			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -166,15 +162,17 @@ class uorfGeneralEvalModel(BaseModel):
 		if 'intrinsics' in input:
 			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 
-		if not self.opt.recon_only and not self.opt.video:
+		if 'masks' in input:
 			self.gt_masks = input['masks']
 			self.mask_idx = input['mask_idx']
 			self.fg_idx = input['fg_idx']
-			self.obj_idxs = input['obj_idxs']  # (K+1)x1xHxW
-			self.masks_fg = input['obj_idxs_fg'].to(self.device)  # Kx1xHxW
 
 		if self.opt.vis_disparity:
 			self.disparity = input['depth'].to(self.device)
+
+		if self.opt.manipulate_mode == 'translation':
+			self.movement = input['movement'].to(self.device)  # Nx3
+		self.gt_moved = input['img_data_moved'].to(self.device)  # Nx3xHxW
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -219,28 +217,28 @@ class uorfGeneralEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+		# scale**2x(NxHxW)xDx3, scale**2x(NxHxW)xDx3x3, scale**2x(NxHxW)xD, scale**2x(NxHxW)x3
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
-			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
 		if self.opt.vis_disparity:
 			disparity_rec = torch.zeros([N, 1, H, W], device=dev)
-		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
+		# print(z_vals.shape)
+		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)x(NxDxHxW)x3
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, 
-								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
-			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
-			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
-			masked_raws[..., h::scale, w::scale, :] = masked_raws_
-			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
-			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			
+			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
+			masked_raws[:, :, h::scale, w::scale, ...] = masked_raws_
+			unmasked_raws[:, :, h::scale, w::scale, ...] = unmasked_raws_
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_, mip=True)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			rendered[..., h::scale, w::scale] = rendered_
@@ -250,41 +248,79 @@ class uorfGeneralEvalModel(BaseModel):
 				disparity_rec_ = 1 / depth_map_.view(N, 1, H_, W_)
 				disparity_rec[..., h::scale, w::scale] = disparity_rec_
 
-		if not self.opt.no_loss and not self.opt.video:
-			x_recon_novel, x_novel = x_recon[1:], x[1:]
-			self.loss_recon = self.L2_loss(x_recon_novel, x_novel)
-			self.loss_lpips = self.LPIPS_loss(x_recon_novel, x_novel).mean()
-			self.loss_psnr = compute_psnr(x_recon_novel/2+0.5, x_novel/2+0.5, data_range=1.)
-			self.loss_ssim = compute_ssim(x_recon_novel/2+0.5, x_novel/2+0.5, data_range=1.)
+		setattr(self, 'our_recon', x_recon[0])
 
-		if self.opt.show_recon_stats:
-			x_recon_ori, x_ori = x_recon[0:1], x[0:1]
-			self.loss_recon_psnr = compute_psnr(x_recon_ori/2+0.5, x_ori/2+0.5, data_range=1.)
-			self.loss_recon_ssim = compute_ssim(x_recon_ori/2+0.5, x_ori/2+0.5, data_range=1.)
-			self.loss_recon_lpips = self.LPIPS_loss(x_recon_ori, x_ori).mean()
+		""" moving object """
+		mask_maps = []
+		for k in range(self.num_slots):
+			raws = masked_raws[k]  # NxHxWxDx4
+			_, z_vals_, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+			raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals_, ray_dir, render_mask=True, mip=True)
+			mask_maps.append(mask_map.view(N, H, W))
 
-		with torch.no_grad():
-			attn = attn.detach().cpu()  # KxN
-			H_, W_ = feature_map.shape[2], feature_map.shape[3]
-			attn = attn.view(self.opt.num_slots, 1, H_, W_)
-			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
-			setattr(self, 'attn', attn)
+		mask_maps = torch.stack(mask_maps)  # KxNxHxW
+		mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW, i.e., 1xHxW
+		predefined_colors = torch.tensor([[0.2510, 1.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.7373],
+										  [0.2510, 0.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 0.7373],
+										  [0.2510, 0.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.7373]])
+		mask_visuals = predefined_colors[:, mask_idx]  # 3xNxHxW
+		mask_visuals = mask_visuals * 2 - 1
 
-			for i in range(self.opt.n_img_each_scene):
-				setattr(self, 'x_rec{}'.format(i), x_recon[i])
-				if i == 0:
-					setattr(self, 'input_image', x[i])
-				else:
-					setattr(self, 'gt_novel_view{}'.format(i), x[i])
-				if self.opt.vis_disparity: # normalize disparity to [0, 1]
-					setattr(self, 'disparity_{}'.format(i), (self.disparity[i] - self.disparity[i].min()) / (self.disparity[i].max() - self.disparity[i].min()))
-					setattr(self, 'disparity_rec{}'.format(i), (disparity_rec[i] - disparity_rec[i].min()) / (disparity_rec[i].max() - disparity_rec[i].min()))
-			setattr(self, 'masked_raws', masked_raws.detach())
-			setattr(self, 'unmasked_raws', unmasked_raws.detach())
-			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
-			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
-			setattr(self, 'z_slots', z_slots.detach())
+		setattr(self, 'input_view', self.x[0])
+
+		ious = []
+		fg_idx = self.fg_idx[0]
+		for k in range(1, self.num_slots):
+			mask_this_slot = mask_idx[0:1] == k
+			mask_this_slot_visual = mask_this_slot.type(torch.float32)  # 1xHxW, {0,1}
+			mask_this_slot_visaul = mask_this_slot_visual * 2 - 1
+			setattr(self, 'individual_mask{}'.format(k - 1), mask_this_slot_visaul)
+			setattr(self, 'fg_idx', fg_idx.type(torch.float32) * 2 - 1)
+			iou = (fg_idx & mask_this_slot).type(torch.float).sum() / (fg_idx | mask_this_slot).type(torch.float).sum()
+			print('{}-th slot IoU: {}'.format(k, iou))
+			ious.append(iou)
+		move_slot_idx = torch.tensor(ious).argmax()
+		print('to move: {}'.format(move_slot_idx))
+
+		x_recon, rendered, masked_raws, unmasked_raws = \
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
+		
+		# print(z_vals.shape)
+		# print(fg_slot_nss_position)
+		fg_slot_nss_position[move_slot_idx] += self.movement / self.opt.nss_scale if self.opt.manipulate_mode == 'translation' else 100 # move it away
+		# print(fg_slot_nss_position)
+
+		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
+			h, w = divmod(j, scale)
+			H_, W_ = H // scale, W // scale
+
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			
+			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
+			
+			masked_raws[:, :, h::scale, w::scale, ...] = masked_raws_
+			unmasked_raws[:, :, h::scale, w::scale, ...] = unmasked_raws_
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_, mip=True)
+			# (NxHxW)x3, (NxHxW)
+			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+			rendered[..., h::scale, w::scale] = rendered_
+			x_recon_ = rendered_ * 2 - 1
+			x_recon[..., h::scale, w::scale] = x_recon_
+
+		x_recon_novel, x_novel = x_recon, self.gt_moved
+		self.loss_recon_moving = self.L2_loss(x_recon_novel, x_novel)
+		self.loss_lpips_moving = self.LPIPS_loss(x_recon_novel, x_novel).mean()
+		self.loss_psnr_moving = compute_psnr(x_recon_novel / 2 + 0.5, x_novel / 2 + 0.5, data_range=1.)
+		self.loss_ssim_moving = compute_ssim(x_recon_novel / 2 + 0.5, x_novel / 2 + 0.5, data_range=1.)
+
+		for i in range(self.opt.n_img_each_scene):
+			setattr(self, 'gt_moved{}'.format(i), self.gt_moved[i])
+			setattr(self, 'ours_moved{}'.format(i), x_recon[i])
+
 
 	def visual_cam2world(self, cam2world):
 		'''
@@ -304,24 +340,23 @@ class uorfGeneralEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+		#  4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
-			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
-		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
+		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, self.z_slots, nss2cam0, 
-								 self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
-			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
-			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
-			masked_raws[..., h::scale, w::scale, :] = masked_raws_
-			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
-			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
+			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, self.z_slots, 
+								 nss2cam0, self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
+			masked_raws[..., h::scale, w::scale, :, :] = masked_raws_
+			unmasked_raws[..., h::scale, w::scale, :, :] = unmasked_raws_
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_, mip=True)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			rendered[..., h::scale, w::scale] = rendered_
@@ -366,25 +401,25 @@ class uorfGeneralEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
-			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
-		for (j, (frus_nss_coor_, z_vals_, ray_dir_)) in enumerate(zip(frus_nss_coor, z_vals, ray_dir)):
+			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
+		
+		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
-			sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # KxPx3
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0, 
-								 fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
-			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
-			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
-			masked_raws[..., h::scale, w::scale, :] = masked_raws_
-			unmasked_raws[..., h::scale, w::scale, :] = unmasked_raws_
-			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_)
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
+			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
+			masked_raws[..., h::scale, w::scale, :, :] = masked_raws_
+			unmasked_raws[..., h::scale, w::scale, :, :] = unmasked_raws_
+			rgb_map_, depth_map_, _ = raw2outputs(raws_, z_vals_, ray_dir_, mip=True)
 			# (NxHxW)x3, (NxHxW)
 			rendered_ = rgb_map_.view(N, H_, W_, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 			rendered[..., h::scale, w::scale] = rendered_
@@ -401,84 +436,7 @@ class uorfGeneralEvalModel(BaseModel):
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 
 	def compute_visuals(self, cam2world=None):
-		with torch.no_grad():
-			cam2world = self.cam2world[:self.opt.n_img_each_scene] if cam2world is None else cam2world.to(self.device)
-			# n_img_each_scene = cam2world.shape[0]
-			_, N, D, H, W, _ = self.masked_raws.shape
-			masked_raws = self.masked_raws  # KxNxDxHxWx4
-			unmasked_raws = self.unmasked_raws  # KxNxDxHxWx4
-			mask_maps = []
-			
-			for k in range(self.num_slots):
-				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
-
-			for k in range(self.num_slots):
-				raws = masked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
-				# mask_maps.append(mask_map.view(N, H, W))
-				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-				x_recon = rendered * 2 - 1
-				for i in range(N):
-					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-
-			for k in range(self.num_slots):
-				raws = unmasked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.construct_sampling_coor_new(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
-				raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True)
-				mask_maps.append(mask_map.view(N, H, W))
-				rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-				x_recon = rendered * 2 - 1
-				for i in range(N):
-					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
-
-			if not self.opt.recon_only and not self.opt.video:
-				mask_maps = torch.stack(mask_maps)  # KxNxHxW
-				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
-				predefined_colors = []
-				obj_idxs = self.obj_idxs  # Kx1xHxW
-				gt_mask0 = self.gt_masks[0]  # 3xHxW
-				for k in range(self.num_slots):
-					mask_idx_this_slot = mask_idx[0:1] == k  # 1xHxW
-					iou_this_slot = []
-					for kk in range(self.num_slots):
-						try:
-							obj_idx = obj_idxs[kk, ...]  # 1xHxW
-						except IndexError:
-							break
-						iou = (obj_idx & mask_idx_this_slot).type(torch.float).sum() / (obj_idx | mask_idx_this_slot).type(torch.float).sum()
-						iou_this_slot.append(iou)
-					target_obj_number = torch.tensor(iou_this_slot).argmax()
-					target_obj_idx = obj_idxs[target_obj_number, ...].squeeze()  # HxW
-					obj_first_pixel_pos = target_obj_idx.nonzero()[0]  # 2
-					obj_color = gt_mask0[:, obj_first_pixel_pos[0], obj_first_pixel_pos[1]]
-					predefined_colors.append(obj_color)
-				predefined_colors = torch.stack(predefined_colors).permute([1,0])
-				mask_visuals = predefined_colors[:, mask_idx]  # 3xNxHxW
-
-				nvari_meter = AverageMeter()
-				for i in range(N):
-					setattr(self, 'render_mask{}'.format(i), mask_visuals[:, i, ...])
-					setattr(self, 'gt_mask{}'.format(i), self.gt_masks[i])
-					this_mask_idx = mask_idx[i].flatten(start_dim=0)
-					gt_mask_idx = self.mask_idx[i]  # HW
-					fg_idx = self.fg_idx[i]
-					fg_idx_map = fg_idx.view([self.opt.frustum_size, self.opt.frustum_size])[None, ...]
-					fg_map = mask_visuals[0:1, i, ...].clone()
-					fg_map[fg_idx_map] = -1.
-					fg_map[~fg_idx_map] = 1.
-					setattr(self, 'bg_map{}'.format(i), fg_map)
-					if i == 0:
-						ari_score = adjusted_rand_score(gt_mask_idx, this_mask_idx)
-						fg_ari = adjusted_rand_score(gt_mask_idx[fg_idx], this_mask_idx[fg_idx])
-						self.loss_ari = ari_score
-						self.loss_fgari = fg_ari
-					else:
-						ari_score = adjusted_rand_score(gt_mask_idx, this_mask_idx)
-						nvari_meter.update(ari_score)
-					self.loss_nvari = nvari_meter.val
+		pass
 
 	def backward(self):
 		pass

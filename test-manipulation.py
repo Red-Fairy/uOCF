@@ -26,7 +26,7 @@ wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
 # file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w+')
 
-suffix = 'swap'
+suffix = 'swap_02'
 
 for j, data in enumerate(dataset):
 
@@ -48,8 +48,8 @@ for j, data in enumerate(dataset):
 		fg_positions = model.fg_slot_nss_position.clone()
 		model.fg_slot_nss_position[0] = fg_positions[2]
 		model.fg_slot_nss_position[2] = fg_positions[0]
-		model.fg_slot_nss_position[1] = fg_positions[3]
-		model.fg_slot_nss_position[3] = fg_positions[1]
+		model.fg_slot_nss_position[1] = fg_positions[1]
+		model.fg_slot_nss_position[3] = fg_positions[3]
 		
 		# model.fg_slot_nss_position[0] = torch.tensor([0.4, 0.4, 0])
 		# model.fg_slot_nss_position[2] = torch.tensor([0.2, 0.2, 0])

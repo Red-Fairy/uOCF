@@ -28,6 +28,6 @@ CUDA_VISIBLE_DEVICES=0 python test-video.py --dataroot $DATAROOT \
     --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-new/4obj-loadchairs-fine128-depth-3' \
     --shape_dim 72 --color_dim 24 --fixed_locality --video_mode 'spiral' --fg_object_size 3 \
     --wanted_indices '95' --epoch 980 \
-    --attn_iter 4 --no_loss --recon_only --video --testset_name test_video_256 \
+    --attn_iter 4 --no_loss --recon_only --video --testset_name test_video_256_smallFOV \
 # done
 echo "Done"

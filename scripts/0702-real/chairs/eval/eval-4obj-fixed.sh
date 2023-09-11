@@ -24,7 +24,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 # sample process (list hostnames of the nodes you've requested)
 DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/test-4obj'}
 PORT=${2:-12783}
-CUDA_VISIBLE_DEVICES=7 python -m visdom.server -p $PORT &>/dev/null &
+CUDA_VISIBLE_DEVICES=1 python -m visdom.server -p $PORT &>/dev/null &
 python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 \

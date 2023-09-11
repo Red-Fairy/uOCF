@@ -82,10 +82,11 @@ class uorfGeneralIPEModel(BaseModel):
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
-		parser.add_argument('--weight_depth_ranking', type=float, default=3, help='weight of the depth supervision')
-		parser.add_argument('--weight_depth_continuity', type=float, default=0.05, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
+		parser.add_argument('--weight_depth_continuity', type=float, default=0.005, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=250, help='when to start the depth supervision')
 		parser.add_argument('--use_viewdirs', action='store_true', help='use viewdirs in the decoder')
+		parser.add_argument('--dummy_viewdirs', action='store_true', help='use dummy viewdirs in the decoder')
 
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -170,7 +171,7 @@ class uorfGeneralIPEModel(BaseModel):
 													use_viewdirs=False,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
 		else:
-			self.netDecoder = networks.init_net(DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim+3, z_dim=z_dim, n_layers=opt.n_layer,
+			self.netDecoder = networks.init_net(DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													use_viewdirs=True,
 													), gpu_ids=self.gpu_ids, init_type='xavier')
@@ -188,7 +189,7 @@ class uorfGeneralIPEModel(BaseModel):
 							['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 		if set_depth:
-			self.visual_names += ['disparity{}'.format(i) for i in range(n)] + \
+			self.visual_names += ['disparity_{}'.format(i) for i in range(n)] + \
 								 ['disparity_rec{}'.format(i) for i in range(n)]
 
 	def setup(self, opt):
@@ -395,7 +396,7 @@ class uorfGeneralIPEModel(BaseModel):
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
 							    dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
-							    view_dirs = ray_dir if self.opt.use_viewdirs else None,
+							    view_dirs = ray_dir if (self.opt.use_viewdirs and not self.opt.dummy_viewdirs) else None,
 								fg_object_size=fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 		
 		raws = raws.view([N, H, W, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
@@ -406,7 +407,7 @@ class uorfGeneralIPEModel(BaseModel):
 		# (NxHxW)x3, (NxHxW)
 		rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
 		x_recon = rendered * 2 - 1
-
+		
 		self.loss_recon = self.L2_loss(x_recon, x)
 		x_norm, rendered_norm = self.vgg_norm((x + 1) / 2), self.vgg_norm(rendered)
 		rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
@@ -429,7 +430,7 @@ class uorfGeneralIPEModel(BaseModel):
 			if the first pixel has smaller disparity than the second one on the ground truth, (i.e., disparity_1_gt < disparity_2_gt)
 			then loss = max(0, depth_2_rendered - depth_1_rendered + margin)
 			else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
-			L, diff_max = 32, 5
+			L, diff_max = 16, 5
 			margin = 1e-4
 
 			patch1_start_h, patch1_start_w = torch.randint(low=diff_max, high=H-L-diff_max, size=(1,), device=dev), \
@@ -452,16 +453,16 @@ class uorfGeneralIPEModel(BaseModel):
 			in terms of the disparity on the ground truth,
 			then calculate the average depth difference between p and its nearest T pixels on the rendered depth map
 			'''
-			M, T, P = 32, 2, 4
-			margin = 1e-4
-			# sample M pixels
-			for _ in range(M):
-				px, py = torch.randint(low=T, high=H-T, size=(1,), device=dev), torch.randint(low=T, high=W-T, size=(1,), device=dev)
-				neighborhood = disparity[0, 0, px-T:px+T+1, py-T:py+T+1].flatten() # (2T+1)**2
-				distances = torch.abs(neighborhood - disparity[0, 0, px, py])
-				nearest_indices = torch.argsort(distances)[1:P+1]
-				depth_diff_rendered = torch.abs(depth_rendered[0, 0, px, py] - depth_rendered[0, 0, px-T:px+T+1, py-T:py+T+1].flatten()[nearest_indices]) # P
-				self.loss_depth_continuity += torch.mean(torch.clamp(depth_diff_rendered - margin, min=0)) * self.opt.weight_depth_continuity
+			# M, T, P = 64, 2, 4
+			# margin = 1e-4
+			# # sample M pixels
+			# for _ in range(M):
+			# 	px, py = torch.randint(low=T, high=H-T, size=(1,), device=dev), torch.randint(low=T, high=W-T, size=(1,), device=dev)
+			# 	neighborhood = disparity[0, 0, px-T:px+T+1, py-T:py+T+1].flatten() # (2T+1)**2
+			# 	distances = torch.abs(neighborhood - disparity[0, 0, px, py])
+			# 	nearest_indices = torch.argsort(distances)[1:P+1]
+			# 	depth_diff_rendered = torch.abs(depth_rendered[0, 0, px, py] - depth_rendered[0, 0, px-T:px+T+1, py-T:py+T+1].flatten()[nearest_indices]) # P
+			# 	self.loss_depth_continuity += torch.mean(torch.clamp(depth_diff_rendered - margin, min=0)) * self.opt.weight_depth_continuity
 
 		if self.opt.sfs_loss:
 			# shape representations of foreground slots: z_slots[1:, :self.opt.shape_dim] # K*C
@@ -496,7 +497,7 @@ class uorfGeneralIPEModel(BaseModel):
 				setattr(self, 'x{}'.format(i), x[i])
 				if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 					# normalize to 0-1
-					setattr(self, 'disparity{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
+					setattr(self, 'disparity_{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
 					setattr(self, 'disparity_rec{}'.format(i), (disparity_rendered[i] - disparity_rendered[i].min()) / (disparity_rendered[i].max() - disparity_rendered[i].min()))
 					
 			setattr(self, 'masked_raws', masked_raws.detach())

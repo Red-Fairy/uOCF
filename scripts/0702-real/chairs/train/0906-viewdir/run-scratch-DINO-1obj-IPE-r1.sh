@@ -29,12 +29,12 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_sc
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 10 \
     --load_size 128 --n_samp 56 --input_size 128 --supervision_size 128 --frustum_size 128 \
-    --model 'uorf_general_IPESG' \
+    --model 'uorf_general_IPE' \
     --attn_decay_steps 200000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 2 --attn_iter 4 --shape_dim 72 --color_dim 24 \
-    --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2027 \
+    --coarse_epoch 250 --niter 250 --percept_in 25 --no_locality_epoch 50 --seed 2025 \
     --position_loss --position_in 75 \
     --exp_id '0906-viewdir/1obj-scratch-IPE-r1' --use_viewdirs \
     --stratified --fixed_locality --n_freq 5 \

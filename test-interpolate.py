@@ -86,7 +86,7 @@ if __name__ == "__main__":
                 z_slots[1] = torch.tensor(z_slot_interpolate).cuda()
                 fg_slot_position = torch.zeros((opt.num_slots - 1, 2))
                 if manipulation:
-                    fg_slot_position[0] = torch.tensor([-0.25, -0.25])
+                    fg_slot_position[0] = torch.tensor([1/7, 1/7])
                 else:
                     fg_slot_position[0] = torch.tensor([0, 0])
                 model.forward_position(

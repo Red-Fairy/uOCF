@@ -25,5 +25,7 @@ class TestOptions(BaseOptions):
         parser.add_argument('--wanted_indices', type=str, default=None, help='indices of the images to visualize')
         parser.add_argument('--show_recon_stats', action='store_true', help='show the statistics of the reconstruction')
         parser.add_argument('--vis_disparity', action='store_true', help='visualize the disparity map')
+        parser.add_argument('--vis_attn', action='store_true', help='visualize the attention map')
+        parser.add_argument('--vis_mask', action='store_true', help='visualize the mask')
         self.isTrain = False
         return parser

@@ -188,7 +188,7 @@ class uorfGeneralModel(BaseModel):
 							['unmasked_slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 		self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 		if set_depth:
-			self.visual_names += ['disparity{}'.format(i) for i in range(n)] + \
+			self.visual_names += ['disparity_{}'.format(i) for i in range(n)] + \
 								 ['disparity_rec{}'.format(i) for i in range(n)]
 
 	def setup(self, opt):
@@ -536,7 +536,7 @@ class uorfGeneralModel(BaseModel):
 				setattr(self, 'x{}'.format(i), x[i])
 				if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 					# normalize to 0-1
-					setattr(self, 'disparity{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
+					setattr(self, 'disparity_{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
 					setattr(self, 'disparity_rec{}'.format(i), (disparity_rendered[i] - disparity_rendered[i].min()) / (disparity_rendered[i].max() - disparity_rendered[i].min()))
 					
 			setattr(self, 'masked_raws', masked_raws.detach())

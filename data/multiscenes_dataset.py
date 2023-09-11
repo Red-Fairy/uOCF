@@ -22,7 +22,7 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
         parser.add_argument('--transparent', action='store_true')
-        parser.add_argument('--bg_color', type=float, default=-127/255, help='background color')
+        parser.add_argument('--bg_color', type=float, default=-1, help='background color')
         parser.add_argument('--pre_feats', default='', type=str)
         return parser
 
@@ -54,7 +54,6 @@ class MultiscenesDataset(BaseDataset):
             scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
             self.scenes.append(scene_filenames)
 
-        self.encoder_type = opt.encoder_type
         self.bg_color = opt.bg_color
 
     def _transform(self, img, size=None):
@@ -96,11 +95,6 @@ class MultiscenesDataset(BaseDataset):
                 filenames = scene_filenames[:self.n_img_each_scene]
         rets = []
         for rd, path in enumerate(filenames):
-            # if self.opt.transparent:
-            #     img = Image.open(path).convert('RGB')
-            #     # white_bg = Image.new('RGBA', img.size, (255, 255, 255, 255))
-            #     # img = Image.alpha_composite(white_bg, img).convert('RGB')
-            # else:
             img = Image.open(path).convert('RGB')
             img_data = self._transform(img)
             pose_path = path.replace('.png', '_RT.txt')
@@ -128,8 +122,8 @@ class MultiscenesDataset(BaseDataset):
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
-            if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.encoder_type != 'CNN':
-                normalize = False if self.encoder_type == 'SD' else True
+            if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.opt.encoder_type != 'CNN':
+                normalize = False if self.opt.encoder_type == 'SD' else True
                 ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
             # if rd == 0 and self.opt.input_size != self.opt.load_size:
             #     ret['img_data_input'] = self._transform(img, size=self.opt.input_size)

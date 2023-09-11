@@ -35,12 +35,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 730 --n_img_each_sce
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
-    --coarse_epoch 250 --niter 1000 --percept_in 100 --no_locality_epoch 0 --seed 2027 \
+    --coarse_epoch 250 --niter 1500 --percept_in 100 --no_locality_epoch 0 --seed 2027 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-nodense' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 --bg_density_loss --bg_density_in 200 \
-    --depth_supervision \
+    --depth_supervision --weight_depth_ranking 1.5 \
+    --continue_train --epoch 1000 --epoch_count 1001 \
     --exp_id 'dataset-0817-0828/4obj-loadchairs-fine128-load80-depth' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 80 epoch' \
     

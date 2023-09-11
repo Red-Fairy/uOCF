@@ -805,11 +805,8 @@ class DecoderBox(nn.Module):
 		if fg_object_size is not None:
 			# remove abs(x) > fg_object_size | abs(y) > fg_object_size | z > fg_object_size
 			mask = torch.all(torch.abs(sampling_coor_fg) < fg_object_size, dim=-1)  # ((K-1)xP)
-			# keep points with indices mod 64*64 == 0 or -1 (the first and last point of each ray)
-			# mask = mask | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == 0) | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == ssize**2-1)
-			# randomly take only keep_ratio of the points outside the bounding box
-			# mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
-			# mask = mask & keep_idx if keep_idx is not None else mask
+			if mask.sum() == 0:
+				mask[0] = True
 			sampling_coor_fg = sampling_coor_fg[mask]  # Update the coordinates using the mask
 			idx = mask.nonzero().squeeze()  # Indices of valid points
 			# print("Number of points inside bbox: ", idx.size(0), " out of ", (K-1)*P, 
@@ -1032,9 +1029,10 @@ class DecoderIPE(nn.Module):
 		# 1. Remove the query points too far away from the slot center
 		if fg_object_size is not None:
 			# remove abs(x) > fg_object_size | abs(y) > fg_object_size | z > fg_object_size
-			mask = torch.all(torch.abs(sampling_mean_fg_) < fg_object_size, dim=-1)  # ((K-1)xP)
-			# keep points with indices mod 64*64 == 0 or -1 (the first and last point of each ray)
-			# mask = mask | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == 0) | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == ssize**2-1)
+			mask = torch.all(torch.abs(sampling_mean_fg_) < fg_object_size, dim=-1)  # ((K-1)xP) --> M
+			# M == 0 / 1, keep at least two points to avoid error
+			if mask.sum() <= 1:
+				mask[:2] = True
 			# randomly take only keep_ratio of the points outside the bounding box
 			mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
 			# mask = mask & keep_idx if keep_idx is not None else mask
@@ -1188,6 +1186,8 @@ class DecoderIPEVD(nn.Module):
 		self.pos_enc = PositionalEncoding(max_deg=n_freq)
 
 		self.use_viewdirs = use_viewdirs
+		self.n_freq = n_freq
+		self.n_freq_viewdirs = n_freq_viewdirs
 
 		if self.use_viewdirs:
 			self.viewdirs_encoding = PositionalEncoding(max_deg=n_freq_viewdirs)
@@ -1257,8 +1257,8 @@ class DecoderIPEVD(nn.Module):
 		if fg_object_size is not None:
 			# remove abs(x) > fg_object_size | abs(y) > fg_object_size | z > fg_object_size
 			mask = torch.all(torch.abs(sampling_mean_fg_) < fg_object_size, dim=-1)  # ((K-1)xP)
-			# keep points with indices mod 64*64 == 0 or -1 (the first and last point of each ray)
-			# mask = mask | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == 0) | (torch.arange(mask.size(0), device=mask.device) % (ssize**2) == ssize**2-1)
+			if mask.sum() <= 1:
+				mask[:2] = True
 			# randomly take only keep_ratio of the points outside the bounding box
 			mask = mask | (torch.rand(mask.shape, device=mask.device) < keep_ratio)
 			# mask = mask & keep_idx if keep_idx is not None else mask
@@ -1331,8 +1331,11 @@ class DecoderIPEVD(nn.Module):
 		bg_shape = self.b_shape(tmp) # (P*D)x1
 
 		if self.use_viewdirs:
-			viewdirs_encoding_bg = self.viewdirs_encoding(view_dirs) # Px(6*n_freq_viewdirs+3)
-			viewdirs_encoding_bg = viewdirs_encoding_bg.unsqueeze(1).expand(P, D, -1).flatten(0, 1) # (P*D)x(6*n_freq_viewdirs+3)
+			if view_dirs is not None:
+				viewdirs_encoding_bg = self.viewdirs_encoding(view_dirs) # Px(6*n_freq_viewdirs+3)
+				viewdirs_encoding_bg = viewdirs_encoding_bg.unsqueeze(1).expand(P, D, -1).flatten(0, 1) # (P*D)x(6*n_freq_viewdirs+3)
+			else:# use dummy encodings
+				viewdirs_encoding_bg = torch.zeros(P*D, 6*self.n_freq_viewdirs+3).to(tmp.device)
 			tmp = self.bg_rgb_net0(tmp) # (P*D)x64
 			tmp = torch.cat([tmp, viewdirs_encoding_bg], dim=-1) # (P*D)x(64+6*n_freq_viewdirs+3)
 			tmp = self.bg_rgb_net1(tmp) # (P*D)x64
@@ -1350,11 +1353,14 @@ class DecoderIPEVD(nn.Module):
 		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
 
 		if self.use_viewdirs:
-			# transform view_dirs by fg_transform
-			view_dirs = torch.matmul(fg_transform.squeeze(0)[:3,:3], view_dirs.t()).t() # P*3
+			if view_dirs is not None:
+				view_dirs = torch.matmul(fg_transform.squeeze(0)[:3,:3], view_dirs.t()).t() # P*3
+			else: # use dummy encodings
+				view_dirs = torch.zeros(P, 3).to(tmp.device)
 			viewdirs_encoding = self.viewdirs_encoding(view_dirs) # Px(6*n_freq_viewdirs+3)
 			viewdirs_encoding = viewdirs_encoding.unsqueeze(0).unsqueeze(-2).expand(K-1, -1, D, -1).flatten(0, 2) # ((K-1)*P*D)x(6*n_freq_viewdirs+3)
 			viewdirs_encoding = viewdirs_encoding[idx] # Mx(6*n_freq_viewdirs+3)
+
 			tmp = self.fg_rgb_net0(tmp) # Mx64
 			tmp = torch.cat([tmp, viewdirs_encoding], dim=-1) # Mx(64+6*n_freq_viewdirs+3)
 			tmp = self.fg_rgb_net1(tmp) # Mx64

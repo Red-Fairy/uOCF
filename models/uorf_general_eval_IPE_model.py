@@ -77,7 +77,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		if opt.show_recon_stats:
 			self.loss_names += ['recon_psnr', 'recon_ssim', 'recon_lpips']
 		n = opt.n_img_each_scene
-		self.set_visual_names(add_attn=True)
+		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
@@ -120,7 +120,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
-	def set_visual_names(self, add_mask=False, add_attn=False):
+	def set_visual_names(self):
 		n = self.opt.n_img_each_scene
 		n_slot = self.opt.num_slots
 		self.visual_names =	['gt_novel_view{}'.format(i+1) for i in range(n-1)] + \
@@ -130,11 +130,15 @@ class uorfGeneralEvalIPEModel(BaseModel):
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 							# ['gt_mask{}'.format(i) for i in range(n)] + \
 							# ['render_mask{}'.format(i) for i in range(n)]
-		if add_mask:
+		if self.opt.vis_mask:
 			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
 								 ['render_mask{}'.format(i) for i in range(n)]
-		if add_attn:
+		if self.opt.vis_attn:
 			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
+
+		if self.opt.vis_disparity:
+			self.visual_names += ['disparity_{}'.format(i) for i in range(n)] + \
+								 ['disparity_rec{}'.format(i) for i in range(n)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -169,6 +173,9 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			self.fg_idx = input['fg_idx']
 			self.obj_idxs = input['obj_idxs']  # (K+1)x1xHxW
 			self.masks_fg = input['obj_idxs_fg'].to(self.device)  # Kx1xHxW
+
+		if self.opt.vis_disparity:
+			self.disparity = input['depth'].to(self.device)
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -218,13 +225,15 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
+		if self.opt.vis_disparity:
+			disparity_rec = torch.zeros([N, 1, H, W], device=dev)
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
-								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 			
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
@@ -237,6 +246,12 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			rendered[..., h::scale, w::scale] = rendered_
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
+			if self.opt.vis_disparity:
+				disparity_rec_ = 1 / depth_map_.view(N, 1, H_, W_)
+				disparity_rec[..., h::scale, w::scale] = disparity_rec_
+
+		if self.opt.frustum_size != self.opt.load_size:
+			x = F.interpolate(x, size=[H, W], mode='bilinear')
 
 		if not self.opt.no_loss and not self.opt.video:
 			x_recon_novel, x_novel = x_recon[1:], x[1:]
@@ -245,7 +260,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			self.loss_psnr = compute_psnr(x_recon_novel/2+0.5, x_novel/2+0.5, data_range=1.)
 			self.loss_ssim = compute_ssim(x_recon_novel/2+0.5, x_novel/2+0.5, data_range=1.)
 
-		if self.opt.show_recon_stats:
+		if not self.opt.no_loss and self.opt.show_recon_stats:
 			x_recon_ori, x_ori = x_recon[0:1], x[0:1]
 			self.loss_recon_psnr = compute_psnr(x_recon_ori/2+0.5, x_ori/2+0.5, data_range=1.)
 			self.loss_recon_ssim = compute_ssim(x_recon_ori/2+0.5, x_ori/2+0.5, data_range=1.)
@@ -265,6 +280,9 @@ class uorfGeneralEvalIPEModel(BaseModel):
 					setattr(self, 'input_image', x[i])
 				else:
 					setattr(self, 'gt_novel_view{}'.format(i), x[i])
+				if self.opt.vis_disparity: # normalize disparity to [0, 1]
+					setattr(self, 'disparity_{}'.format(i), (self.disparity[i] - self.disparity[i].min()) / (self.disparity[i].max() - self.disparity[i].min()))
+					setattr(self, 'disparity_rec{}'.format(i), (disparity_rec[i] - disparity_rec[i].min()) / (disparity_rec[i].max() - disparity_rec[i].min()))
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
@@ -293,14 +311,13 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		#  4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
-		
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, self.z_slots, 
-								 nss2cam0, self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+								 nss2cam0, self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
@@ -319,6 +336,10 @@ class uorfGeneralEvalIPEModel(BaseModel):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
+			if self.opt.vis_disparity: # normalize disparity to [0, 1]
+				disparity_rec = 1 / depth_map_.view(N, 1, H_, W_)
+				# setattr(self, 'disparity_{}'.format(i), (self.disparity[i] - self.disparity[i].min()) / (self.disparity[i].max() - self.disparity[i].min()))
+				setattr(self, 'disparity_rec{}'.format(i), (disparity_rec[i] - disparity_rec[i].min()) / (disparity_rec[i].max() - disparity_rec[i].min()))
 
    
 	def forward_position(self, fg_slot_image_position=None, fg_slot_nss_position=None, z_slots=None):
@@ -363,7 +384,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
-								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
