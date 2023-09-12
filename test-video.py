@@ -77,7 +77,8 @@ for j, data in enumerate(dataset):
 		if opt.video_mode == 'spherical':
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		elif opt.video_mode == 'spiral':
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 4), 30, height_range=(0.9, 1.1), radius_range=(0.6, 0.8), origin=(0, -1.5))
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 4), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(0, -2))
+			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 4), 60, height_range=(0.9, 1.1))
 			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 20)
 		else:
 			assert False
@@ -105,7 +106,9 @@ for j, data in enumerate(dataset):
 		for visual_image_path in visual_image_paths:
 			img = cv2.imread(visual_image_path)
 			video_writer.write(img)
+		video_writer.release()
 
+		video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered_disparity.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 60, resolution)
 		# render disparity map if opt.vis_disparity is True
 		if opt.vis_disparity:
 			visual_image_paths = list(filter(lambda x: 'disparity_rec0' in x, glob(os.path.join(web_dir, 'images', '*.png'))))
@@ -113,5 +116,4 @@ for j, data in enumerate(dataset):
 			for visual_image_path in visual_image_paths:
 				img = cv2.imread(visual_image_path)
 				video_writer.write(img)
-
 		video_writer.release()

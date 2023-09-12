@@ -42,6 +42,8 @@ class BaseModel(ABC):
         self.optimizers = []
         self.image_paths = []
         self.metric = 0  # used for learning rate policy 'plateau'
+        if self.opt.fp16:
+            self.scaler = torch.cuda.amp.GradScaler()
 
     @staticmethod
     def modify_commandline_options(parser, is_train):

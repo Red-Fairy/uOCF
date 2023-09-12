@@ -269,8 +269,8 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			attn = attn.detach().cpu()  # KxN
 			H_, W_ = feature_map.shape[2], feature_map.shape[3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
-			if H_ != H:
-				attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+			# if H_ != H:
+			# 	attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			setattr(self, 'attn', attn)
 
 			for i in range(self.opt.n_img_each_scene):
@@ -310,6 +310,8 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		#  4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
+		if self.opt.vis_disparity:
+			disparity_rec = torch.zeros([N, 1, H, W], device=dev)
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
@@ -328,6 +330,9 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			rendered[..., h::scale, w::scale] = rendered_
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
+			if self.opt.vis_disparity:
+				disparity_rec_ = 1 / depth_map_.view(N, 1, H_, W_)
+				disparity_rec[..., h::scale, w::scale] = disparity_rec_
 
 		with torch.no_grad():
 			# for i in range(self.opt.n_img_each_scene):
@@ -336,8 +341,6 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 			if self.opt.vis_disparity: # normalize disparity to [0, 1]
-				disparity_rec = 1 / depth_map_.view(N, 1, H_, W_)
-				# setattr(self, 'disparity_{}'.format(i), (self.disparity[i] - self.disparity[i].min()) / (self.disparity[i].max() - self.disparity[i].min()))
 				setattr(self, 'disparity_rec{}'.format(i), (disparity_rec[i] - disparity_rec[i].min()) / (disparity_rec[i].max() - disparity_rec[i].min()))
 
    

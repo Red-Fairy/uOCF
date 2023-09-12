@@ -19,7 +19,7 @@ import numpy as np
 
 import torchvision
 
-class uorfGeneralIPEModel(BaseModel):
+class uorfGeneralIPEFP16Model(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -524,12 +524,14 @@ class uorfGeneralIPEModel(BaseModel):
 		"""Calculate losses, gradients, and update network weights; called in every training iteration"""
 		loss = self.loss_recon + self.loss_perc + self.loss_sfs + \
 					self.loss_pos + self.loss_bg_density + self.loss_depth_ranking + self.loss_depth_continuity
+		self.scaler.scale(loss).backward()
 		loss.backward()
 		# self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 
 	def optimize_parameters(self, ret_grad=False, epoch=0):
 		"""Update network weights; it will be called in every training iteration."""
-		self.forward(epoch)
+		with torch.cuda.amp.autocast():
+			self.forward(epoch)
 		for opm in self.optimizers:
 			opm.zero_grad()
 		self.backward()
@@ -542,7 +544,8 @@ class uorfGeneralIPEModel(BaseModel):
 						layers.append(n)
 						avg_grads.append(p.grad.abs().mean().cpu().item())
 		for opm in self.optimizers:
-			opm.step()
+			self.scaler.step(opm)
+		self.scaler.update()
 		return layers, avg_grads
 
 	def save_networks(self, surfix):
