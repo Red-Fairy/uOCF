@@ -41,9 +41,7 @@ class BaseModel(ABC):
         self.visual_names = []
         self.optimizers = []
         self.image_paths = []
-        self.metric = 0  # used for learning rate policy 'plateau'
-        if self.opt.fp16:
-            self.scaler = torch.cuda.amp.GradScaler()
+        self.metric = 0  # used for learning rate policy 'plateau'        
 
     @staticmethod
     def modify_commandline_options(parser, is_train):
@@ -287,6 +285,7 @@ class BaseModel(ABC):
                     if hasattr(state_dict, '_metadata'):
                         del state_dict._metadata
                     result = net.load_state_dict(state_dict, strict=False)
+                    print(result)
                     # print(result)
                     # try:
                     #     net.load_state_dict(state_dict, strict=not self.opt.not_strict)

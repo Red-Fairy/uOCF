@@ -16,6 +16,7 @@ from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDS
 from .model_general import SlotAttention, Decoder, DecoderBox, DecoderIPE, DecoderIPEVD
 from .utils import *
 import numpy as np
+from torch import autocast
 
 import torchvision
 
@@ -166,6 +167,8 @@ class uorfGeneralIPEFP16Model(BaseModel):
 		self.L2_loss = nn.MSELoss()
 		self.sfs_loss = SlotFeatureSlotLoss()
 		self.pos_loss = PositionSetLoss()
+
+		self.scaler = torch.cuda.amp.GradScaler()
 
 	def set_visual_names(self, set_depth=False):
 		n = self.opt.n_img_each_scene
@@ -525,12 +528,12 @@ class uorfGeneralIPEFP16Model(BaseModel):
 		loss = self.loss_recon + self.loss_perc + self.loss_sfs + \
 					self.loss_pos + self.loss_bg_density + self.loss_depth_ranking + self.loss_depth_continuity
 		self.scaler.scale(loss).backward()
-		loss.backward()
+		# loss.backward()
 		# self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 
 	def optimize_parameters(self, ret_grad=False, epoch=0):
 		"""Update network weights; it will be called in every training iteration."""
-		with torch.cuda.amp.autocast():
+		with autocast("cuda"):
 			self.forward(epoch)
 		for opm in self.optimizers:
 			opm.zero_grad()

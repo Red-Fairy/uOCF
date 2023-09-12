@@ -75,6 +75,7 @@ class BaseOptions():
 		parser.add_argument('--no_transform', action='store_true', help='directly deduce slot position from query')
 		parser.add_argument('--keep_ratio', type=float, default=.0, help='keep ratio outside the bbox')
 		parser.add_argument('--fg_object_size', type=float, default=3, help='size of the foreground object')
+		# parser.add_argument('--fp16', action='store_true', help='use fp16')
 		
 		self.initialized = True
 		return parser

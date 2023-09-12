@@ -1109,12 +1109,12 @@ class DecoderIPE(nn.Module):
 		latent_fg = self.f_after_latent(tmp)  # Mx64
 		fg_raw_rgb = self.f_color(latent_fg) # Mx3
 		# put back the removed query points, for indices between idx[i] and idx[i+1], put fg_raw_rgb[i] at idx[i]
-		fg_raw_rgb_full = torch.zeros((K-1)*P*D, 3, device=fg_raw_rgb.device) # ((K-1)xP*D)x3
+		fg_raw_rgb_full = torch.zeros((K-1)*P*D, 3, device=fg_raw_rgb.device, dtype=fg_raw_rgb.dtype) # ((K-1)xP*D)x3
 		fg_raw_rgb_full[idx] = fg_raw_rgb
 		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P*D, 3])  # ((K-1)xP*D)x3 -> (K-1)x(P*D)x3
 
 		fg_raw_shape = self.f_after_shape(tmp) # Mx1
-		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device) # ((K-1)xP*D)x1
+		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device, dtype=fg_raw_shape.dtype) # ((K-1)xP*D)x1
 		fg_raw_shape_full[idx] = fg_raw_shape
 		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
 
@@ -1354,7 +1354,7 @@ class DecoderIPEVD(nn.Module):
 		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
 
 		fg_raw_shape = self.f_after_shape(tmp) # Mx1
-		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device) # ((K-1)xP*D)x1
+		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device, dtype=fg_raw_shape.dtype) # ((K-1)xP*D)x1
 		fg_raw_shape_full[idx] = fg_raw_shape
 		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
 
@@ -1374,7 +1374,7 @@ class DecoderIPEVD(nn.Module):
 		latent_fg = self.f_after_latent(tmp)  # Mx64
 		fg_raw_rgb = self.f_color(latent_fg) # Mx3
 		# put back the removed query points, for indices between idx[i] and idx[i+1], put fg_raw_rgb[i] at idx[i]
-		fg_raw_rgb_full = torch.zeros((K-1)*P*D, 3, device=fg_raw_rgb.device) # ((K-1)xP*D)x3
+		fg_raw_rgb_full = torch.zeros((K-1)*P*D, 3, device=fg_raw_rgb.device, dtype=fg_raw_shape.dtype) # ((K-1)xP*D)x3
 		fg_raw_rgb_full[idx] = fg_raw_rgb
 		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P*D, 3])  # ((K-1)xP*D)x3 -> (K-1)x(P*D)x3
 
