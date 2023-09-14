@@ -284,8 +284,12 @@ class BaseModel(ABC):
                     state_dict = torch.load(load_path, map_location=self.device)
                     if hasattr(state_dict, '_metadata'):
                         del state_dict._metadata
-                    result = net.load_state_dict(state_dict, strict=False)
-                    print(result)
+
+                    if self.opt.isTrain:
+                        result = net.load_state_dict(state_dict, strict=False)
+                        print(result)
+                    else:
+                        net.load_state_dict(state_dict)
                     # print(result)
                     # try:
                     #     net.load_state_dict(state_dict, strict=not self.opt.not_strict)

@@ -10,7 +10,7 @@ import time
 from .projection import Projection, pixel2world
 from .model_general import SAMViT, dualRouteEncoderSeparate, FeatureAggregate, dualRouteEncoderSDSeparate
 from .model_general import SlotAttention
-from .model_general import Decoder, DecoderBox, DecoderIPE
+from .model_general import Decoder, DecoderBox, DecoderIPE, DecoderIPEVD
 from .utils import *
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
@@ -73,7 +73,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		self.loss_names = ['psnr', 'ssim', 'lpips'] if not self.opt.no_loss else []
 		if not opt.recon_only and not opt.video:
 			self.loss_names += ['ari', 'fgari', 'nvari']
-		if opt.show_recon_stats:
+		if opt.show_recon_stats and not opt.no_loss:
 			self.loss_names += ['recon_psnr', 'recon_ssim', 'recon_lpips']
 		n = opt.n_img_each_scene
 		self.set_visual_names()
@@ -87,35 +87,29 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		z_dim = opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
 
-		if opt.encoder_type == 'SAM':
-			from segment_anything import sam_model_registry
-			sam_model = sam_model_registry[opt.sam_type](checkpoint=opt.sam_path)
-			self.pretrained_encoder = SAMViT(sam_model).to(self.device).eval()
-			vit_dim = 256
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=vit_dim),
-													gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'DINO':
-			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
-			dino_dim = 768
-			self.netEncoder = networks.init_net(dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim),
-				       								gpu_ids=self.gpu_ids, init_type='normal')
-		elif opt.encoder_type == 'SD':
-			from .SD.ldm_extractor import LdmExtractor
-			self.pretrained_encoder = LdmExtractor().to(self.device).eval()
-			self.netEncoder = networks.init_net(dualRouteEncoderSDSeparate(input_nc=3, pos_emb=opt.pos_emb, bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim),
-												gpu_ids=self.gpu_ids, init_type='normal')
-		else:
-			assert False
+		self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
+		dino_dim = 768
+		self.netEncoder = dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
+						bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
 
-		self.netSlotAttention = networks.init_net(
-				SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		self.netSlotAttention = SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
-							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos), 
-							  gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
+							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos)
+
+		if not opt.use_viewdirs:
+			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													), gpu_ids=self.gpu_ids, init_type='xavier')
+													use_viewdirs=False)
+		else:
+			self.netDecoder = DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
+													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
+													use_viewdirs=True)
+
+		self.netEncoder = self.netEncoder.to(self.device)
+		self.netSlotAttention = self.netSlotAttention.to(self.device)
+		self.netDecoder = self.netDecoder.to(self.device)
+		
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 

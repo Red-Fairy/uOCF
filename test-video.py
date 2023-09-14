@@ -93,7 +93,7 @@ for j, data in enumerate(dataset):
 			# print(cam2world)
 			model.visual_cam2world(cam2world)
 			# model.visual_names = list(filter(lambda x: 'input' not in x and 'attn' not in x, model.visual_names))
-			model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))
+			model.visual_names = list(filter(lambda x: 'rec0' in x, model.visual_names))
 			# model.compute_visuals(cam2world=cam2world)
 			visuals = model.get_current_visuals()
 			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')

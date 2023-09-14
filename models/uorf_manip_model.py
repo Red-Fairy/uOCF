@@ -225,7 +225,7 @@ class uorfManipModel(BaseModel):
 			print('to move: {}'.format(move_slot_idx))
 
 		else:
-			move_slot_idx = 3
+			move_slot_idx = 1
 			self.movement = torch.tensor([1.5, 1.5, 0.], device=self.device)
 
 		if self.opt.manipulate_mode == 'removal': K -= 1

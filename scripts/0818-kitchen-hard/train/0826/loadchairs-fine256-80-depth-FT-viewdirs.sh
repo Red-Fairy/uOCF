@@ -5,7 +5,7 @@
 #SBATCH --mem=48G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -29,8 +29,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 72 --start_scene_idx
     --checkpoints_dir 'checkpoints' --name 'kitchen-hard' \
     --display_port $PORT --display_ncols 4 --print_freq 36 --display_freq 36 --save_epoch_freq 10 \
     --load_size 256 --n_samp 64 --input_size 128 --frustum_size_fine 256 \
-    --supervision_size 96 --frustum_size 64 \
-    --model 'uorf_general_IPE_FP16' \
+    --supervision_size 80 --frustum_size 64 \
+    --model 'uorf_general_IPE' \
     --attn_decay_steps 25000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
@@ -39,10 +39,10 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 72 --start_scene_idx
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-nodense' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
-    --stratified --fg_object_size 3 --n_dense_samp 256 --bg_density_loss --bg_density_in 200 \
+    --stratified --fg_object_size 3 --n_dense_samp 224 --bg_density_loss --bg_density_in 200 \
     --depth_supervision --weight_depth_ranking 1.5 \
-    --continue_train --epoch 1500 --epoch_count 1501 \
-    --exp_id '0828/4obj-loadchairs-depth-FT-96' --use_viewdirs \
+    --continue_train --epoch 2000 --epoch_count 2001 \
+    --exp_id '0828/4obj-loadchairs-fine256-depth-FT-viewdirs' --use_viewdirs \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 80 epoch' \
     
 # can try the following to list out which GPU you have access to

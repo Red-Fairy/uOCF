@@ -24,16 +24,17 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-easy/4obj-cabinet-test-0910'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
+CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 35 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' --results_dir 'results' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --input_size 128 --render_size 32 --frustum_size 128 \
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --bottom \
     --model 'uorf_manip' --dataset_mode 'multiscenes_manip' --near 6 --far 20 \
-    --learnable_slot_init --fixed_locality \
-    --vis_mask --vis_attn \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/ablation/uORF-4obj-GAN-QBO-96' \
-    --attn_iter 3 --testset_name 'regular_test_240_manip'  \
+    --fixed_locality --learnable_slot_init \
+    --manipulate_mode 'translation' --no_loss \
+    --wanted_indices '22' \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/uORF-4obj-intrinsics-QBO-2' \
+    --attn_iter 3 --testset_name 'translation'  \
 
 echo "Done"

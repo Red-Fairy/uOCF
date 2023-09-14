@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+##SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
@@ -22,23 +22,23 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-easy/4obj-all-test-0817'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/test-4obj-proof'}
 PORT=${2:-12783}
-python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 20 --start_scene_idx 80 --n_img_each_scene 2  \
-    --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
+CUDA_VISIBLE_DEVICES=1 python -m visdom.server -p $PORT &>/dev/null &
+python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 1  \
+    --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 \
-    --load_size 256 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 256 \
+    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
     --model 'uorf_general_eval_IPE' \
     --num_slots 5 --attn_iter 4 \
     --shape_dim 72 --color_dim 24 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-0828/4obj-loadchairs-fine512-depth-FT' \
-    --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --show_recon_stats \
-    --nss_scale 7 --vis_disparity --epoch 1680 \
-    --testset_name 'train4obj_cabinet_load256' \
+    --vis_attn --vis_mask \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-r4' \
+    --fixed_locality --fg_object_size 3 --no_loss \
+    --dummy_info 'regular test' --testset_name 'proof' --epoch 80 \
 
 
 # can try the following to list out which GPU you have access to

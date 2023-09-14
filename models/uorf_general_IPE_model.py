@@ -84,9 +84,7 @@ class uorfGeneralIPEModel(BaseModel):
 		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
 		parser.add_argument('--weight_depth_continuity', type=float, default=0.005, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=250, help='when to start the depth supervision')
-		parser.add_argument('--use_viewdirs', action='store_true', help='use viewdirs in the decoder')
-		parser.add_argument('--dummy_viewdirs', action='store_true', help='use dummy viewdirs in the decoder')
-
+		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
 
