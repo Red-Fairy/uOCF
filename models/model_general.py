@@ -1136,7 +1136,7 @@ class DecoderIPE(nn.Module):
 
 class DecoderIPEVD(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 
-		  			locality_ratio=4/7, fixed_locality=False, use_viewdirs=False, n_freq_viewdirs=3):
+		  			locality_ratio=4/7, fixed_locality=False, use_viewdirs=False, n_freq_viewdirs=3, n_freq_bg=None):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
@@ -1157,6 +1157,7 @@ class DecoderIPEVD(nn.Module):
 		self.z_dim = z_dim
 		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
 		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
+		
 		for i in range(n_layers-1):
 			before_skip.append(nn.Linear(z_dim, z_dim))
 			before_skip.append(nn.ReLU(True))
@@ -1169,6 +1170,7 @@ class DecoderIPEVD(nn.Module):
 		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
 									 nn.ReLU(True),
 									 nn.Linear(z_dim//4, 3))
+		
 		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
 		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
 		for i in range(n_layers - 1):
@@ -1176,6 +1178,13 @@ class DecoderIPEVD(nn.Module):
 			before_skip.append(nn.ReLU(True))
 			after_skip.append(nn.Linear(z_dim, z_dim))
 			after_skip.append(nn.ReLU(True))
+
+		if n_freq_bg is not None:
+			before_skip[0] = nn.Linear(input_dim+6*(n_freq_bg-n_freq), z_dim)
+			after_skip[0] = nn.Linear(z_dim+input_dim+6*(n_freq_bg-n_freq), z_dim)
+			self.pos_enc_bg = PositionalEncoding(max_deg=n_freq_bg)
+		else:
+			self.pos_enc_bg = PositionalEncoding(max_deg=n_freq)
 
 		self.b_before = nn.Sequential(*before_skip)
 		self.b_after = nn.Sequential(*after_skip)
@@ -1278,7 +1287,7 @@ class DecoderIPEVD(nn.Module):
 		# pos_emb_bg = self.pos_enc(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq+3)
 
 		pos_emb_fg = self.pos_enc(sampling_mean_fg, sampling_var_fg)[0]  # ((K-1)xP)xDx(6*n_freq+3)
-		pos_emb_bg = self.pos_enc(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq+3)
+		pos_emb_bg = self.pos_enc_bg(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq+3)
 
 		if mask_ratio > 0.0:
 			# mask the last ratio of the pos emb

@@ -29,11 +29,20 @@ meters_tst = {stat: AverageMeter() for stat in model.loss_names}
 
 set_seed(opt.seed)
 
-manipulation = False
-
-remove_obj_idx = [0, 3]
-# suffix = f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
 suffix = ''
+
+remove = True
+remove_obj_idx = [0, 1]
+
+translate = True
+r = 0.4
+bias = torch.tensor([-0.1, 0, 0]).to(model.device)
+translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
+
+if remove:
+	suffix += f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
+if translate:
+	suffix += '_translate'
 
 wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
@@ -56,8 +65,12 @@ for j, data in enumerate(dataset):
 	with torch.no_grad():
 		model.forward()
 		img_path = model.get_image_paths()
+		
+		if translate:
+			model.fg_slot_nss_position = translate_dst
+			model.forward_position()
 
-		if manipulation:
+		if remove:
 			num_slots = opt.num_slots if opt.n_objects_eval is None else opt.n_objects_eval
 			for idx in remove_obj_idx:
 				model.fg_slot_nss_position[idx] = torch.tensor([100, 100, 0]).to(model.device)
@@ -77,7 +90,7 @@ for j, data in enumerate(dataset):
 		if opt.video_mode == 'spherical':
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		elif opt.video_mode == 'spiral':
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 4), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(0, -2))
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(0, -2))
 			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 4), 60, height_range=(0.9, 1.1))
 			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 20)
 		else:

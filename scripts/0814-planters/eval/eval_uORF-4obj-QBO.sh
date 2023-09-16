@@ -21,20 +21,18 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
-DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-hard-new/4obj-all-test'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/real/planters/4obj-test'}
 PORT=${2:-12783}
-python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 35 --n_img_each_scene 2 \
-    --checkpoints_dir 'checkpoints' --name 'room_real_chairs' --results_dir 'results' \
+CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 140 --n_img_each_scene 3 \
+    --checkpoints_dir 'checkpoints' --name 'planters' --results_dir 'results' \
     --display_port $PORT --display_ncols 4 \
-    --load_size 128 --input_size 128 --render_size 32 --frustum_size 128 \
+    --load_size 128 --input_size 128 --render_size 8 --frustum_size 128 --bottom \
     --n_samp 256 --z_dim 96 --num_slots 5 \
-    --bottom \
-    --model 'uorf_manip' --dataset_mode 'multiscenes_manip' --near 6 --far 20 \
-    --fixed_locality --learnable_slot_init \
-    --manipulate_mode 'removal' --no_loss \
-    --wanted_indices '21' \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-hard/uORF-4obj-intrinsics-QBO' \
-    --attn_iter 3 --testset_name 'removal'  \
-
+    --model 'uorf_eval' \
+    --fixed_locality --near_plane 6 --far_plane 20 \
+    --learnable_slot_init \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/planters/uORF-4obj-intrinsics-QBO' \
+    --recon_only --no_shuffle --epoch 400 \
+    --attn_iter 3 --testset_name 'regular_test' \
+# done
 echo "Done"

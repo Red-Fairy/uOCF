@@ -233,7 +233,7 @@ class uorfGeneralEvalModel(BaseModel):
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, 
-								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
@@ -314,7 +314,7 @@ class uorfGeneralEvalModel(BaseModel):
 			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, self.z_slots, nss2cam0, 
-								 self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+								 self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
@@ -377,7 +377,7 @@ class uorfGeneralEvalModel(BaseModel):
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0, 
-								 fg_slot_nss_position, fg_object_size=self.opt.fg_object_size)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+								 fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/selt.opt.nss_scale)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])

@@ -28,7 +28,7 @@ python -m visdom.server -p $PORT &>/dev/null &
 CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 20 --start_scene_idx 80 --n_img_each_scene 2  \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
     --display_port $PORT --display_ncols 4 \
-    --load_size 256 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 512 \
+    --load_size 256 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 256 \
     --model 'uorf_general_eval_IPE' \
     --num_slots 5 --attn_iter 4 \
     --shape_dim 72 --color_dim 24 \
@@ -37,8 +37,8 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 20 --start
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
     --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-0828/4obj-loadchairs-fine256-depth-FT-viewdir2' \
     --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --show_recon_stats \
-    --nss_scale 7 --epoch 1870 --use_viewdirs --no_loss \
-    --dummy_info 'test_real' --testset_name 'train4obj_cabinet_load512' \
+    --nss_scale 7 --epoch 2000 --use_viewdirs --no_loss \
+    --dummy_info 'test_real' --testset_name 'train4obj_cabinet_load256' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

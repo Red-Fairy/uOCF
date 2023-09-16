@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 12 --start
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-hard/0828/4obj-loadchairs-fine128-load30' \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-hard/0828/4obj-loadchairs-fine256-load30' \
     --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --show_recon_stats \
     --nss_scale 7 --epoch 1000 \
     --dummy_info 'test_real' --testset_name 'test4obj_load256' \

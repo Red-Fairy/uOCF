@@ -30,8 +30,8 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 140 --n_im
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' \
     --fixed_locality --near_plane 6 --far_plane 20 \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/planters/uORF-4obj' \
-    --recon_only --no_shuffle \
-    --attn_iter 3 --testset_name 'regular_test_1240' \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/planters/uORF-4obj-intrinsics' \
+    --recon_only --no_shuffle --epoch 1000 \
+    --attn_iter 3 --testset_name 'regular_test' \
 # done
 echo "Done"

@@ -149,7 +149,7 @@ class uorfGeneralIPEModel(BaseModel):
 		else:
 			self.netDecoder = DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=True,
+													use_viewdirs=True
 													)
 			
 		if not (opt.load_pretrain or opt.continue_train):
@@ -487,6 +487,8 @@ class uorfGeneralIPEModel(BaseModel):
 					
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
+			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
+			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 			
 	def compute_visuals(self):
 		with torch.no_grad():

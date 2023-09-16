@@ -228,7 +228,8 @@ class uorfManipModel(BaseModel):
 			move_slot_idx = 1
 			self.movement = torch.tensor([1.5, 1.5, 0.], device=self.device)
 
-		if self.opt.manipulate_mode == 'removal': K -= 1
+		n_remove = 2
+		if self.opt.manipulate_mode == 'removal': K -= n_remove
 
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev), torch.zeros([K, N, D, H, W, 4], device=dev)
@@ -238,12 +239,18 @@ class uorfManipModel(BaseModel):
 			H_, W_ = H // scale, W // scale
 			if self.opt.manipulate_mode == 'translation':
 				sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1).clone()  # (K-1)xPx3
-				sampling_coor_fg_[move_slot_idx] = sampling_coor_fg_[move_slot_idx] - self.movement / self.opt.nss_scale
+				# sampling_coor_fg_[move_slot_idx] = sampling_coor_fg_[move_slot_idx] - self.movement / self.opt.nss_scale
+				sampling_coor_fg_[2] -= torch.tensor([-0.3, 0.7, 0]).to(self.device)
+				sampling_coor_fg_[3] -= torch.tensor([0.3, -0.7, 0]).to(self.device)
 				z_slots_ = z_slots.clone()
 			else:
-				sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1).clone()  # (K-2)xPx3
-				z_slots_ = z_slots.clone()
-				z_slots_ = torch.cat([z_slots_[0:move_slot_idx+1], z_slots_[move_slot_idx+2:]], dim=0)
+				sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1).clone() 
+				z_slots_ = torch.zeros([K, self.opt.z_dim], device=self.device)
+				z_slots_ = z_slots[0:2]
+				# z_slots_[1:2] = z_slots[2:3]
+				# z_slots_[2:3] = z_slots[4:5]
+				# z_slots_ = z_slots.clone()
+				# z_slots_ = torch.cat([z_slots_[0:move_slot_idx+1], z_slots_[move_slot_idx+2:]], dim=0)
 			sampling_coor_bg_ = frus_nss_coor_  # Px3
 
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots_, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1

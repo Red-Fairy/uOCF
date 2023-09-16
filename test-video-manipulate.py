@@ -29,15 +29,27 @@ meters_tst = {stat: AverageMeter() for stat in model.loss_names}
 
 set_seed(opt.seed)
 
-obj_to_move = 1
-suffix = f'moving_obj_{obj_to_move}'
-dst = torch.tensor([0.4, 0.4, 0]).to(model.device)
-n_frames = 15
+suffix = ''
+n_frames = 60
 
-manipulation = True
+# obj_to_move = 1
+# suffix = f'moving_obj_{obj_to_move}'
+# dst = torch.tensor([0.4, 0.4, 0]).to(model.device)
+
+swap = False
 obj_to_swap = [(0, 2), (1, 3)]
-if manipulation:
+if swap:
 	suffix += f'swap_{"_".join([str(idx[0])+str(idx[1]) for idx in obj_to_swap])}'
+
+translate1 = False
+translate2 = True
+r = 0.4
+bias = torch.tensor([-0.1, 0, 0]).to(model.device)
+translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
+if translate1:
+	suffix += '_translate1'
+if translate2:
+	suffix += '_translate2'
 
 wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
@@ -55,7 +67,7 @@ for j, data in enumerate(dataset):
 
 	visualizer.reset()
 	model.set_input(data)  # unpack data from data loader
-	model.set_visual_names(add_attn=True)
+	model.set_visual_names()
 
 	with torch.no_grad():
 		model.forward()
@@ -73,24 +85,42 @@ for j, data in enumerate(dataset):
 		theta = torch.acos((cam2world_input[:, 2, 3]) / radius)
 		radius, theta, z = radius.item(), theta.item(), cam2world_input[:, 2, 3].item()
 
-		cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1)
+		cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1, radius_range=(0.5, 0.7), origin=(0, -2))
 
-		if manipulation:
-			for i in range(len(obj_to_swap)):
-				obj1, obj2 = obj_to_swap[i]
-				pos1, pos2 = model.fg_slot_nss_position[obj1].clone(), model.fg_slot_nss_position[obj2].clone()
-				model.fg_slot_nss_position[obj1], model.fg_slot_nss_position[obj2] = pos2, pos1
-			model.forward_position()
-
-		ori_pos = model.fg_slot_nss_position[obj_to_move].clone()
+		ori_pos = model.fg_slot_nss_position.clone()
 
 		for i in range(n_frames+1):
-			model.fg_slot_nss_position[obj_to_move] = ori_pos + (dst - ori_pos) * i / n_frames
+			if translate1:
+				model.fg_slot_nss_position = ori_pos + (translate_dst - ori_pos) * i / n_frames
+			if translate2:
+				theta = 2 * np.pi * i / n_frames
+				translate_dst = torch.tensor([[r*np.sin(theta+np.pi), r*np.cos(theta+np.pi), 0],
+								  			[r*np.sin(theta), r*np.cos(theta), 0],
+											 [r*np.sin(theta+np.pi/2), r*np.cos(theta+np.pi/2), 0],
+											 [r*np.sin(theta-np.pi/2), r*np.cos(theta-np.pi/2), 0]]).to(model.device) + bias
+				model.fg_slot_nss_position = translate_dst.float()
 			model.forward_position()
 			model.visual_cam2world(cam2world)
 			model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))
 			visuals = model.get_current_visuals()
 			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
+
+		# if manipulation:
+		# 	for i in range(len(obj_to_swap)):
+		# 		obj1, obj2 = obj_to_swap[i]
+		# 		pos1, pos2 = model.fg_slot_nss_position[obj1].clone(), model.fg_slot_nss_position[obj2].clone()
+		# 		model.fg_slot_nss_position[obj1], model.fg_slot_nss_position[obj2] = pos2, pos1
+		# 	model.forward_position()
+
+		# ori_pos = model.fg_slot_nss_position[obj_to_move].clone()
+
+		# for i in range(n_frames+1):
+		# 	model.fg_slot_nss_position[obj_to_move] = ori_pos + (dst - ori_pos) * i / n_frames
+		# 	model.forward_position()
+		# 	model.visual_cam2world(cam2world)
+		# 	model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))
+		# 	visuals = model.get_current_visuals()
+		# 	save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
 
 
 

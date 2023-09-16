@@ -26,7 +26,7 @@ wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
 # file = open(os.path.join(opt.results_dir, opt.name, opt.exp_id, 'slot_location.txt'), 'w+')
 
-suffix = 'swap_02'
+suffix = 'rearrangement'
 
 for j, data in enumerate(dataset):
 
@@ -45,16 +45,18 @@ for j, data in enumerate(dataset):
 	with torch.no_grad():
 		model.forward()
 
-		fg_positions = model.fg_slot_nss_position.clone()
-		model.fg_slot_nss_position[0] = fg_positions[2]
-		model.fg_slot_nss_position[2] = fg_positions[0]
-		model.fg_slot_nss_position[1] = fg_positions[1]
-		model.fg_slot_nss_position[3] = fg_positions[3]
-		
-		# model.fg_slot_nss_position[0] = torch.tensor([0.4, 0.4, 0])
-		# model.fg_slot_nss_position[2] = torch.tensor([0.2, 0.2, 0])
+		# fg_positions = model.fg_slot_nss_position.clone()
+		# model.fg_slot_nss_position[0] = fg_positions[1]
+		# model.fg_slot_nss_position[1] = fg_positions[2]
+		# model.fg_slot_nss_position[2] = fg_positions[3]
+		# model.fg_slot_nss_position[3] = fg_positions[0]
 
-		model.forward_position()
+		# model.fg_slot_nss_position = torch.zeros_like(model.fg_slot_nss_position)
+		
+		# model.fg_slot_nss_position[1] += torch.tensor([-0.3, 0.7, 0]).to(model.device)
+		# model.fg_slot_nss_position[0] += torch.tensor([0.3, -0.7, 0]).to(model.device)
+
+		# model.forward_position()
 		model.compute_visuals()
 
 	visuals = model.get_current_visuals()

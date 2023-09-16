@@ -25,7 +25,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-easy/4obj-cabinet-test-0910'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 2  \
+python test.py --dataroot $DATAROOT --n_scenes 35 --n_img_each_scene 2  \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
     --display_port $PORT --display_ncols 4 \
     --load_size 256 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 256 \

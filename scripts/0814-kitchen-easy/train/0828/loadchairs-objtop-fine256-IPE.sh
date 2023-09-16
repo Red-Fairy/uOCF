@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=10
 #SBATCH --mem=48G
 
 # only use the following on partition with GPUs
@@ -38,13 +38,12 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 760 --n_img_each_sce
     --coarse_epoch 250 --niter 1000 --percept_in 100 --no_locality_epoch 0 --seed 2025 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-r4' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
-    --load_epoch 15 \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
     --bg_density_loss \
-    --continue_train --epoch 240 --epoch_count 241 \
-    --exp_id 'dataset-0817-0828/4obj-loadchairs-fine256-load24' \
-    --dummy_info 'DINO load from 4 obj chairs synthetic, 24 epoch' \
+    --continue_train --epoch 750 --epoch_count 751 \
+    --exp_id 'dataset-0817-0828/4obj-loadchairs-fine256' \
+    --dummy_info 'DINO load from 4 obj chairs synthetic' \
     
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

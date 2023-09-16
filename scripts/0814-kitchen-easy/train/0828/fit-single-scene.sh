@@ -22,27 +22,26 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-hard-new/4obj-all-train'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-easy/4obj-all-train-0817/'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 72 --start_scene_idx 0 --n_img_each_scene 2 \
-    --checkpoints_dir 'checkpoints' --name 'kitchen-hard' \
-    --display_port $PORT --display_ncols 4 --print_freq 36 --display_freq 36 --save_epoch_freq 10 \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 1 --start_scene_idx 719 --n_img_each_scene 2 \
+    --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
+    --display_port $PORT --display_ncols 4 --print_freq 30 --display_freq 30 --save_epoch_freq 3000 \
     --load_size 256 --n_samp 64 --input_size 128 --frustum_size_fine 256 \
     --supervision_size 80 --frustum_size 64 \
     --model 'uorf_general_IPE' \
-    --attn_decay_steps 25000 \
+    --attn_decay_steps 2500 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
-    --coarse_epoch 250 --niter 2500 --percept_in 100 --no_locality_epoch 0 --seed 2027 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-nodense' \
+    --coarse_epoch 0 --niter 25000 --percept_in 0 --no_locality_epoch 0 --seed 2027 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-0828/4obj-loadchairs-fine128-load80-r3' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
-    --fixed_locality --dense_sample_epoch 100 \
-    --stratified --fg_object_size 3 --n_dense_samp 192 --bg_density_loss --bg_density_in 200 \
-    --depth_supervision --weight_depth_ranking 1.5 \
-    --continue_train --epoch 2000 --epoch_count 2001 \
-    --exp_id '0828/4obj-loadchairs-fine256-depth-FT-viewdirs' --use_viewdirs \
+    --fixed_locality --dense_sample_epoch 0 \
+    --stratified --fg_object_size 3 --n_dense_samp 192 --bg_density_loss --bg_density_in 0 \
+    --depth_supervision --weight_depth_ranking 1.5 --lr 0.0001 --depth_in 0 \
+    --exp_id 'dataset-0817-0828/fit-single-scene' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, 80 epoch' \
     
 # can try the following to list out which GPU you have access to

@@ -37,6 +37,7 @@ if __name__ == '__main__':
         
         if wanted_indices is not None and i not in wanted_indices:
             continue
+
         visualizer.reset()
         model.set_input(data)  # unpack data from data loader
         model.test()           # run inference: forward + compute_visuals
