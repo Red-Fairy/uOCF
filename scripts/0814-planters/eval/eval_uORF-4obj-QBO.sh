@@ -32,7 +32,7 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 140 --n_im
     --fixed_locality --near_plane 6 --far_plane 20 \
     --learnable_slot_init \
     --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/planters/uORF-4obj-intrinsics-QBO' \
-    --recon_only --no_shuffle --epoch 400 \
+    --recon_only --no_shuffle --epoch 900 \
     --attn_iter 3 --testset_name 'regular_test' \
 # done
 echo "Done"

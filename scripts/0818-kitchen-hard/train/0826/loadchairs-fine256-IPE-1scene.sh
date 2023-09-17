@@ -5,7 +5,7 @@
 #SBATCH --mem=48G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a6000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -25,21 +25,21 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-hard-new/4obj-all-test'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-python train_without_gan.py --dataroot $DATAROOT --n_scenes 1 --start_scene_idx 4 --n_img_each_scene 2 \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 1 --start_scene_idx 22 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'kitchen-hard' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 1000 \
     --load_size 256 --n_samp 64 --input_size 128 --frustum_size_fine 256 \
     --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general_IPE' \
-    --attn_decay_steps 25000 \
+    --attn_decay_steps 2000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-r4' \
-    --load_epoch 80 \
+    --load_epoch 15 \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
-    --coarse_epoch 50000 --niter 200000 --percept_in 10000 --no_locality_epoch 0 --seed 2025 \
-    --fixed_locality --dense_sample_epoch 20000 --depth_supervision --depth_in 0 \
+    --coarse_epoch 20000 --niter 100000 --percept_in 5000 --no_locality_epoch 0 --seed 2025 \
+    --fixed_locality --dense_sample_epoch 5000 --depth_supervision --depth_in 0 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
     --bg_density_loss \
     --exp_id '0828/4obj-loadchairs-fine256-1scenes' \

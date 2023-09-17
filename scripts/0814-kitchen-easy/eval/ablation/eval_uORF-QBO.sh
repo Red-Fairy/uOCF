@@ -31,7 +31,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 100 --star
     --model 'uorf_eval' \
     --fixed_locality --near_plane 6 --far_plane 20 \
     --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/uORF-4obj-intrinsics-QBO-2' \
-    --recon_only --learnable_slot_init \
-    --attn_iter 3 --testset_name 'regular_test_all'  \
+    --recon_only --learnable_slot_init --epoch 900 \
+    --attn_iter 3 --testset_name 'regular_test'  \
 # done
 echo "Done"

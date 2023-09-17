@@ -28,20 +28,21 @@ python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 324 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'kitchen-hard' \
     --display_port $PORT --display_ncols 4 --print_freq 81 --display_freq 81 --save_epoch_freq 10 \
-    --load_size 256 --n_samp 64 --input_size 128 --frustum_size_fine 256 \
+    --load_size 128 --n_samp 64 --input_size 128 --frustum_size_fine 128 \
     --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general_IPE' \
     --attn_decay_steps 20000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 4 --shape_dim 72 --color_dim 24 --near 6 --far 20 \
-    --coarse_epoch 250 --niter 1000 --percept_in 100 --no_locality_epoch 0 --seed 2025 \
+    --coarse_epoch 250 --niter 1000 --percept_in 100 --no_locality_epoch 0 --seed 2027 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-r4' \
+    --load_epoch 15 \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --fixed_locality --dense_sample_epoch 100 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
     --bg_density_loss \
-    --exp_id '0828/4obj-loadchairs-fine256-debug' \
+    --exp_id '0828/4obj-loadchairs-fine256-debug-3' \
     --dummy_info 'DINO load from 4 obj chairs synthetic, no dense 30 epoch' \
     
 # can try the following to list out which GPU you have access to

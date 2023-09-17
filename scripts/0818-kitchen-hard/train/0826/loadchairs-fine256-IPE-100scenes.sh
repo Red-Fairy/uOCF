@@ -42,7 +42,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_sce
     --fixed_locality --dense_sample_epoch 500 --depth_supervision --depth_in 2000 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
     --bg_density_loss \
-    --exp_id '0828/4obj-loadchairs-fine256-100scenes-2' \
+    --continue_train --epoch_count 791 \
+    --exp_id '0828/4obj-loadchairs-fine256-100scenes' \
     --dummy_info 'DINO load from 4 obj chairs synthetic' \
     
 # can try the following to list out which GPU you have access to
