@@ -31,18 +31,22 @@ set_seed(opt.seed)
 
 suffix = ''
 
-remove = True
-remove_obj_idx = [0, 1]
+remove = False
+remove_obj_idx = [0, 1, 2, 3]
 
-translate = True
-r = 0.4
+translate = False
+r = 0.36
 bias = torch.tensor([-0.1, 0, 0]).to(model.device)
-translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
+# translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
+translate_dst = torch.tensor([[-r, 0, 0], [r, 0, 0], [0, -r, 0], [0, r, 0]]).to(model.device) + bias
+
+# translate_dst = torch.tensor([[0, 0, 0], [-0.025, -0.015, 0.2], [-0.02, -0.02, 0.14], [-0.02, -0.02, 0.08]]).to(model.device) + bias
+translate_dst = torch.tensor([[-0.15, 0.15, 0], [0.15, -0.15, 0], [-0.15, 0.15, 0.05], [0.14, -0.16, 0.05]]).to(model.device) + bias
 
 if remove:
 	suffix += f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
 if translate:
-	suffix += '_translate'
+	suffix += '_translate_top'
 
 wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
@@ -90,9 +94,11 @@ for j, data in enumerate(dataset):
 		if opt.video_mode == 'spherical':
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		elif opt.video_mode == 'spiral':
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(0, -2))
-			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 4), 60, height_range=(0.9, 1.1))
-			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 12, angle_xy + np.pi / 4), 20)
+			# kiteasy
+			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(0, -1.5))
+			# 0.5-0.7 (0, -2)
+			# kithard
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.8, 1.0), origin=(0., -1.))
 		else:
 			assert False
 

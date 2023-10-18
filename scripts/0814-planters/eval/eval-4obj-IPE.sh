@@ -25,7 +25,7 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/planters/4obj-test'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 140 --start_scene_idx 0 --n_img_each_scene 2  \
+CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 140 --n_img_each_scene 3  \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
@@ -37,8 +37,8 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 140 --star
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
     --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/planters/0906-IPE/4obj-loadchairs-fine128-load80' \
     --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --show_recon_stats \
-    --nss_scale 7 --epoch 780 \
-    --dummy_info 'test_real' --testset_name '4obj_load128' \
+    --nss_scale 7 --epoch 780 --vis_render_mask \
+    --dummy_info 'test_real' --testset_name '4obj_load128_mask' \
 
 
 # can try the following to list out which GPU you have access to

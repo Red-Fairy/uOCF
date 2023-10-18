@@ -42,7 +42,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 50 --n_img_each_scen
     --fixed_locality --dense_sample_epoch 750 --depth_supervision --depth_in 2000 \
     --stratified --fg_object_size 3 --n_dense_samp 256 \
     --bg_density_loss \
-    --continue_train --epoch_count 751 \
+    --continue_train --epoch 2700 --epoch_count 2701 \
     --exp_id '0828/4obj-loadchairs-fine256-50scenes' \
     --dummy_info 'DINO load from 4 obj chairs synthetic' \
     

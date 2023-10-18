@@ -121,11 +121,13 @@ class uorfGeneralEvalIPEModel(BaseModel):
 							['input_image'] + \
 							['slot{}_view{}_unmasked'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
-							# ['gt_mask{}'.format(i) for i in range(n)] + \
-							# ['render_mask{}'.format(i) for i in range(n)]
-		if self.opt.vis_mask:
-			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)] + \
-								 ['render_mask{}'.format(i) for i in range(n)]
+
+		if self.opt.vis_gt_mask or self.opt.vis_mask:
+			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)]
+		
+		if self.opt.vis_render_mask or self.opt.vis_mask:
+			self.visual_names += ['render_mask{}'.format(i) for i in range(n)]
+
 		if self.opt.vis_attn:
 			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
@@ -435,6 +437,16 @@ class uorfGeneralEvalIPEModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(N):
 					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
+
+			if self.opt.vis_render_mask and self.opt.recon_only:
+				# define colors
+				mask_maps = torch.stack(mask_maps)  # KxNxHxW
+				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
+				colors = (torch.tensor([[0, 0, 0], [255, 0, 0], [0, 255, 0], [0, 0, 255],
+										[255, 255, 0]]) / 255 * 2 - 1).to(self.device)  # 5x3
+				mask_visuals = colors[mask_idx]  # NxHxWx3
+				for i in range(N):
+					setattr(self, 'render_mask{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]))
 
 			if not self.opt.recon_only and not self.opt.video:
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW

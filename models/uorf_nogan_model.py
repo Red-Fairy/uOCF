@@ -108,7 +108,58 @@ class uorfNoGanModel(BaseModel):
 			opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
 		"""
 		if self.isTrain:
-			self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
+			if opt.load_pretrain: # load pretraine models, e.g., object NeRF decoder
+				assert opt.load_pretrain_path is not None
+				unloaded_keys, loaded_keys_frozen, loaded_keys_trainable = self.load_pretrain_networks(opt.load_pretrain_path, opt.load_epoch)
+				def get_params(keys, keyword_to_include=None, keyword_to_exclude=None):
+					params = [v for k, v in self.netEncoder.named_parameters() if k in keys \
+		   						and (keyword_to_include is None or keyword_to_include in k) \
+								and (keyword_to_exclude is None or keyword_to_exclude not in k)] + \
+							 [v for k, v in self.netSlotAttention.named_parameters() if k in keys \
+	 							and (keyword_to_include is None or keyword_to_include in k) \
+								and (keyword_to_exclude is None or keyword_to_exclude not in k)] + \
+							 [v for k, v in self.netDecoder.named_parameters() if k in keys \
+	 							and (keyword_to_include is None or keyword_to_include in k) \
+								and (keyword_to_exclude is None or keyword_to_exclude not in k)]
+					return params
+				
+				def get_decoder_params(keys, reverse=False):
+					if not reverse:
+						params = [v for k, v in self.netDecoder.named_parameters() if k in keys]
+					else:
+						params = [v for k, v in self.netDecoder.named_parameters() if k not in keys]
+					return params
+
+				unloaded_params, loaded_params_frozen, loaded_params_trainable = get_params(unloaded_keys), get_params(loaded_keys_frozen), get_params(loaded_keys_trainable)
+				print('Unloaded params:', unloaded_keys, '\n', 'Length:', len(unloaded_keys))
+				print('Loaded params (frozen):', loaded_keys_frozen, '\n', 'Length:', len(loaded_keys_frozen))
+				print('Loaded params (trainable):', loaded_keys_trainable, '\n', 'Length:', len(loaded_keys_trainable))
+				self.optimizers, self.schedulers = [], []
+				if len(unloaded_params) > 0:
+					self.optimizers.append(optim.Adam(unloaded_params, lr=opt.lr))
+					self.schedulers.append(networks.get_scheduler(self.optimizers[-1], opt))
+				if len(loaded_params_frozen) > 0:
+					self.optimizers.append(optim.Adam(loaded_params_frozen, lr=opt.lr))
+					configs = (1, 0, 0, opt.attn_decay_steps) # no warmup
+					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
+				if len(loaded_params_trainable) > 0:
+					if self.opt.large_decoder_lr:
+						big_lr_params = get_decoder_params(loaded_keys_trainable, reverse=False)
+						small_lr_params = get_decoder_params(loaded_keys_trainable, reverse=True)
+						self.optimizers.append(optim.Adam([{'params': big_lr_params, 'lr': opt.lr}, {'params': small_lr_params, 'lr': opt.lr/3}]))
+					else:
+						self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
+					configs = (1, 0, 0, opt.attn_decay_steps) # no warmup
+					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
+			else:
+				requires_grad = lambda x: x.requires_grad
+				params = chain(self.netEncoder.parameters(), self.netSlotAttention.parameters(), self.netDecoder.parameters())
+				self.optimizer = optim.Adam(filter(requires_grad, params), lr=opt.lr)
+				self.optimizers = [self.optimizer]
+				self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
+
+		# if self.isTrain:
+		# 	self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
 		if not self.isTrain or opt.continue_train:
 			load_suffix = 'iter_{}'.format(opt.load_iter) if opt.load_iter > 0 else opt.epoch
 			self.load_networks(load_suffix)

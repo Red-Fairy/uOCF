@@ -27,7 +27,7 @@ PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'kitchen-hard' \
-    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 100 \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 20 \
     --load_size 256 --n_samp 64 --input_size 128 --frustum_size_fine 256 \
     --supervision_size 64 --frustum_size 64 \
     --model 'uorf_general_IPE' \

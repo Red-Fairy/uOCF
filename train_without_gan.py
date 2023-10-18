@@ -43,7 +43,7 @@ if __name__ == '__main__':
             epoch_iter += opt.batch_size
             model.set_input(data)         # unpack data from dataset and apply preprocessing
             layers, avg_grad = model.optimize_parameters(opt.display_grad, epoch)   # calculate loss functions, get gradients, update network weights
-            if opt.custom_lr and opt.stage == 'coarse':
+            if opt.custom_lr and (opt.stage == 'coarse' or (hasattr(opt, 'depth_in') and epoch >= opt.depth_in)):
                 model.update_learning_rate()    # update learning rates at the beginning of every step
 
             if total_iters % opt.display_freq == 0:   # display images on visdom and save images to a HTML file

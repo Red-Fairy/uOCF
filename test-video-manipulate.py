@@ -30,7 +30,7 @@ meters_tst = {stat: AverageMeter() for stat in model.loss_names}
 set_seed(opt.seed)
 
 suffix = ''
-n_frames = 60
+n_frames = 30
 
 # obj_to_move = 1
 # suffix = f'moving_obj_{obj_to_move}'
@@ -41,15 +41,18 @@ obj_to_swap = [(0, 2), (1, 3)]
 if swap:
 	suffix += f'swap_{"_".join([str(idx[0])+str(idx[1]) for idx in obj_to_swap])}'
 
-translate1 = False
-translate2 = True
-r = 0.4
+translate1, translate2, translate3 = False, False, True
+trans3_stage = 2
+r = 0.36
 bias = torch.tensor([-0.1, 0, 0]).to(model.device)
-translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
+# translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
+translate_dst = torch.tensor([[-r, 0, 0], [r, 0, 0], [0, -r, 0], [0, r, 0]]).to(model.device) + bias
 if translate1:
 	suffix += '_translate1'
-if translate2:
+elif translate2:
 	suffix += '_translate2'
+elif translate3:
+	suffix += '_translate3_' + str(trans3_stage)
 
 wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
@@ -85,20 +88,71 @@ for j, data in enumerate(dataset):
 		theta = torch.acos((cam2world_input[:, 2, 3]) / radius)
 		radius, theta, z = radius.item(), theta.item(), cam2world_input[:, 2, 3].item()
 
+		# kiteasy
 		cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1, radius_range=(0.5, 0.7), origin=(0, -2))
+
+		# kithard
+		# cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1, radius_range=(0.8, 1.0), origin=(-0.5, -1))
 
 		ori_pos = model.fg_slot_nss_position.clone()
 
-		for i in range(n_frames+1):
+		for i in tqdm(range(n_frames+1)):
 			if translate1:
 				model.fg_slot_nss_position = ori_pos + (translate_dst - ori_pos) * i / n_frames
 			if translate2:
 				theta = 2 * np.pi * i / n_frames
-				translate_dst = torch.tensor([[r*np.sin(theta+np.pi), r*np.cos(theta+np.pi), 0],
-								  			[r*np.sin(theta), r*np.cos(theta), 0],
-											 [r*np.sin(theta+np.pi/2), r*np.cos(theta+np.pi/2), 0],
-											 [r*np.sin(theta-np.pi/2), r*np.cos(theta-np.pi/2), 0]]).to(model.device) + bias
+				# translate_dst = torch.tensor([[r*np.sin(theta+np.pi), r*np.cos(theta+np.pi), 0],
+				# 				  			[r*np.sin(theta), r*np.cos(theta), 0],
+				# 							 [r*np.sin(theta+np.pi/2), r*np.cos(theta+np.pi/2), 0],
+				# 							 [r*np.sin(theta-np.pi/2), r*np.cos(theta-np.pi/2), 0]]).to(model.device) + bias
+				translate_dst = torch.tensor([[r*np.sin(theta-np.pi/2), r*np.cos(theta-np.pi/2), 0],
+											[r*np.sin(theta+np.pi/2), r*np.cos(theta+np.pi/2), 0],
+											[r*np.sin(theta+np.pi), r*np.cos(theta+np.pi), 0],
+								  			[r*np.sin(theta), r*np.cos(theta), 0]]).to(model.device) + bias
 				model.fg_slot_nss_position = translate_dst.float()
+			if translate3:
+				''' for kitchen-hard dataset scene 5'''
+				# if trans3_stage == 1: # move obj 1 to the scene center, remove other objects
+				# 	model.fg_slot_nss_position = ori_pos + (bias - ori_pos) * i / n_frames
+				# 	model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
+				# elif trans3_stage == 2: # obj 1 at the scene center, obj 2 land on the top of obj 1
+				# 	model.fg_slot_nss_position[0] = bias
+				# 	# obj1, from top ([-0.02, -0.02, 0.5]) to bottom ([-0.02, -0.02, 0.08])
+				# 	model.fg_slot_nss_position[3] = torch.tensor([-0.02, -0.02, 0.5]).to(model.device) - torch.tensor([-0.02, -0.02, 0.42]).to(model.device) * i / n_frames + bias
+				# 	# rest obj not shown
+				# 	model.fg_slot_nss_position[1:3] = torch.tensor([100, 100, 0]).to(model.device)
+				# elif trans3_stage == 3: # obj 1 at the scene center, obj 2 land on the top of obj 1, obj 3 land on the top of obj 2
+				# 	model.fg_slot_nss_position[0] = bias
+				# 	model.fg_slot_nss_position[3] = torch.tensor([-0.02, -0.02, 0.08]).to(model.device) + bias
+				# 	# obj2, from top ([-0.02, -0.02, 0.5]) to bottom ([-0.02, -0.02, 0.14])
+				# 	model.fg_slot_nss_position[2] = torch.tensor([-0.02, -0.02, 0.5]).to(model.device) - torch.tensor([-0.02, -0.02, 0.36]).to(model.device) * i / n_frames + bias
+				# 	# rest obj not shown
+				# 	model.fg_slot_nss_position[1] = torch.tensor([100, 100, 0]).to(model.device)
+				# elif trans3_stage == 4: # obj 1 at the scene center, obj 2 land on the top of obj 1, obj 3 land on the top of obj 2, obj 4 land on the top of obj 3
+				# 	model.fg_slot_nss_position[0] = bias
+				# 	model.fg_slot_nss_position[3] = torch.tensor([-0.02, -0.02, 0.08]).to(model.device) + bias
+				# 	model.fg_slot_nss_position[2] = torch.tensor([-0.02, -0.02, 0.14]).to(model.device) + bias
+				# 	# obj3, from top ([-0.025, -0.015, 0.5]) to bottom ([-0.025, -0.015, 0.2])
+				# 	model.fg_slot_nss_position[1] = torch.tensor([-0.025, -0.015, 0.5]).to(model.device) - torch.tensor([-0.025, -0.015, 0.3]).to(model.device) * i / n_frames + bias
+				''' for kitchen-easy dataset, scene 97'''
+				if trans3_stage == 1:
+					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0.8]).to(model.device) - torch.tensor([0, 0, 0.8]).to(model.device) * i / n_frames + bias
+					model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
+				elif trans3_stage == 2:
+					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0]).to(model.device) + bias
+					model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
+					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.15, 0.8]).to(model.device) - torch.tensor([0, 0, 0.75]).to(model.device) * i / n_frames + bias
+				elif trans3_stage == 3:
+					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0]).to(model.device) + bias
+					model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
+					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.15, 0.05]).to(model.device) + bias
+					model.fg_slot_nss_position[1] = torch.tensor([0.15, -0.15, 0.8]).to(model.device) - torch.tensor([0, 0, 0.8]).to(model.device) * i / n_frames + bias
+				elif trans3_stage == 4:
+					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0]).to(model.device) + bias
+					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.15, 0.05]).to(model.device) + bias
+					model.fg_slot_nss_position[1] = torch.tensor([0.15, -0.15, 0]).to(model.device) + bias
+					model.fg_slot_nss_position[3] = torch.tensor([0.14, -0.16, 0.8]).to(model.device) - torch.tensor([0, 0, 0.75]).to(model.device) * i / n_frames + bias
+
 			model.forward_position()
 			model.visual_cam2world(cam2world)
 			model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))

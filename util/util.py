@@ -172,6 +172,25 @@ def get_colormap(rgb=True):
 		color_list = color_list[:, ::-1]
 	return color_list
 
+def get_cyan_to_pink_colormap(steps=64, rgb=True):
+	colors = []
+	
+	# Define the starting (cyan) and ending (pink) colors
+	cyan = np.array([0, 255, 255], dtype=np.float32)
+	pink = np.array([255, 105, 180], dtype=np.float32)
+	
+	for i in range(steps):
+		t = i / (steps - 1)  # Normalized step in [0, 1]
+		color = (1 - t) * cyan + t * pink
+		colors.append(color)
+	
+	colormap = np.array(colors, dtype=np.float32)
+	
+	if not rgb:
+		colormap = colormap[:, ::-1]
+	
+	return colormap
+
 def tensor2im(input_image, imtype=np.uint8, use_color_map=True):
 	""""Converts a Tensor array into a numpy image array.
 

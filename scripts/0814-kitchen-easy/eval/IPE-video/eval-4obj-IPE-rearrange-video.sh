@@ -35,10 +35,10 @@ CUDA_VISIBLE_DEVICES=0 python test-video.py --dataroot $DATAROOT --n_scenes 100 
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-0828/4obj-loadchairs-fine256-depth-FT' \
+    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/dataset-0817-0828/4obj-loadchairs-fine256-depth-FT-viewdir2' \
     --fixed_locality --recon_only --no_shuffle --fg_object_size 3 --show_recon_stats \
-    --nss_scale 7 --video_mode 'spiral' --vis_disparity \
-    --wanted_indices '95' --epoch 1500 \
+    --nss_scale 7 --no_loss --video_mode 'spiral' --use_viewdirs \
+    --wanted_indices '97' --epoch 2000 \
     --dummy_info 'test_real' --testset_name 'test_video_256' \
 
 

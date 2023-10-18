@@ -246,12 +246,12 @@ class uorfManipModel(BaseModel):
 			else:
 				sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1).clone() 
 				z_slots_ = torch.zeros([K, self.opt.z_dim], device=self.device)
-				z_slots_ = z_slots[0:2]
+				z_slots_ = z_slots[0:3]
 				# z_slots_[1:2] = z_slots[2:3]
 				# z_slots_[2:3] = z_slots[4:5]
 				# z_slots_ = z_slots.clone()
 				# z_slots_ = torch.cat([z_slots_[0:move_slot_idx+1], z_slots_[move_slot_idx+2:]], dim=0)
-			sampling_coor_bg_ = frus_nss_coor_  # Px3
+			sampling_coor_bg_ = frus_nss_coor_.clone()  # Px3
 
 			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots_, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
 			raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
