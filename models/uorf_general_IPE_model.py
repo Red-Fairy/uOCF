@@ -334,7 +334,7 @@ class uorfGeneralIPEModel(BaseModel):
 							   feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics)  # Kx3
+		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
 		
 		K = attn.shape[0]
 			
@@ -465,7 +465,7 @@ class uorfGeneralIPEModel(BaseModel):
 				_, _, fg_slot_position_ = self.netSlotAttention(feat=torch.cat([feat_shape_, feat_color_], dim=-1), 
 							feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
-			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics)
+			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
 			# calculate the position loss (L2 loss between the two inferred positions)
 			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_nss_position, fg_slot_nss_position_)
 			# print('position loss: {}'.format(self.loss_position.item()))

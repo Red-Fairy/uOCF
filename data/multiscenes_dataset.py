@@ -86,13 +86,18 @@ class MultiscenesDataset(BaseDataset):
         """
         scene_idx = index
         scene_filenames = self.scenes[scene_idx]
-        if self.opt.isTrain and not self.opt.no_shuffle:
-            filenames = random.sample(scene_filenames, self.n_img_each_scene)
+
+        if self.opt.isTrain:
+            if self.opt.no_shuffle:
+                filenames = scene_filenames[:self.n_img_each_scene]
+            else:
+                filenames = random.sample(scene_filenames, self.n_img_each_scene)
         else:
             if self.opt.video:
                 filenames = scene_filenames[self.opt.visual_idx:self.opt.visual_idx + 1]
             else:
                 filenames = scene_filenames[:self.n_img_each_scene]
+
         rets = []
         for rd, path in enumerate(filenames):
             img = Image.open(path).convert('RGB')
