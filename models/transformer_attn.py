@@ -1,7 +1,6 @@
 import math
 from os import X_OK
 
-from sympy import N
 from .op import conv2d_gradfix
 import torch
 from torch import nn
@@ -9,11 +8,84 @@ import torch.nn.functional as F
 from torch.nn import init
 from torchvision.models import vgg16
 from torch import autograd
+from models.model_general import InputPosEmbedding, build_grid
+
+class EncoderPosEmbedding(nn.Module): # remove positional embedding on value
+	def __init__(self, dim, slot_dim, hidden_dim=128):
+		super().__init__()
+		self.grid_embed = nn.Linear(4, dim, bias=True)
+		self.input_to_k_fg = nn.Linear(dim, dim, bias=False)
+		self.input_to_v_fg = nn.Linear(dim, dim, bias=False)
+
+		self.input_to_k_bg = nn.Linear(dim, dim, bias=False)
+		self.input_to_v_bg = nn.Linear(dim, dim, bias=False)
+
+		self.MLP_fg = nn.Linear(dim, slot_dim, bias=False)
+
+		self.MLP_bg = nn.Linear(dim, slot_dim, bias=False)
+
+		
+	def apply_rel_position_scale(self, grid, position):
+		"""
+		grid: (1, h, w, 2)
+		position (batch, number_slots, 2)
+		"""
+		b, n, _ = position.shape
+		h, w = grid.shape[1:3]
+		grid = grid.view(1, 1, h, w, 2)
+		grid = grid.repeat(b, n, 1, 1, 1)
+		position = position.view(b, n, 1, 1, 2)
+		
+		return grid - position # (b, n, h, w, 2)
+
+	def forward(self, x, h, w, position_latent=None, dropout_shape_dim=48, dropout_shape_rate=None, dropout_all_rate=None):
+
+		grid = build_grid(h, w, x.device) # (1, h, w, 2)
+		if position_latent is not None:
+			rel_grid = self.apply_rel_position_scale(grid, position_latent)
+		else:
+			rel_grid = grid.unsqueeze(0).repeat(x.shape[0], 1, 1, 1, 1) # (b, 1, h, w, 2)
+
+		# rel_grid = rel_grid.flatten(-3, -2) # (b, 1, h*w, 2)
+		rel_grid = torch.cat([rel_grid, -rel_grid], dim=-1).flatten(-3, -2) # (b, n_slot-1, h*w, 4)
+		grid_embed = self.grid_embed(rel_grid) # (b, n_slot-1, h*w, d)
+
+		if dropout_shape_rate is not None or dropout_all_rate is not None:
+			x_ = x.clone()
+			if dropout_shape_rate is not None:
+				# randomly dropout the first few dimensions of the feature, i.e., keep only the information from the shallow encoder
+				drop = (torch.rand(1, 1, 1, device=x.device) > dropout_shape_rate).expand(1, 1, dropout_shape_dim)
+				drop = torch.cat([drop, torch.ones(1, 1, x.shape[-1] - dropout_shape_dim, device=x.device)], dim=-1).expand(x.shape[0], x.shape[1], -1)
+				x_ = x_ * drop # zeroing out some dimensions of the feature
+			if dropout_all_rate is not None:
+				# randomly dropout all dimensions of the feature, i.e., keep only the position information
+				drop = torch.rand(1, 1, 1, device=x.device) > dropout_all_rate
+				x_ = x_ * drop # zeroing out all dimensions of the feature
+			k, v = self.input_to_k_fg(x_).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
+		else:
+			k, v = self.input_to_k_fg(x).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1)
+
+		k, v = k + grid_embed, v + grid_embed
+		k, v = self.MLP_fg(k), self.MLP_fg(v)
+
+		return k, v # (b, n, h*w, d)
+
+	def forward_bg(self, x, h, w):
+		grid = build_grid(h, w, x.device) # (1, h, w, 2)
+		rel_grid = grid.unsqueeze(0).repeat(x.shape[0], 1, 1, 1, 1) # (b, 1, h, w, 2)
+		# rel_grid = rel_grid.flatten(-3, -2) # (b, 1, h*w, 2)
+		rel_grid = torch.cat([rel_grid, -rel_grid], dim=-1).flatten(-3, -2) # (b, 1, h*w, 4)
+		grid_embed = self.grid_embed(rel_grid) # (b, 1, h*w, d)
+		
+		k_bg, v_bg = self.input_to_k_bg(x).unsqueeze(1), self.input_to_v_bg(x).unsqueeze(1) # (b, 1, h*w, d)
+		k_bg, v_bg = self.MLP_bg(k_bg + grid_embed), self.MLP_bg(v_bg + grid_embed)
+
+		return k_bg, v_bg # (b, 1, h*w, d)
 
 class SlotAttention(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, pos_emb=False, feat_dropout_dim=None,
-		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False, learnable_init=False):
+		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False, learnable_init=False, dropout=0.0):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
@@ -68,6 +140,8 @@ class SlotAttention(nn.Module):
 			self.input_pos_emb = InputPosEmbedding(in_dim)
 		self.dropout_shape_dim = feat_dropout_dim
 
+		self.dropout = nn.Dropout(dropout)
+
 	def forward(self, feat, feat_color=None, num_slots=None, dropout_shape_rate=None, 
 			dropout_all_rate=None, init_mask=None):
 		"""
@@ -88,12 +162,6 @@ class SlotAttention(nn.Module):
 				init_mask = torch.cat([init_mask, torch.ones(self.num_slots - 1 - init_mask.shape[0], 1, H, W, device=init_mask.device)], dim=0)
 			init_mask = init_mask.flatten(1,3).unsqueeze(0).expand(B, -1, -1) # (B, K-1, N)
 
-		# if self.feat_dropout_dim is not None:
-		# 	# randomly dropout the first few dimensions of the feature
-		# 	drop = torch.rand(B, N, self.feat_dropout_dim, device=feat.device) > feat_dropout_rate
-		# 	drop = torch.cat([drop, torch.ones(B, N, feat.shape[-1] - self.feat_dropout_dim, device=feat.device)], dim=-1)
-		# 	feat = feat * drop # zeroing out some dimensions of the feature
-
 		K = num_slots if num_slots is not None else self.num_slots
 
 		if not self.learnable_init:
@@ -107,15 +175,6 @@ class SlotAttention(nn.Module):
 		else:
 			slot_fg = self.slots_init_fg.expand(B, K-1, -1)
 			slot_bg = self.slots_init_bg.expand(B, 1, -1)
-
-		# if not self.diff_fg_init:
-		# 	mu = self.slots_mu.expand(B, K-1, -1)
-		# 	sigma = self.slots_logsigma.exp().expand(B, K-1, -1)
-		# 	slot_fg = mu + sigma * torch.randn_like(mu)
-		# else:
-		# 	mu = self.slots_mu.expand(B, -1, -1)[:, 0:K-1, :]
-		# 	sigma = self.slots_logsigma.exp().expand(B, -1, -1)[:, 0:K-1, :]
-		# 	slot_fg = mu + sigma * torch.randn_like(mu)
 		
 		feat = self.norm_feat(feat)
 		if feat_color is not None:
@@ -171,29 +230,9 @@ class SlotAttention(nn.Module):
 				fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
 
 			if it != self.iters - 1:
-			
-				updates_fg = torch.empty(B, K-1, self.slot_dim, device=k.device) # (B,K-1,C)
-				for i in range(K-1):
-					v_i = v[:, i] # (B,N,C)
-					attn_i = attn_weights_fg[:, i] # (B,N)
-					updates_fg[:, i] = torch.einsum('bn,bnd->bd', attn_i, v_i)
-
-				updates_bg = torch.einsum('bn,bnd->bd',attn_weights_bg.squeeze(1), v_bg.squeeze(1)) # (B,N,C) * (B,N) -> (B,C)
-				updates_bg = updates_bg.unsqueeze(1) # (B,1,C)
-
-				slot_bg = self.gru_bg(
-					updates_bg.reshape(-1, self.slot_dim),
-					slot_prev_bg.reshape(-1, self.slot_dim)
-				)
-				slot_bg = slot_bg.reshape(B, -1, self.slot_dim)
-				slot_bg = slot_bg + self.to_res_bg(slot_bg)
-
-				slot_fg = self.gru_fg(
-					updates_fg.reshape(-1, self.slot_dim),
-					slot_prev_fg.reshape(-1, self.slot_dim)
-				)
-				slot_fg = slot_fg.reshape(B, -1, self.slot_dim)
-				slot_fg = slot_fg + self.to_res_fg(slot_fg)
+				# update slot feature
+				slot_bg = slot_prev_bg + self.dropout(slot_bg)
+				slot_fg = slot_prev_fg + self.dropout(slot_fg)
 
 			else:
 				if feat_color is not None:

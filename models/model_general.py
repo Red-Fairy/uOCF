@@ -1,7 +1,6 @@
 import math
 from os import X_OK
 
-from sympy import N
 from .op import conv2d_gradfix
 import torch
 from torch import nn
