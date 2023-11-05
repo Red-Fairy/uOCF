@@ -91,6 +91,9 @@ def init_weights(net, init_type='normal', init_gain=0.02):
     work better for some applications. Feel free to try yourself.
     """
     def init_func(m):  # define the initialization function
+        if isinstance(m, list):
+            for subm in m:
+                init_func(subm)
         classname = m.__class__.__name__
         if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
             if init_type == 'normal':

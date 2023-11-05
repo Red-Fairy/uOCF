@@ -12,14 +12,14 @@ import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
-from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDSeparate, Encoder, singleRouteEncoder
+from .model_general import MultiRouteEncoderSeparate
 from .model_general import SlotAttention, Decoder, DecoderBox, DecoderIPE, DecoderIPEVD
 from .utils import *
 import numpy as np
 
 import torchvision
 
-class uorfGeneralIPEModel(BaseModel):
+class uocfmaskInitModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -84,6 +84,7 @@ class uorfGeneralIPEModel(BaseModel):
 		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
 		parser.add_argument('--weight_depth_continuity', type=float, default=0.005, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=1000, help='when to start the depth supervision')
+		parser.add_argument('--mask_init_position', action='store_true', help='initialize the slot position with the object mask')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -129,12 +130,8 @@ class uorfGeneralIPEModel(BaseModel):
 		if opt.encoder_type == 'DINO':
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
-			if opt.color_dim != 0:
-				self.netEncoder = dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
-														bottom=opt.bottom, double_bottom=opt.double_bottom,
-														shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
-			else:
-				self.netEncoder = singleRouteEncoder(input_nc=3, shape_dim=opt.shape_dim, input_dim=dino_dim)
+			self.netEncoder = MultiRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
+														bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
 		else:
 			assert False
 
@@ -263,6 +260,9 @@ class uorfGeneralIPEModel(BaseModel):
 			# print('Overwrite the default intrinsics with the provided ones.')
 		if 'depth' in input and self.opt.depth_supervision:
 			self.disparity = input['depth'].to(self.device)
+		if self.opt.mask_init_position:
+			assert 'obj_idxs' in input
+			self.mask = input['obj_idxs'].to(self.device).float()
 
 	def encode(self, idx=0):
 		"""Encode the input image into a feature map.
@@ -273,33 +273,15 @@ class uorfGeneralIPEModel(BaseModel):
 		"""
 		
 		dev = self.x[0:1].device
-		if not self.opt.encoder_type == 'CNN':
-			if self.opt.encoder_type == 'SAM':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder(self.x_large[idx:idx+1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-			elif self.opt.encoder_type == 'DINO':
-				with torch.no_grad():
-					feat_size = 64
-					feature_map = self.pretrained_encoder.forward_features(self.x_large[idx:idx+1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
-			elif self.opt.encoder_type == 'SD':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
-			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
-			feat_color = None
+		with torch.no_grad(): # B*C*H*W
+			feature_maps = self.pretrained_encoder.get_intermediate_layers(self.x_large[idx:idx+1], n=self.opt.n_feat_layers, reshape=True)
+		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+		feature_map_shape, feature_map_color = self.netEncoder(feature_maps,
+				F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
-		# debug, save the feature map
-		# save_dir = os.path.join(self.opt.checkpoints_dir, self.opt.name, self.opt.exp_id)
-		# print(save_dir)
-		# np.save(os.path.join(save_dir, 'feat_shape_{}.npy'.format(idx)), feat_shape.detach().cpu().numpy())
-		# np.save(os.path.join(save_dir, 'feat_color_{}.npy'.format(idx)), feat_color.detach().cpu().numpy())
+		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 
 		return feat_shape, feat_color
 
@@ -321,20 +303,12 @@ class uorfGeneralIPEModel(BaseModel):
 
 		# Encoding images
 		feat_shape, feat_color = self.encode(0)
-		# dropout_shape_rate = (self.opt.feat_dropout_min + 
-		#        (self.opt.feat_dropout_max - self.opt.feat_dropout_min) 
-		# 	   * (epoch - self.opt.feat_dropout_start) 
-		# 	   / (self.opt.niter - self.opt.feat_dropout_start)) \
-		# 		if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else None
-		# dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
 	
 		# Slot Attention
-		if not self.opt.color_in_attn:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
-							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
-		else:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), 
-							   feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
+							   dropout_shape_rate=None, dropout_all_rate=None,
+							   init_mask=self.mask if self.opt.mask_init_position else None) # 1xKxC, 1xKx2, 1xKxN
+
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3

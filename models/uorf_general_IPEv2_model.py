@@ -19,7 +19,7 @@ import numpy as np
 
 import torchvision
 
-class uorfGeneralIPEModel(BaseModel):
+class uorfGeneralIPEv2Model(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -123,24 +123,19 @@ class uorfGeneralIPEModel(BaseModel):
 		self.projection_fine = Projection(device=self.device, nss_scale=opt.nss_scale,
 										  frustum_size=frustum_size_fine, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=self.intrinsics)
 
-		z_dim = opt.color_dim + opt.shape_dim
+		z_dim = opt.shape_dim
 		self.num_slots = opt.num_slots
 
 		if opt.encoder_type == 'DINO':
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
-			if opt.color_dim != 0:
-				self.netEncoder = dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
-														bottom=opt.bottom, double_bottom=opt.double_bottom,
-														shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
-			else:
-				self.netEncoder = singleRouteEncoder(input_nc=3, shape_dim=opt.shape_dim, input_dim=dino_dim)
+			self.netEncoder = singleRouteEncoder(out_dim=opt.shape_dim, input_dim=dino_dim)
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb,
+		self.netSlotAttention = SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim, 
+							  slot_dim=opt.shape_dim if opt.color_in_attn else opt.shape_dim, 
+		  					  color_dim=0, pos_emb = opt.slot_attn_pos_emb,
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad)
 							  
@@ -273,35 +268,16 @@ class uorfGeneralIPEModel(BaseModel):
 		"""
 		
 		dev = self.x[0:1].device
-		if not self.opt.encoder_type == 'CNN':
-			if self.opt.encoder_type == 'SAM':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder(self.x_large[idx:idx+1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-			elif self.opt.encoder_type == 'DINO':
-				with torch.no_grad():
-					feat_size = 64
-					feature_map = self.pretrained_encoder.forward_features(self.x_large[idx:idx+1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
-			elif self.opt.encoder_type == 'SD':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
-			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+		if self.opt.encoder_type == 'DINO':
+			with torch.no_grad():
+				feat_size = 64
+				feature_map = self.pretrained_encoder.forward_features(self.x_large[idx:idx+1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
+		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+		feature_map_shape = self.netEncoder(feature_map)  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
-			feat_color = None
+		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 
-		# debug, save the feature map
-		# save_dir = os.path.join(self.opt.checkpoints_dir, self.opt.name, self.opt.exp_id)
-		# print(save_dir)
-		# np.save(os.path.join(save_dir, 'feat_shape_{}.npy'.format(idx)), feat_shape.detach().cpu().numpy())
-		# np.save(os.path.join(save_dir, 'feat_color_{}.npy'.format(idx)), feat_color.detach().cpu().numpy())
-
-		return feat_shape, feat_color
+		return feat_shape, None
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -329,12 +305,8 @@ class uorfGeneralIPEModel(BaseModel):
 		# dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
 	
 		# Slot Attention
-		if not self.opt.color_in_attn:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
 							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
-		else:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), 
-							   feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3

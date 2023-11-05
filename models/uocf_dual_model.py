@@ -12,14 +12,14 @@ import time
 from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
-from .model_general import SAMViT, dualRouteEncoderSeparate, dualRouteEncoderSDSeparate, Encoder, singleRouteEncoder
+from .model_general import MultiRouteEncoderSeparate
 from .model_general import SlotAttention, Decoder, DecoderBox, DecoderIPE, DecoderIPEVD
 from .utils import *
 import numpy as np
 
 import torchvision
 
-class uorfGeneralIPEModel(BaseModel):
+class uocfDualModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -129,12 +129,8 @@ class uorfGeneralIPEModel(BaseModel):
 		if opt.encoder_type == 'DINO':
 			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 			dino_dim = 768
-			if opt.color_dim != 0:
-				self.netEncoder = dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
-														bottom=opt.bottom, double_bottom=opt.double_bottom,
-														shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
-			else:
-				self.netEncoder = singleRouteEncoder(input_nc=3, shape_dim=opt.shape_dim, input_dim=dino_dim)
+			self.netEncoder = MultiRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, n_feat_layer=opt.n_feat_layers,
+														bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
 		else:
 			assert False
 
@@ -273,33 +269,15 @@ class uorfGeneralIPEModel(BaseModel):
 		"""
 		
 		dev = self.x[0:1].device
-		if not self.opt.encoder_type == 'CNN':
-			if self.opt.encoder_type == 'SAM':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder(self.x_large[idx:idx+1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-			elif self.opt.encoder_type == 'DINO':
-				with torch.no_grad():
-					feat_size = 64
-					feature_map = self.pretrained_encoder.forward_features(self.x_large[idx:idx+1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
-			elif self.opt.encoder_type == 'SD':
-				with torch.no_grad():
-					feature_map = self.pretrained_encoder({'img': self.x_large[idx:idx+1], 'text':''})
-			# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-			feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-					F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-			feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		else:
-			feature_map_shape = self.netEncoder(F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
-			feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()
-			feat_color = None
+		with torch.no_grad(): # B*C*H*W
+			feature_maps = self.pretrained_encoder.get_intermediate_layers(self.x_large[idx:idx+1], n=self.opt.n_feat_layers, reshape=True)
+		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+		feature_map_shape, feature_map_color = self.netEncoder(feature_maps,
+				F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
 
-		# debug, save the feature map
-		# save_dir = os.path.join(self.opt.checkpoints_dir, self.opt.name, self.opt.exp_id)
-		# print(save_dir)
-		# np.save(os.path.join(save_dir, 'feat_shape_{}.npy'.format(idx)), feat_shape.detach().cpu().numpy())
-		# np.save(os.path.join(save_dir, 'feat_color_{}.npy'.format(idx)), feat_color.detach().cpu().numpy())
+		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
 
 		return feat_shape, feat_color
 

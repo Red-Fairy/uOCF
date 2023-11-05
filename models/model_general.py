@@ -102,15 +102,14 @@ class SAMViT(nn.Module):
 		return self.sam(x_sam) # (B, 256, 64, 64)
 
 class dualRouteEncoder(nn.Module):
-	def __init__(self, bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16):
+	def __init__(self, bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16, input_dim=256):
 		super().__init__()
 
 		self.Encoder = Encoder(bottom=bottom, z_dim=color_dim, pos_emb=pos_emb, input_nc=input_nc)
 
-		vit_dim = 256
-		self.shallow_encoder = nn.Sequential(nn.Conv2d(vit_dim, vit_dim, 3, stride=1, padding=1),
+		self.shallow_encoder = nn.Sequential(nn.Conv2d(input_dim, input_dim, 3, stride=1, padding=1),
 											nn.ReLU(True),
-											nn.Conv2d(vit_dim, shape_dim, 3, stride=1, padding=1))
+											nn.Conv2d(input_dim, shape_dim, 3, stride=1, padding=1))
 
 	def forward(self, sam_feature, x):
 		'''
@@ -145,6 +144,58 @@ class singleRouteEncoder(nn.Module):
 
 		return feat
 
+class MultiDINOEncoder(nn.Module):
+	def __init__(self, n_feat_layer=1, shape_dim=64, input_dim=256, hidden_dim=256):
+		super().__init__()
+
+		assert shape_dim % n_feat_layer == 0 and hidden_dim % n_feat_layer == 0
+
+		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim // n_feat_layer, 3, stride=1, padding=1),
+											nn.ReLU(True),) for _ in range(n_feat_layer)]
+											)
+		self.combine = nn.Conv2d(hidden_dim, shape_dim, 3, stride=1, padding=1)
+
+	def forward(self, input_feats):
+		'''
+		input:
+			input_feat: (B, input_dim, 64, 64)
+		output:
+			spatial feature (B, shape_dim, 64, 64)
+		'''
+		feats_shape = [shallow_encoder(input_feat) for shallow_encoder, input_feat in zip(self.shallow_encoders, input_feats)]
+		feat_shape = self.combine(torch.cat(feats_shape, dim=1)) # B*shape_dim*64*64
+
+		return feat_shape
+
+class MultiRouteEncoderSeparate(nn.Module):
+	def __init__(self, bottom=False, pos_emb=False, n_feat_layer=1, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
+		super().__init__()
+
+		self.Encoder = Encoder(bottom=bottom, z_dim=color_dim, 
+			 					pos_emb=pos_emb, input_nc=input_nc)
+
+		assert shape_dim % n_feat_layer == 0 and hidden_dim % n_feat_layer == 0
+
+		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim // n_feat_layer, 3, stride=1, padding=1),
+											nn.ReLU(True),) for _ in range(n_feat_layer)]
+											)
+		
+		self.combine = nn.Conv2d(hidden_dim, shape_dim, 3, stride=1, padding=1)
+
+	def forward(self, input_feats, x):
+		'''
+		input:
+			input_feats: list of Tensors: B*input_dim*64*64
+			x: input images of size (B, 3, 64, 64) or (B, 3, 128, 128) if bottom is True
+		output:
+			shape feature (B, shape_dim, 64, 64), color feature (B, color_dim, 64, 64)
+		'''
+		feat_color = self.Encoder(x)
+		feats_shape = [shallow_encoder(input_feat) for shallow_encoder, input_feat in zip(self.shallow_encoders, input_feats)]
+		feat_shape = self.combine(torch.cat(feats_shape, dim=1)) # B*shape_dim*64*64
+
+		return feat_shape, feat_color
+
 class dualRouteEncoderSeparate(nn.Module):
 	def __init__(self, bottom=False, double_bottom=False, pos_emb=False, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
 		super().__init__()
@@ -163,7 +214,7 @@ class dualRouteEncoderSeparate(nn.Module):
 			x: input images of size (B, 3, 64, 64) or (B, 3, 128, 128) if bottom is True 
 				or (B, 3, 256, 256) if bottom and double_bottom are True
 		output:
-			spatial feature (B, shape_dim+color_dim, 64, 64)
+			shape feature (B, shape_dim, 64, 64), color feature (B, color_dim, 64, 64)
 		'''
 		feat_color = self.Encoder(x)
 		feat_shape = self.shallow_encoder(input_feat)
@@ -433,7 +484,8 @@ class SlotAttention(nn.Module):
 			self.input_pos_emb = InputPosEmbedding(in_dim)
 		self.dropout_shape_dim = feat_dropout_dim
 
-	def forward(self, feat, feat_color=None, num_slots=None, dropout_shape_rate=None, dropout_all_rate=None):
+	def forward(self, feat, feat_color=None, num_slots=None, dropout_shape_rate=None, 
+			dropout_all_rate=None, init_mask=None):
 		"""
 		input:
 			feat: visual feature with position information, BxHxWxC
@@ -445,6 +497,12 @@ class SlotAttention(nn.Module):
 		if self.pos_emb:
 			feat = self.input_pos_emb(feat)
 		feat = feat.flatten(1, 2) # (B, N, C)
+
+		if init_mask is not None:
+			init_mask = F.interpolate(init_mask, size=(H, W), mode='bilinear', align_corners=False) # (K-1, 1, H, W)
+			if init_mask.shape[0] != self.num_slots - 1:
+				init_mask = torch.cat([init_mask, torch.ones(self.num_slots - 1 - init_mask.shape[0], 1, H, W, device=init_mask.device)], dim=0)
+			init_mask = init_mask.flatten(1,3).unsqueeze(0).expand(B, -1, -1) # (B, K-1, N)
 
 		# if self.feat_dropout_dim is not None:
 		# 	# randomly dropout the first few dimensions of the feature
@@ -475,9 +533,6 @@ class SlotAttention(nn.Module):
 		# 	sigma = self.slots_logsigma.exp().expand(B, -1, -1)[:, 0:K-1, :]
 		# 	slot_fg = mu + sigma * torch.randn_like(mu)
 		
-		fg_position = self.fg_position if (self.fg_position is not None and not self.random_init_pos) else torch.rand(1, K-1, 2) * 1.5 - 0.75
-		fg_position = fg_position.expand(B, -1, -1)[:, :K-1, :].to(feat.device) # Bx(K-1)x2
-		
 		feat = self.norm_feat(feat)
 		if feat_color is not None:
 			feat_color = self.norm_feat_color(feat_color)
@@ -485,6 +540,9 @@ class SlotAttention(nn.Module):
 		k_bg, v_bg = self.to_kv.forward_bg(feat, H, W) # (B,1,N,C)
 
 		grid = build_grid(H, W, device=feat.device).flatten(1, 2) # (1,N,2)
+		
+		fg_position = self.fg_position if (self.fg_position is not None and not self.random_init_pos) else torch.zeros(1, K-1, 2).to(feat.device)
+		fg_position = fg_position.expand(B, -1, -1)[:, :K-1, :].to(feat.device) # Bx(K-1)x2
 
 		# attn = None
 		for it in range(self.iters):
@@ -515,16 +573,19 @@ class SlotAttention(nn.Module):
 			
 			# update slot position
 			# print(attn_weights_fg.shape, grid.shape, fg_position.shape)
-			if self.pos_no_grad:
-				with torch.no_grad():
-					fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+			if init_mask is not None: # (K, 1, H, W)
+				fg_position = torch.einsum('bkn,bnd->bkd', init_mask, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
 			else:
-				fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+				if self.pos_no_grad:
+					with torch.no_grad():
+						fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+				else:
+					fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+
 			if self.learnable_pos: # add a bias term
 				fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
 				fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
 
-			
 			if it != self.iters - 1:
 			
 				updates_fg = torch.empty(B, K-1, self.slot_dim, device=k.device) # (B,K-1,C)

@@ -18,6 +18,15 @@ import colorsys
 import torch.nn.functional as F
 from matplotlib import patches,  lines
 
+class logger(object):
+    def __init__(self, path):
+        self.path = path
+
+    def info(self, msg):
+        print(msg)
+        with open(os.path.join(self.path, "log.txt"), 'a') as f:
+            f.write(msg + "\n")
+
 def write_location(f, location, i, description=''):
 	f.write(f"Test image {i}: {description}\n")
 	location = location.cpu().numpy()

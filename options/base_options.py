@@ -67,6 +67,7 @@ class BaseOptions():
 		parser.add_argument('--not_strict', action='store_true', help='not strict load')
 		parser.add_argument('--preextract', action='store_true', help='preextract features from encoder')
 		parser.add_argument('--encoder_type', type=str, default='SAM', help='SAM, DINO, or SD')
+		parser.add_argument('--n_feat_layers', type=int, default=8, help='number of feature layers')
 		parser.add_argument('--random_init_pos', action='store_true', help='randomly initialize foreground position')
 		parser.add_argument('--load_intrinsics', action='store_true', help='load camera intrinsics')
 		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
