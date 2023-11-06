@@ -14,7 +14,7 @@ from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import MultiRouteEncoderSeparate
 from .model_general import DecoderIPE, DecoderIPEVD
-from .transformer_attn import SlotAttention
+from .transformer_attn import SlotAttentionAnchor
 from .utils import *
 import numpy as np
 
@@ -136,12 +136,11 @@ class uocfDualTransModel(BaseModel):
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		self.netSlotAttention = SlotAttentionAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb,
-							  dropout = opt.slotattn_dropout,
-							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
-							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad)
+		  					  color_dim=0 if opt.color_in_attn else opt.color_dim,
+							  dropout = opt.slotattn_dropout, learnable_pos=not opt.no_learnable_pos,
+							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
 		if not opt.use_viewdirs:
 			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
