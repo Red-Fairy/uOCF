@@ -85,7 +85,7 @@ class EncoderPosEmbedding(nn.Module): # remove positional embedding on value
 class SlotAttention(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, pos_emb=False, feat_dropout_dim=None,
-		  random_init_pos=False, pos_no_grad=False, diff_fg_init=False, learnable_init=False, dropout=0.0):
+		  random_init_pos=False, pos_no_grad=False, learnable_init=False, dropout=0.):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
@@ -118,14 +118,6 @@ class SlotAttention(nn.Module):
 		self.to_kv = EncoderPosEmbedding(in_dim, slot_dim)
 		self.to_q = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
 		self.to_q_bg = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, slot_dim, bias=False))
-
-		self.gru_fg = nn.GRUCell(slot_dim, slot_dim)
-		self.gru_bg = nn.GRUCell(slot_dim, slot_dim)
-
-		self.to_res_fg = nn.Sequential(nn.LayerNorm(slot_dim),
-										nn.Linear(slot_dim, slot_dim))
-		self.to_res_bg = nn.Sequential(nn.LayerNorm(slot_dim),
-										nn.Linear(slot_dim, slot_dim))
 
 		self.norm_feat = nn.LayerNorm(in_dim)
 		if color_dim != 0:
@@ -230,9 +222,18 @@ class SlotAttention(nn.Module):
 				fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
 
 			if it != self.iters - 1:
-				# update slot feature
-				slot_bg = slot_prev_bg + self.dropout(slot_bg)
-				slot_fg = slot_prev_fg + self.dropout(slot_fg)
+				updates_fg = torch.empty(B, K-1, self.slot_dim, device=k.device) # (B,K-1,C)
+				for i in range(K-1):
+					v_i = v[:, i] # (B,N,C)
+					attn_i = attn_weights_fg[:, i] # (B,N)
+					updates_fg[:, i] = torch.einsum('bn,bnd->bd', attn_i, v_i)
+
+				updates_bg = torch.einsum('bn,bnd->bd',attn_weights_bg.squeeze(1), v_bg.squeeze(1)) # (B,N,C) * (B,N) -> (B,C)
+				updates_bg = updates_bg.unsqueeze(1) # (B,1,C)
+
+				slot_bg = slot_prev_bg + self.dropout(updates_bg)
+
+				slot_fg = slot_prev_fg + self.dropout(updates_fg)
 
 			else:
 				if feat_color is not None:

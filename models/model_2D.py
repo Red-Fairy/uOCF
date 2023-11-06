@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 from PIL import Image as Image, ImageEnhance
 import math
 
-from models.model_general import MultiRouteEncoderSeparate, SlotAttention, build_grid, MultiDINOEncoder
+from models.model_general import MultiRouteEncoderSeparate, build_grid, MultiDINOEncoder
+from models.transformer_attn import SlotAttention
 
 class DecoderPosEmbedding(nn.Module):
 	def __init__(self, hidden_dim=128, scale_factor=5):
