@@ -353,10 +353,6 @@ class SlotAttentionAnchor(nn.Module):
 			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
 			fg_position = fg_position * (1 - self.pos_momentum) + fg_position_prev * self.pos_momentum
 
-			if self.learnable_pos: # add a bias term
-				fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
-				fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
-
 			if it != self.iters - 1:
 				updates_fg = torch.empty(B, K-1, self.slot_dim, device=k.device) # (B,K-1,C)
 				for i in range(K-1):
@@ -371,6 +367,10 @@ class SlotAttentionAnchor(nn.Module):
 				slot_fg = slot_prev_fg + self.dropout(updates_fg)
 
 			else:
+				if self.learnable_pos: # add a bias term
+					fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
+					fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
+					
 				if feat_color is not None:
 					# calculate slot color feature
 					feat_color = feat_color.flatten(1, 2) # (B,N,C')
