@@ -147,11 +147,10 @@ class MultiDINOEncoder(nn.Module):
 	def __init__(self, n_feat_layer=1, shape_dim=64, input_dim=256, hidden_dim=256):
 		super().__init__()
 
-		assert shape_dim % n_feat_layer == 0 and hidden_dim % n_feat_layer == 0
-
-		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim // n_feat_layer, 3, stride=1, padding=1),
+		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
 											nn.ReLU(True),) for _ in range(n_feat_layer)]
 											)
+		
 		self.combine = nn.Conv2d(hidden_dim, shape_dim, 3, stride=1, padding=1)
 
 	def forward(self, input_feats):
@@ -162,20 +161,19 @@ class MultiDINOEncoder(nn.Module):
 			spatial feature (B, shape_dim, 64, 64)
 		'''
 		feats_shape = [shallow_encoder(input_feat) for shallow_encoder, input_feat in zip(self.shallow_encoders, input_feats)]
-		feat_shape = self.combine(torch.cat(feats_shape, dim=1)) # B*shape_dim*64*64
+		feat_shape = torch.sum(torch.stack(feats_shape), dim=0) / len(feats_shape)
+		feat_shape = self.combine(feat_shape)
 
 		return feat_shape
 
 class MultiRouteEncoderSeparate(nn.Module):
-	def __init__(self, bottom=False, pos_emb=False, n_feat_layer=1, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=256):
+	def __init__(self, bottom=False, pos_emb=False, n_feat_layer=1, input_nc=3, shape_dim=48, color_dim=16, input_dim=256, hidden_dim=128):
 		super().__init__()
 
 		self.Encoder = Encoder(bottom=bottom, z_dim=color_dim, 
 			 					pos_emb=pos_emb, input_nc=input_nc)
 
-		assert shape_dim % n_feat_layer == 0 and hidden_dim % n_feat_layer == 0
-
-		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim // n_feat_layer, 3, stride=1, padding=1),
+		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
 											nn.ReLU(True),) for _ in range(n_feat_layer)]
 											)
 		
@@ -191,7 +189,8 @@ class MultiRouteEncoderSeparate(nn.Module):
 		'''
 		feat_color = self.Encoder(x)
 		feats_shape = [shallow_encoder(input_feat) for shallow_encoder, input_feat in zip(self.shallow_encoders, input_feats)]
-		feat_shape = self.combine(torch.cat(feats_shape, dim=1)) # B*shape_dim*64*64
+		feat_shape = torch.sum(torch.stack(feats_shape), dim=0) / len(feats_shape)
+		feat_shape = self.combine(feat_shape)
 
 		return feat_shape, feat_color
 
