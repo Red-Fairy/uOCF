@@ -257,13 +257,13 @@ class SlotAttention(nn.Module):
 class SlotAttentionAnchor(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, feat_dropout_dim=None,
-		  dropout=0., pos_momentum=0.5):
+		  dropout=0., momentum=0.5):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
 		self.eps = eps
 		self.scale = slot_dim ** -0.5
-		self.pos_momentum = pos_momentum
+		self.pos_momentum = momentum
 
 		self.anchors = torch.Tensor([[-0.5, -0.5], [-0.5, 0], [-0.5, 0.5], 
 							   		[0, -0.5], [0, 0], [0, 0.5], 

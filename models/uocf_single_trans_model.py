@@ -50,7 +50,6 @@ class uocfSingleTransModel(BaseModel):
 		parser.add_argument('--locality_in', type=int, default=100000)
 		parser.add_argument('--locality_out', type=int, default=0)
 		parser.add_argument('--bottom', action='store_true', help='one more encoder layer on bottom')
-		parser.add_argument('--double_bottom', action='store_true', help='two more encoder layers on bottom')
 		parser.add_argument('--input_size', type=int, default=64)
 		parser.add_argument('--frustum_size', type=int, default=64)
 		parser.add_argument('--frustum_size_fine', type=int, default=128) # frustum_size_fine must equal input_size
@@ -68,7 +67,8 @@ class uocfSingleTransModel(BaseModel):
 		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
-		parser.add_argument('--slotattn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
+		parser.add_argument('--attn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
+		parser.add_argument('--attn_momentum', type=float, default=0.1, help='momentum in slot attention')
 		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
 		parser.add_argument('--feat_dropout_min', type=float, default=0, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
@@ -136,9 +136,9 @@ class uocfSingleTransModel(BaseModel):
 			assert False
 
 		self.netSlotAttention = SlotAttentionAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim, 
-							  slot_dim=opt.shape_dim, color_dim=0,
+							  slot_dim=opt.shape_dim, color_dim=0, momentum=opt.attn_momentum,
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter,
-							  dropout = opt.slotattn_dropout, learnable_pos=not opt.no_learnable_pos)
+							  dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos)
 							  
 		if not opt.use_viewdirs:
 			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
