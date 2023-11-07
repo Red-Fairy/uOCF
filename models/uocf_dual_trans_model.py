@@ -14,7 +14,7 @@ from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import MultiRouteEncoderSeparate
 from .model_general import DecoderIPE, DecoderIPEVD
-from .transformer_attn import SlotAttentionAnchor
+from .transformer_attn import SlotAttentionTF, SlotAttentionTFAnchor
 from .utils import *
 import numpy as np
 
@@ -137,12 +137,19 @@ class uocfDualTransModel(BaseModel):
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttentionAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum,
-							  learnable_init_pos=opt.learnable_init_pos,
-							  dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
-							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
+		if opt.TFanchor:
+			self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+								slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+								color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum,
+								dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+								feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
+		else:
+			self.netSlotAttention = SlotAttentionTF(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum,
+					learnable_init_pos=opt.learnable_init_pos,
+					dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
 		if not opt.use_viewdirs:
 			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,

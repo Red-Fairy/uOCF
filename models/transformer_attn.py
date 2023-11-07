@@ -254,7 +254,7 @@ class SlotAttention(nn.Module):
 				
 		return slots, attn, fg_position
 	
-class SlotAttentionAnchor(nn.Module):
+class SlotAttentionTFAnchor(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, feat_dropout_dim=None,
 		  dropout=0., momentum=0.5):
@@ -390,7 +390,7 @@ class SlotAttentionAnchor(nn.Module):
 				
 		return slots, attn, fg_position
 
-class SlotAttentionLearn(nn.Module):
+class SlotAttentionTF(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, feat_dropout_dim=None,
 		  dropout=0., momentum=0.5, learnable_init_pos=False):
