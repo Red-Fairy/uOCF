@@ -36,7 +36,8 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 16 \
     --coarse_epoch 80 --niter 160 --percept_in 20 --no_locality_epoch 0 --seed 2025 \
     --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 20 --n_feat_layers 4 \
-    --exp_id '1105/4obj-dual-r2' \
+    --learnable_init_pos \
+    --exp_id '1106/4obj-dual-learnInit-m0' --attn_momentum 0 \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
 
 # can try the following to list out which GPU you have access to

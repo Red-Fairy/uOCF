@@ -70,6 +70,7 @@ class uocfDualTransModel(BaseModel):
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
 		parser.add_argument('--attn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
 		parser.add_argument('--attn_momentum', type=float, default=0.1, help='momentum in slot attention')
+		parser.add_argument('--learnable_init_pos', action='store_true', help='learnable initial position in slot attention')
 		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
 		parser.add_argument('--feat_dropout_min', type=float, default=0, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
@@ -139,6 +140,7 @@ class uocfDualTransModel(BaseModel):
 		self.netSlotAttention = SlotAttentionAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum,
+							  learnable_init_pos=opt.learnable_init_pos,
 							  dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
