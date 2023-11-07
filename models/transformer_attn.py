@@ -310,8 +310,8 @@ class SlotAttentionAnchor(nn.Module):
 
 		# random take num_slots anchors
 		# fg_position = self.anchors[torch.randperm(self.anchors.shape[0])[:K-1]].unsqueeze(0).expand(B, -1, -1).to(feat.device) # (B, K-1, 2)
-		fg_position = torch.zeros(B, K-1, 2).to(feat.device) if not hasattr(self, 'fg_position') else self.fg_position.expand(B, -1, -1).to(feat.device)
-		slot_fg = self.slot_init_fg.expand(B, -1, -1) # (B, K-1, C)
+		fg_position = torch.zeros(B, K-1, 2).to(feat.device) # (B, K-1, 2)
+		slot_fg = self.query_init(self.anchors[torch.randperm(self.anchors.shape[0])[:K-1]].unsqueeze(0).expand(B, -1, -1).to(feat.device)) # (B, K-1, C)
 		slot_bg = self.slots_init_bg.expand(B, 1, -1) # (B, 1, C)
 		
 		feat = self.norm_feat(feat)
