@@ -8,9 +8,9 @@ from . import networks
 import os
 import time
 from .projection import Projection, pixel2world
-from .model_general import dualRouteEncoderSeparate
-from .model_general import SlotAttention
-from .model_general import DecoderIPE, DecoderIPEVD
+from .model_general import MultiRouteEncoderSeparate
+from .model_general import DecoderIPE
+from .transformer_attn import SlotAttentionTFAnchor
 from .utils import *
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
@@ -20,7 +20,7 @@ from piq import psnr as compute_psnr
 import numpy as np
 
 
-class uorfGeneralEvalIPEModel(BaseModel):
+class uorfDualTransEvalModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -87,25 +87,23 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		z_dim = opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
 
-		self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
-		dino_dim = 768
-		self.netEncoder = dualRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, 
-						bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
+		if opt.encoder_type == 'DINO':
+			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
+			dino_dim = 768
+			self.netEncoder = MultiRouteEncoderSeparate(input_nc=3, pos_emb=opt.pos_emb, n_feat_layer=opt.n_feat_layers,
+														bottom=opt.bottom, shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
+		else:
+			assert False
 
-		self.netSlotAttention = SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
-							  learnable_init=opt.learnable_slot_init,
-							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos)
+		self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, random_init_pos=opt.random_init_pos,
+					num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 
-		if not opt.use_viewdirs:
-			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
+		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													use_viewdirs=False)
-		else:
-			self.netDecoder = DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=True)
 
 		self.netEncoder = self.netEncoder.to(self.device)
 		self.netSlotAttention = self.netSlotAttention.to(self.device)
@@ -173,6 +171,27 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		if self.opt.vis_disparity:
 			self.disparity = input['depth'].to(self.device)
 
+	def encode(self, idx=0):
+		"""Encode the input image into a feature map.
+		Parameters:
+			idx: idx of the image to be encoded (typically 0, if position loss is used, we may use 1)
+		Returns:
+			feat_shape, feat_color
+		"""
+		
+		dev = self.x[0:1].device
+
+		with torch.no_grad(): # B*C*H*W
+			feature_maps = self.pretrained_encoder.get_intermediate_layers(self.x_large[idx:idx+1], n=self.opt.n_feat_layers, reshape=True)
+		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
+		feature_map_shape, feature_map_color = self.netEncoder(feature_maps,
+				F.interpolate(self.x[idx:idx+1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+
+		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
+
+		return feat_shape, feat_color
+
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
 		dev = self.x[0:1].device
@@ -183,28 +202,10 @@ class uorfGeneralEvalIPEModel(BaseModel):
 									nss2cam0[:, 3:4, :]], dim=1) # 1*4*4
 
 		# Encoding images
-		if self.opt.encoder_type == 'SAM':
-			with torch.no_grad():
-				feature_map = self.pretrained_encoder(self.x_large[0:1].to(dev))  # BxC'xHxW, C': shape_dim (z_dim)
-		elif self.opt.encoder_type == 'DINO':
-			with torch.no_grad():
-				feat_size = 64
-				feature_map = self.pretrained_encoder.forward_features(self.x_large[0:1].to(dev))['x_norm_patchtokens'].reshape(1, feat_size, feat_size, -1).permute([0, 3, 1, 2]).contiguous() # 1xCxHxW
-		elif self.opt.encoder_type == 'SD':
-			with torch.no_grad():
-				feature_map = self.pretrained_encoder({'img': self.x_large[0:1], 'text':''})
-		# Encoder receives feature map from SAM/DINO/StableDiffusion and resized images as inputs
-		feature_map_shape, feature_map_color = self.netEncoder(feature_map,
-				F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # Bxshape_dimxHxW, Bxcolor_dimxHxW
+		feat_shape, feat_color = self.encode(0)
 
-		feat_shape = feature_map_shape.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-		feat_color = feature_map_color.permute([0, 2, 3, 1]).contiguous()  # BxHxWxC
-	
-		# Slot Attention
-		if not self.opt.color_in_attn:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
-		else:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), feat_color=None)
+		# transformer attention
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
@@ -264,7 +265,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 
 		with torch.no_grad():
 			attn = attn.detach().cpu()  # KxN
-			H_, W_ = feature_map.shape[2], feature_map.shape[3]
+			H_, W_ = feat_shape.shape[2], feat_shape.shape[3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			# if H_ != H:
 			# 	attn = F.interpolate(attn, size=[H, W], mode='bilinear')

@@ -13,8 +13,8 @@ from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import MultiRouteEncoderSeparate
-from .model_general import DecoderIPE, DecoderIPEVD
-from .transformer_attn import SlotAttentionTF, SlotAttentionTFAnchor
+from .model_general import DecoderIPE
+from .transformer_attn import SlotAttentionTFAnchor
 from .utils import *
 import numpy as np
 
@@ -32,7 +32,6 @@ class uocfDualTransModel(BaseModel):
 			the modified parser.
 		"""
 		parser.add_argument('--num_slots', metavar='K', type=int, default=5, help='Number of supported slots')
-		parser.add_argument('--num_anchors', type=int, default=4, help='Number of supported anchors')
 		parser.add_argument('--shape_dim', type=int, default=48, help='Dimension of individual z latent per slot')
 		parser.add_argument('--color_dim', type=int, default=16, help='Dimension of individual z latent per slot texture')
 		parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
@@ -304,7 +303,7 @@ class uocfDualTransModel(BaseModel):
 		# 		if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else None
 		# dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
 	
-		# Slot Attention
+		# transformer attention
 		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
 							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN

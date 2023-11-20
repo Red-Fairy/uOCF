@@ -57,17 +57,14 @@ class BaseOptions():
 		parser.add_argument('--relative_position', action='store_false', help='disable relative position with slot position')
 		parser.add_argument('--pos_emb', action='store_true', help='apply position embedding on encoder')
 		parser.add_argument('--emb_path', type=str, default='', help='path to pretrained embedding')
-		parser.add_argument('--no_learnable_pos', action='store_true', help='disable learnable position embedding')
-		parser.add_argument('--sam_encoder', action='store_true', help='use sam encoder')
-		parser.add_argument('--sam_type', type=str, default='vit_l', help='sam type')
-		parser.add_argument('--sam_path', type=str, default='/viscam/u/redfairy/pretrained_weights/SAM/sam_vit_l_0b3195.pth', help='path to pretrained sam')
-		parser.add_argument('--encoder_size', type=int, default=256, help='size of input to encoder')
+
 		# additional dummy info, save into the log file
 		parser.add_argument('--dummy_info', type=str, default='', help='dummy info for code description')
+
+		# uOCF 
 		parser.add_argument('--not_strict', action='store_true', help='not strict load')
 		parser.add_argument('--preextract', action='store_true', help='preextract features from encoder')
 		parser.add_argument('--encoder_type', type=str, default='SAM', help='SAM, DINO, or SD')
-		parser.add_argument('--n_feat_layers', type=int, default=8, help='number of feature layers')
 		parser.add_argument('--random_init_pos', action='store_true', help='randomly initialize foreground position')
 		parser.add_argument('--load_intrinsics', action='store_true', help='load camera intrinsics')
 		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
@@ -75,9 +72,21 @@ class BaseOptions():
 		parser.add_argument('--no_transform', action='store_true', help='directly deduce slot position from query')
 		parser.add_argument('--keep_ratio', type=float, default=.0, help='keep ratio outside the bbox')
 		parser.add_argument('--fg_object_size', type=float, default=3, help='size of the foreground object')
+		parser.add_argument('--slot_attn_pos_emb', action='store_true', help='use position embedding in slot attention')
+
+		parser.add_argument('--no_learnable_pos', action='store_true', help='disable learnable position embedding')
+		parser.add_argument('--sam_encoder', action='store_true', help='use sam encoder')
+		parser.add_argument('--sam_type', type=str, default='vit_l', help='sam type')
+		parser.add_argument('--sam_path', type=str, default='/viscam/u/redfairy/pretrained_weights/SAM/sam_vit_l_0b3195.pth', help='path to pretrained sam')
+		parser.add_argument('--encoder_size', type=int, default=256, help='size of input to encoder')
+
+		# uOCF - view dependent
 		parser.add_argument('--use_viewdirs', action='store_true', help='use viewdirs in the decoder')
 		parser.add_argument('--dummy_viewdirs', action='store_true', help='use dummy viewdirs in the decoder')
-		parser.add_argument('--slot_attn_pos_emb', action='store_true', help='use position embedding in slot attention')
+	
+		# uOCF-transformer
+		parser.add_argument('--n_feat_layers', type=int, default=8, help='number of feature layers')
+		parser.add_argument('--num_anchors', type=int, default=4, help='Number of supported anchors')
 		
 		self.initialized = True
 		return parser
