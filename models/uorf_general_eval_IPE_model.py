@@ -95,6 +95,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		self.netSlotAttention = SlotAttention(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 							  slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 		  					  color_dim=0 if opt.color_in_attn else opt.color_dim, pos_emb = opt.slot_attn_pos_emb, iters=opt.attn_iter, 
+							  learnable_init=opt.learnable_slot_init,
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos)
 
 		if not opt.use_viewdirs:

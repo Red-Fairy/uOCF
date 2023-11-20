@@ -51,10 +51,10 @@ for j, data in enumerate(dataset):
 		# model.fg_slot_nss_position[2] = fg_positions[3]
 		# model.fg_slot_nss_position[3] = fg_positions[0]
 
-		model.fg_slot_nss_position = torch.zeros_like(model.fg_slot_nss_position)
+		# model.fg_slot_nss_position = torch.zeros_like(model.fg_slot_nss_position)
 		
-		# model.fg_slot_nss_position[1] += torch.tensor([-0.3, 0.7, 0]).to(model.device)
-		# model.fg_slot_nss_position[0] += torch.tensor([0.3, -0.7, 0]).to(model.device)
+		model.fg_slot_nss_position[1] += torch.tensor([100, 100, 0]).to(model.device)
+		model.fg_slot_nss_position[0] += torch.tensor([100, 100, 0]).to(model.device)
 
 		model.forward_position()
 		model.compute_visuals()

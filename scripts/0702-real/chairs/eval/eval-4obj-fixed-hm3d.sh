@@ -35,9 +35,9 @@ python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 4  \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
     --near 1.97 --far 6.56 --nss_scale 2.30 \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-zeroShot-4view' \
-    --fixed_locality --fg_object_size 1 --recon_only --vis_attn \
-    --dummy_info 'regular test' --testset_name 'hm3d' --epoch 2000 \
+    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/room_real_chairs/0824/4obj-load-IPE-r4' \
+    --fixed_locality --fg_object_size 1 --recon_only --vis_render_mask \
+    --dummy_info 'regular test' --testset_name 'hm3d' --epoch 80 \
 
 
 # can try the following to list out which GPU you have access to

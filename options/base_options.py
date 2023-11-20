@@ -77,7 +77,7 @@ class BaseOptions():
 		parser.add_argument('--fg_object_size', type=float, default=3, help='size of the foreground object')
 		parser.add_argument('--use_viewdirs', action='store_true', help='use viewdirs in the decoder')
 		parser.add_argument('--dummy_viewdirs', action='store_true', help='use dummy viewdirs in the decoder')
-		parser.add_argument('--TFanchor', action='store_true', help='use TF anchor')
+		parser.add_argument('--slot_attn_pos_emb', action='store_true', help='use position embedding in slot attention')
 		
 		self.initialized = True
 		return parser

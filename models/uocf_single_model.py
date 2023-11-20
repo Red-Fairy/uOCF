@@ -139,16 +139,10 @@ class uocfSingleModel(BaseModel):
 							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter, learnable_init=opt.learnable_slot_init,
 							  learnable_pos=not opt.no_learnable_pos, random_init_pos=opt.random_init_pos, pos_no_grad=opt.pos_no_grad)
 							  
-		if not opt.use_viewdirs:
-			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=False,
-													)
-		else:
-			self.netDecoder = DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=True
-													)
+		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+												locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
+												use_viewdirs=False,
+												)
 			
 		if not (opt.load_pretrain or opt.continue_train):
 			self.netEncoder = networks.init_net(self.netEncoder, init_type='normal', gpu_ids=self.gpu_ids)

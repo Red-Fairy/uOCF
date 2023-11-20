@@ -134,7 +134,7 @@ class uorfGeneralIPEModel(BaseModel):
 														bottom=opt.bottom, double_bottom=opt.double_bottom,
 														shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim)
 			else:
-				self.netEncoder = singleRouteEncoder(input_nc=3, shape_dim=opt.shape_dim, input_dim=dino_dim)
+				self.netEncoder = singleRouteEncoder(shape_dim=opt.shape_dim, input_dim=dino_dim)
 		else:
 			assert False
 

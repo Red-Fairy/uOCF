@@ -27,10 +27,10 @@ python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
     --checkpoints_dir 'checkpoints' --name 'room_diverse_bg' --results_dir 'results' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --input_size 128 --render_size 8 --frustum_size 128 --bottom \
-    --n_samp 256 --z_dim 64 --num_slots 5 \
+    --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_diverse_bg/ablation/uORF-4obj-GAN-QBO-r2' \
-    --learnable_slot_init \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/room_real_chairs/ablation/uORF-4obj-GAN-QBO-inPaperResults' \
+    --learnable_slot_init --vis_mask \
     --attn_iter 3 --testset_name 'regular_test_end' --epoch 240 \
 # done
 echo "Done"

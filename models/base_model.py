@@ -200,8 +200,6 @@ class BaseModel(ABC):
                 state_dict = torch.load(load_path, map_location=str(self.device))
                 if 'fg_position' in state_dict and self.opt.one2four:
                     del state_dict['fg_position']
-                # if 'fg_position' in state_dict:
-                #     del state_dict['fg_position']
                 if self.opt.no_load_sigma_mu or self.opt.diff_fg_init:
                     keys = list(state_dict.keys())
                     for key in keys:
@@ -217,7 +215,8 @@ class BaseModel(ABC):
                     for key in incompatible.missing_keys:
                         unloaded_keys.append(key)
                 if incompatible.unexpected_keys and not self.opt.continue_train: # if continue train, ignore unexpected keys
-                    assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
+                    # assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
+                    pass
                     # add loaded keys to loaded_keys_frozen
                 for key, _ in net.named_parameters():
                     if key not in incompatible.missing_keys or self.opt.continue_train:

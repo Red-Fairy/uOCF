@@ -31,7 +31,8 @@ class uocfDualTransModel(BaseModel):
 		Returns:
 			the modified parser.
 		"""
-		parser.add_argument('--num_slots', metavar='K', type=int, default=8, help='Number of supported slots')
+		parser.add_argument('--num_slots', metavar='K', type=int, default=5, help='Number of supported slots')
+		parser.add_argument('--num_anchors', type=int, default=4, help='Number of supported anchors')
 		parser.add_argument('--shape_dim', type=int, default=48, help='Dimension of individual z latent per slot')
 		parser.add_argument('--color_dim', type=int, default=16, help='Dimension of individual z latent per slot texture')
 		parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
@@ -69,8 +70,7 @@ class uocfDualTransModel(BaseModel):
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
 		parser.add_argument('--attn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
-		parser.add_argument('--attn_momentum', type=float, default=0.1, help='momentum in slot attention')
-		parser.add_argument('--learnable_init_pos', action='store_true', help='learnable initial position in slot attention')
+		parser.add_argument('--attn_momentum', type=float, default=0.5, help='momentum in slot attention')
 		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
 		parser.add_argument('--feat_dropout_min', type=float, default=0, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
@@ -87,6 +87,7 @@ class uocfDualTransModel(BaseModel):
 		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
 		parser.add_argument('--weight_depth_continuity', type=float, default=0.005, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=1000, help='when to start the depth supervision')
+		parser.add_argument('--world_centric', action='store_true', help='use world-centric projection')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -137,29 +138,15 @@ class uocfDualTransModel(BaseModel):
 		else:
 			assert False
 
-		if opt.TFanchor:
-			self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-								slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-								color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum,
-								dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
-								feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
-		else:
-			self.netSlotAttention = SlotAttentionTF(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum,
-					learnable_init_pos=opt.learnable_init_pos,
-					dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, random_init_pos=opt.random_init_pos,
+					num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
 					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
-		if not opt.use_viewdirs:
-			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													use_viewdirs=False,
-													)
-		else:
-			self.netDecoder = DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=True
 													)
 			
 		if not (opt.load_pretrain or opt.continue_train):
@@ -318,12 +305,8 @@ class uocfDualTransModel(BaseModel):
 		# dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
 	
 		# Slot Attention
-		if not self.opt.color_in_attn:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
 							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
-		else:
-			z_slots, attn, fg_slot_position = self.netSlotAttention(torch.cat([feat_shape, feat_color], dim=-1), 
-							   feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
@@ -373,7 +356,7 @@ class uocfDualTransModel(BaseModel):
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
 								dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
-								view_dirs = ray_dir if (self.opt.use_viewdirs and not self.opt.dummy_viewdirs) else None,
+								camera_rotation = not self.opt.world_centric,
 								fg_object_size=fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 		
 		raws = raws.view([N, H, W, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
@@ -450,12 +433,8 @@ class uocfDualTransModel(BaseModel):
 			# assert self.opt.num_slots == 2 # only support one foreground object
 			# infer the position from the second view
 			feat_shape_, feat_color_ = self.encode(1)
-			if not self.opt.color_in_attn:
-				_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None,
+			_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None,
 							dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
-			else:
-				_, _, fg_slot_position_ = self.netSlotAttention(feat=torch.cat([feat_shape_, feat_color_], dim=-1), 
-							feat_color=None, dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
 			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
 			# calculate the position loss (L2 loss between the two inferred positions)
