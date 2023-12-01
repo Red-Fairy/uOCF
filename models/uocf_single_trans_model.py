@@ -13,7 +13,7 @@ from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import MultiDINOEncoder, DecoderIPE, DecoderIPEVD
-from .transformer_attn import SlotAttentionAnchor
+from .transformer_attn import SlotAttentionTFAnchor
 from .utils import *
 import numpy as np
 
@@ -67,8 +67,6 @@ class uocfSingleTransModel(BaseModel):
 		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
-		parser.add_argument('--attn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
-		parser.add_argument('--attn_momentum', type=float, default=0.1, help='momentum in slot attention')
 		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
 		parser.add_argument('--feat_dropout_min', type=float, default=0, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
@@ -135,20 +133,14 @@ class uocfSingleTransModel(BaseModel):
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttentionAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim, 
-							  slot_dim=opt.shape_dim, color_dim=0, momentum=opt.attn_momentum,
-							  feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter,
-							  dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos)
+		self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim, 
+					slot_dim=opt.shape_dim, color_dim=0, momentum=opt.attn_momentum, pos_init=opt.pos_init,
+					num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
-		if not opt.use_viewdirs:
-			self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
+		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
 													use_viewdirs=False,
-													)
-		else:
-			self.netDecoder = DecoderIPEVD(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=True
 													)
 			
 		if not (opt.load_pretrain or opt.continue_train):

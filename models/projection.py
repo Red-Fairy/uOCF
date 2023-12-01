@@ -9,7 +9,7 @@ from .utils import conical_frustum_to_gaussian, cylinder_to_gaussian
 
 Rays = collections.namedtuple('Rays', ('origins', 'directions', 'viewdirs', 'radii', 'lossmult', 'near', 'far'))
 
-def pixel2world(slot_pixel_coord, cam2world, intrinsics=None, nss_scale=7.):
+def pixel2world(slot_pixel_coord, cam2world, intrinsics=None, nss_scale=7., depth=None):
     '''
     slot_pixel_coord: (K-1) * 2 on the image plane, x and y coord are in range [-1, 1]
     cam2world: 4 * 4
@@ -48,10 +48,12 @@ def pixel2world(slot_pixel_coord, cam2world, intrinsics=None, nss_scale=7.):
     slot_world_coord = torch.matmul(cam2world, torch.cat([slot_cam_coord, torch.ones_like(slot_cam_coord[:, :1])], dim=1).t()).t() # (K-1) * 4
     # normalize
     slot_world_coord = slot_world_coord / slot_world_coord[:, 3:]
-    # project to the XY plane
-    ray = slot_world_coord[:, :3] - cam2world[:3, 3:].view(1, 3) # (K-1) * 3
-    XY_pos = slot_world_coord[:, :3] - ray * (slot_world_coord[:, 2:3] / ray[:, 2:]) # (K-1) * 3
-    return torch.matmul(world2nss, XY_pos.t()).t() # (K-1) * 3
+    if depth is not None: # project to the XY plane
+        ray = slot_world_coord[:, :3] - cam2world[:3, 3:].view(1, 3) # (K-1) * 3
+        slot_pos = slot_world_coord[:, :3] - ray * (slot_world_coord[:, 2:3] / ray[:, 2:]) # (K-1) * 3
+    else:
+        slot_pos = cam2world[:3, 3:].view(1, 3) - ray.norm(dim=-1) * depth
+    return torch.matmul(world2nss, slot_pos.t()).t() # (K-1) * 3
 
 class Projection(object):
     def __init__(self, focal_ratio=(350. / 320., 350. / 240.),

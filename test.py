@@ -6,6 +6,7 @@ from util.html import HTML
 import os
 from util.util import AverageMeter, set_seed, write_location, parse_wanted_indice
 import numpy as np
+import torch
 
 if __name__ == '__main__':
 
@@ -43,8 +44,8 @@ if __name__ == '__main__':
         model.test()           # run inference: forward + compute_visuals
 
         # save model.z_slots
-        # save_path = os.path.join(model.save_dir, f'{model.opt.testset_name}_{model.opt.epoch}', f'z_slots_{i}.txt')
-        # np.savetxt(save_path, model.z_slots[1].detach().cpu().numpy())
+        save_path = os.path.join(model.save_dir, f'{model.opt.testset_name}_{model.opt.epoch}', f'z_slots_{i}.txt')
+        np.savetxt(save_path, model.z_slots[1].detach().cpu().numpy())
 
         losses = model.get_current_losses()
         visualizer.print_test_losses(i, losses)
@@ -60,11 +61,18 @@ if __name__ == '__main__':
             losses[loss_name] = meters_tst[loss_name].avg
         visualizer.print_test_losses('average', losses)
 
-        try:
-            write_location(file, model.fg_slot_image_position, i, description='(image position)')
-            write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
-        except:
-            pass
+        # with torch.no_grad():
+        #     for i in range(5):
+        #         print(model.fg_slot_image_position[i])
+        #         print(model.fg_slot_nss_position[i])
+
+        # f = model.fg_slot_image_position.detach()
+
+        # try:
+        #     write_location(file, model.fg_slot_image_position, i, description='(image position)')
+        #     write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
+        # except:
+        #     pass
 
     webpage.save()
     file.close()

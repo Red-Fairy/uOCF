@@ -254,21 +254,22 @@ class SlotAttention(nn.Module):
 				
 		return slots, attn, fg_position
 	
-class SlotAttentionTFAnchor(nn.Module):
+class SlotAttentionTF(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, feat_dropout_dim=None,
-		  dropout=0., momentum=0.5, num_anchors=4, random_init_pos=False):
+		  dropout=0., momentum=0.5, pos_init='learnable'):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
 		self.eps = eps
 		self.scale = slot_dim ** -0.5
 		self.pos_momentum = momentum
-		self.random_init_pos = random_init_pos
+		self.pos_init = pos_init
+
+		if self.pos_init == 'learnable':
+			self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 1.5 - 0.75)
 		
-		if not self.random_init_pos:
-			self.anchors = nn.Parameter(torch.rand(1, num_anchors, 2) * 1.5 - 0.75)
-		self.slots_init_fg = nn.Parameter((torch.randn(1, num_anchors, slot_dim)))
+		self.slots_init_fg = nn.Parameter((torch.randn(1, num_slots-1, slot_dim)))
 		self.slots_init_bg = nn.Parameter((torch.randn(1, 1, slot_dim)))
 
 		self.learnable_pos = learnable_pos
@@ -306,15 +307,15 @@ class SlotAttentionTFAnchor(nn.Module):
 		feat = feat.flatten(1, 2) # (B, N, C)
 
 		K = num_slots if num_slots is not None else self.num_slots
-
-		# random take num_slots anchors
-		perm = torch.randperm(self.slots_init_fg.shape[1])[:K-1]
 		
-		if not self.random_init_pos:
-			fg_position = self.anchors[:, perm].expand(B, -1, -1).to(feat.device) # (B, K-1, 2)
-		else:
+		if self.pos_init == 'learnable':
+			fg_position = self.fg_position.expand(B, -1, -1).to(feat.device)
+		elif self.pos_init == 'random':
 			fg_position = torch.rand(B, K-1, 2, device=feat.device) * 1.8 - 0.9 # (B, K-1, 2)
-		slot_fg = self.slots_init_fg[:, perm].expand(B, -1, -1) # (B, K-1, C)
+		else: # zero init
+			fg_position = torch.zeros(B, K-1, 2, device=feat.device)
+
+		slot_fg = self.slots_init_fg.expand(B, -1, -1) # (B, K-1, C)
 		slot_bg = self.slots_init_bg.expand(B, 1, -1) # (B, 1, C)
 		
 		feat = self.norm_feat(feat)
@@ -393,26 +394,22 @@ class SlotAttentionTFAnchor(nn.Module):
 				
 		return slots, attn, fg_position
 
-class SlotAttentionTF(nn.Module):
+class SlotAttentionTFAnchor(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, feat_dropout_dim=None,
-		  dropout=0., momentum=0.5, learnable_init_pos=False):
+		  dropout=0., momentum=0.5, num_anchors=4, random_init_pos=False):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
 		self.eps = eps
 		self.scale = slot_dim ** -0.5
 		self.pos_momentum = momentum
-
-		# self.anchors = torch.Tensor([[-0.5, -0.5], [-0.5, 0], [-0.5, 0.5], 
-		# 					   		[0, -0.5], [0, 0], [0, 0.5], 
-		# 							[0.5, -0.5], [0.5, 0], [0.5, 0.5]]) # (9, 2)
-
-		# self.query_init = nn.Linear(2, slot_dim) # init query with anchor position
-		self.slot_init_fg = nn.Parameter((torch.randn(1, num_slots-1, slot_dim)))
+		self.random_init_pos = random_init_pos
+		
+		if not self.random_init_pos:
+			self.anchors = nn.Parameter(torch.rand(1, num_anchors, 2) * 1.5 - 0.75)
+		self.slots_init_fg = nn.Parameter((torch.randn(1, num_anchors, slot_dim)))
 		self.slots_init_bg = nn.Parameter((torch.randn(1, 1, slot_dim)))
-		if learnable_init_pos:
-			self.fg_position = nn.Parameter(torch.rand(1, num_slots-1, 2) * 1.5 - 0.75)
 
 		self.learnable_pos = learnable_pos
 
@@ -451,9 +448,13 @@ class SlotAttentionTF(nn.Module):
 		K = num_slots if num_slots is not None else self.num_slots
 
 		# random take num_slots anchors
-		# fg_position = self.anchors[torch.randperm(self.anchors.shape[0])[:K-1]].unsqueeze(0).expand(B, -1, -1).to(feat.device) # (B, K-1, 2)
-		fg_position = torch.zeros(B, K-1, 2).to(feat.device) if not hasattr(self, 'fg_position') else self.fg_position.expand(B, -1, -1).to(feat.device)
-		slot_fg = self.slot_init_fg.expand(B, -1, -1) # (B, K-1, C)
+		perm = torch.randperm(self.slots_init_fg.shape[1])[:K-1]
+		
+		if not self.random_init_pos:
+			fg_position = self.anchors[:, perm].expand(B, -1, -1).to(feat.device) # (B, K-1, 2)
+		else:
+			fg_position = torch.rand(B, K-1, 2, device=feat.device) * 1.8 - 0.9 # (B, K-1, 2)
+		slot_fg = self.slots_init_fg[:, perm].expand(B, -1, -1) # (B, K-1, C)
 		slot_bg = self.slots_init_bg.expand(B, 1, -1) # (B, 1, C)
 		
 		feat = self.norm_feat(feat)

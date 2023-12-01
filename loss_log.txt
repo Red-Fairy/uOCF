@@ -1,0 +1,1 @@
+/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1122-4obj/4obj-scratch-d0.1-m0.5/loss_log.txt

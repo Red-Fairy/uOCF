@@ -198,8 +198,11 @@ class BaseModel(ABC):
                 assert os.path.isfile(load_path), 'Pretrained network %s not exist' % load_path
                 print('loading the model from %s' % load_path)
                 state_dict = torch.load(load_path, map_location=str(self.device))
-                if 'fg_position' in state_dict and self.opt.one2four:
-                    del state_dict['fg_position']
+                if self.opt.one2four:
+                    if 'fg_position' in state_dict:
+                        state_dict['fg_position'] = state_dict['fg_position'].repeat(self.opt.num_slots-1, *[1]*len(state_dict['fg_position'].shape[1:]))
+                    if 'slots_init_fg' in state_dict:
+                        state_dict['slots_init_fg'] = state_dict['slots_init_fg'].repeat(1, self.opt.num_slots-1, *[1]*len(state_dict['slots_init_fg'].shape[2:]))
                 if self.opt.no_load_sigma_mu or self.opt.diff_fg_init:
                     keys = list(state_dict.keys())
                     for key in keys:
@@ -215,8 +218,8 @@ class BaseModel(ABC):
                     for key in incompatible.missing_keys:
                         unloaded_keys.append(key)
                 if incompatible.unexpected_keys and not self.opt.continue_train: # if continue train, ignore unexpected keys
-                    # assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
-                    pass
+                    assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
+                    # pass
                     # add loaded keys to loaded_keys_frozen
                 for key, _ in net.named_parameters():
                     if key not in incompatible.missing_keys or self.opt.continue_train:
@@ -288,7 +291,7 @@ class BaseModel(ABC):
                         result = net.load_state_dict(state_dict, strict=False)
                         print(result)
                     else:
-                        net.load_state_dict(state_dict)
+                        net.load_state_dict(state_dict, strict=False)
                     # print(result)
                     # try:
                     #     net.load_state_dict(state_dict, strict=not self.opt.not_strict)

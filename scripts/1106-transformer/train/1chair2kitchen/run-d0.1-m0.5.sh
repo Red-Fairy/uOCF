@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -32,15 +32,15 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 324 --n_img_each_sce
     --model 'uocf_dual_trans' \
     --attn_decay_steps 100000 --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 16 \
+    --num_slots 5 --attn_iter 6 --shape_dim 72 --color_dim 24 \
     --coarse_epoch 500 --niter 1000 --percept_in 100 --no_locality_epoch 100 --seed 2025 \
     --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 250 --n_feat_layers 4 \
-    --random_init_pos --attn_momentum 0.5 --num_anchors 4 \
-    --bg_density_loss --bg_density_in 150 --position_loss --position_in 150 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_real_chairs/1106/1obj-fixedAnchors4' \
-    --load_epoch 60 \
+    --random_init_pos --num_anchors 4 \
+    --bg_density_loss --bg_density_in 150 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_real_chairs/1121/1obj-d0.1.0.5' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
-    --exp_id '1110/4obj-load' \
+    --attn_dropout 0.1 --attn_momentum 0.5 \
+    --exp_id '1121/4obj-load-d0.1-m0.5' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
 
 # can try the following to list out which GPU you have access to

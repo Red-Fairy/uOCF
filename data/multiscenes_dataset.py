@@ -99,6 +99,7 @@ class MultiscenesDataset(BaseDataset):
                 filenames = scene_filenames[:self.n_img_each_scene]
 
         rets = []
+        input_rot = torch.zeros((4,4))
         for rd, path in enumerate(filenames):
             img = Image.open(path).convert('RGB')
             img_data = self._transform(img)
@@ -115,23 +116,37 @@ class MultiscenesDataset(BaseDataset):
             else:
                 azi_rot = np.loadtxt(azi_path)
             azi_rot = torch.tensor(azi_rot, dtype=torch.float32)
+            if self.opt.input_rotate:
+                if rd == 0: # calculate rotation angle around the z (up) axis, so that the camera is on the x-z plane
+                    # sin(alpha) * x + cos(alpha) * y = 0
+                    alpha = np.arctan2(-pose[1, 3], pose[0, 3])
+                    rotation_z = np.array([[np.cos(alpha), -np.sin(alpha), 0, 0],
+                                             [np.sin(alpha), np.cos(alpha), 0, 0],
+                                             [0, 0, 1, 0],
+                                             [0, 0, 0, 1]])
+                    input_rot = torch.tensor(rotation_z, dtype=torch.float32)
+                pose = torch.matmul(input_rot, pose)
+            
+            # support two types of depth maps
             depth_path = path.replace('.png', '_depth.pfm')
             if os.path.isfile(depth_path):
-                # read depth
-                depth = cv2.imread(depth_path, -1)
-                # resize to load_size
-                depth = cv2.resize(depth, (self.opt.load_size, self.opt.load_size), interpolation=Image.BILINEAR)
-                depth = depth.astype(np.float32)
+                depth = Image.open(depth_path)
+                depth = cv2.resize(depth, (self.opt.load_size, self.opt.load_size), interpolation=Image.BILINEAR).astype(np.float32)
                 depth = torch.from_numpy(depth)  # HxW
                 depth = depth.unsqueeze(0)  # 1xHxW
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
+                
+            depth_path = path.replace('.png', '_depth.png')
+            if os.path.isfile(depth_path):
+                depth = Image.open(depth_path)
+                depth = np.array(depth)
+                ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
+
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
             if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.opt.encoder_type != 'CNN':
                 normalize = False if self.opt.encoder_type == 'SD' else True
                 ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
-            # if rd == 0 and self.opt.input_size != self.opt.load_size:
-            #     ret['img_data_input'] = self._transform(img, size=self.opt.input_size)
             if rd == 0 and os.path.isfile(path.replace('.png', '_intrinsics.txt')):
                 intrinsics_path = path.replace('.png', '_intrinsics.txt')
                 intrinsics = np.loadtxt(intrinsics_path)

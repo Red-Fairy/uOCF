@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:a5000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,10 +22,10 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/room-real/chairs/test-4obj-proof'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/test-2-4obj'}
 PORT=${2:-12783}
-CUDA_VISIBLE_DEVICES=1 python -m visdom.server -p $PORT &>/dev/null &
-python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 1  \
+CUDA_VISIBLE_DEVICES=0 python -m visdom.server -p $PORT &>/dev/null &
+python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
@@ -36,9 +36,9 @@ python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 1  \
     --encoder_size 896 --encoder_type 'DINO' \
     --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 \
     --vis_attn --vis_mask \
-    --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/0824/4obj-load-IPE-r4' \
-    --fixed_locality --fg_object_size 3 --no_loss \
-    --dummy_info 'regular test' --testset_name 'proof' --epoch 80 \
+    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/room_real_chairs/0824/4obj-load-IPE-r4' \
+    --fixed_locality --fg_object_size 3 \
+    --dummy_info 'regular test' --testset_name 'regular' --epoch 45 \
 
 
 # can try the following to list out which GPU you have access to

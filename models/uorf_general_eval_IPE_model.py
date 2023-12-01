@@ -114,6 +114,11 @@ class uorfGeneralEvalIPEModel(BaseModel):
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
+		self.total_psnr = 0
+		self.total_ssim = 0
+		self.total_lpips = 0
+		self.count = 0
+
 	def set_visual_names(self):
 		n = self.opt.n_img_each_scene
 		n_slot = self.opt.num_slots
@@ -256,6 +261,12 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			self.loss_psnr = compute_psnr(x_recon_novel/2+0.5, x_novel/2+0.5, data_range=1.)
 			self.loss_ssim = compute_ssim(x_recon_novel/2+0.5, x_novel/2+0.5, data_range=1.)
 
+			self.total_psnr += self.loss_psnr
+			self.total_ssim += self.loss_ssim
+			self.total_lpips += self.loss_lpips
+			self.count += 1
+			# print('PSNR: {:.4f}, SSIM: {:.4f}, LPIPS: {:.4f}'.format(self.loss_psnr / self.count, self.loss_ssim / self.count, self.loss_lpips / self.count))
+
 		if not self.opt.no_loss and self.opt.show_recon_stats:
 			x_recon_ori, x_ori = x_recon[0:1], x[0:1]
 			self.loss_recon_psnr = compute_psnr(x_recon_ori/2+0.5, x_ori/2+0.5, data_range=1.)
@@ -282,6 +293,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
 			setattr(self, 'fg_slot_image_position', fg_slot_position.detach())
+			# print(fg_slot_nss_position.shape, fg_slot_nss_position)
 			setattr(self, 'fg_slot_nss_position', fg_slot_nss_position.detach())
 			setattr(self, 'z_slots', z_slots.detach())
 
@@ -444,7 +456,7 @@ class uorfGeneralEvalIPEModel(BaseModel):
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW
 				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
 				colors = (torch.tensor([[0, 0, 0], [255, 0, 0], [0, 255, 0], [0, 0, 255],
-										[255, 255, 0]]) / 255 * 2 - 1).to(self.device)  # 5x3
+										[255, 255, 0], [255, 0, 255]]) / 255 * 2 - 1).to(self.device)  # 5x3
 				mask_visuals = colors[mask_idx]  # NxHxWx3
 				for i in range(N):
 					setattr(self, 'render_mask{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]))

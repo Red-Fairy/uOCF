@@ -14,7 +14,7 @@ from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import MultiRouteEncoderSeparate
 from .model_general import DecoderIPE
-from .transformer_attn import SlotAttentionTFAnchor
+from .transformer_attn import SlotAttentionTFAnchor, SlotAttentionTF
 from .utils import *
 import numpy as np
 
@@ -68,8 +68,6 @@ class uocfDualTransModel(BaseModel):
 		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
-		parser.add_argument('--attn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
-		parser.add_argument('--attn_momentum', type=float, default=0.5, help='momentum in slot attention')
 		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
 		parser.add_argument('--feat_dropout_min', type=float, default=0, help='dropout rate in feature map')
 		parser.add_argument('--feat_dropout_max', type=float, default=1, help='dropout rate in feature map')
@@ -86,7 +84,6 @@ class uocfDualTransModel(BaseModel):
 		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
 		parser.add_argument('--weight_depth_continuity', type=float, default=0.005, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=1000, help='when to start the depth supervision')
-		parser.add_argument('--world_centric', action='store_true', help='use world-centric projection')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -137,15 +134,20 @@ class uocfDualTransModel(BaseModel):
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		# self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		# 			slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		# 			color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, learnable_slot_init=opt.learnable_slot_init,
+		# 			num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+		# 			feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
+
+		self.netSlotAttention = SlotAttentionTF(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, random_init_pos=opt.random_init_pos,
-					num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, pos_init=opt.pos_init,
+					dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
 					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=False,
 													)
 			
 		if not (opt.load_pretrain or opt.continue_train):
@@ -220,12 +222,6 @@ class uocfDualTransModel(BaseModel):
 						self.optimizers.append(optim.Adam([{'params': big_lr_params, 'lr': opt.lr}, {'params': small_lr_params, 'lr': opt.lr/3}]))
 					else:
 						self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
-					# if not self.opt.diff_fg_bg_lr:
-					# 	self.optimizers.append(optim.Adam(loaded_params_trainable, lr=opt.lr))
-					# else:
-					# 	big_lr_params = get_params(loaded_keys_trainable, keyword_to_include='b_')
-					# 	small_lr_params = get_params(loaded_keys_trainable, keyword_to_exclude='b_')
-					# 	self.optimizers.append(optim.Adam([{'params': big_lr_params, 'lr': opt.lr}, {'params': small_lr_params, 'lr': opt.lr/3}]))
 					configs = (opt.freezeInit_ratio, 0, 0, opt.attn_decay_steps) # no warmup
 					self.schedulers.append(networks.get_freezeInit_scheduler(self.optimizers[-1], params=configs))
 			else:
@@ -355,7 +351,7 @@ class uocfDualTransModel(BaseModel):
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
 								dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
-								camera_rotation = not self.opt.world_centric,
+								rotate_z = self.opt.decoder_rotate_z,
 								fg_object_size=fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 		
 		raws = raws.view([N, H, W, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4

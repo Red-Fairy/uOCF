@@ -182,7 +182,8 @@ class MultiDINOEncoder(nn.Module):
 		super().__init__()
 
 		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
-											nn.ReLU(True),) for _ in range(n_feat_layer)]
+											nn.ReLU(True),
+											) for _ in range(n_feat_layer)]
 											)
 		
 		self.combine = nn.Conv2d(hidden_dim, shape_dim, 3, stride=1, padding=1)
@@ -717,7 +718,7 @@ class Decoder(nn.Module):
 		self.rel_pos = rel_pos
 		self.fg_in_world = fg_in_world
 
-	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, local_locality_ratio=None, camera_rotation=True):
+	def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, fg_slot_position, dens_noise=0., invariant=True, local_locality_ratio=None, camera_rotate=True):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -746,7 +747,7 @@ class Decoder(nn.Module):
 			sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # KxPx3
 			if self.rel_pos and invariant:
 				# transform fg_slot_position to the camera coordinate
-				if camera_rotation:
+				if camera_rotate:
 					fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # (K-1)x4
 					fg_slot_position = torch.matmul(fg_transform.squeeze(0), fg_slot_position.t()).t() # (K-1)x4
 					fg_slot_position = fg_slot_position[:, :3]  # (K-1)x3
@@ -1065,7 +1066,7 @@ class DecoderIPE(nn.Module):
 		self.pos_enc = PositionalEncoding(max_deg=n_freq)
 
 	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
-					keep_ratio=0.0, mask_ratio=0.0, fg_object_size=None, camera_rotation=True):
+					keep_ratio=0.0, mask_ratio=0.0, fg_object_size=None, rotate_z=False):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
@@ -1085,7 +1086,8 @@ class DecoderIPE(nn.Module):
 				z_bg: 1xC
 				ssize: supervision size (64)
 				mask_ratio: frequency mask ratio to the pos emb
-				camera_rotation: if True, transform the query points to the camera coordinate
+				rotate_z: if False (default), only rotate query points around z axis, 
+						  if True, rotate to camera coordinate
 		return: input_fg: M * (60 + C) (M is the number of query points inside bbox), C is the slot feature dim, and 60 means increased-freq feat dim
 				input_bg: Px(60+C)
 				idx: M (indices of the query points inside bbox)
@@ -1095,9 +1097,21 @@ class DecoderIPE(nn.Module):
 		
 		sampling_mean_fg = mean[None, ...].expand(K-1, -1, -1, -1).flatten(1, 2) # (K-1)*(P*D)*3
 
-		if camera_rotation: # transform to the camera coordinate
+		if rotate_z:
+			# the rotation part of fg_transform (world to cam) can be decomposed into a rotation around z axis and a rotation around x axis (because y is up)
+			# here, when back to cam coordinate, we only rotate around z axis
+			rotation_z = torch.zeros(1, 3, 3, device=fg_transform.device)
+			rotation_z[:, 0, 0] = fg_transform[:, 0, 0]
+			rotation_z[:, 0, 1] = fg_transform[:, 0, 1]
+			rotation_z[:, 1, 0] = -fg_transform[:, 0, 1]
+			rotation_z[:, 1, 1] = fg_transform[:, 0, 0]
+			rotation_z[:, 2, 2] = 1
+			sampling_mean_fg = torch.matmul(rotation_z[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*3
+			fg_slot_position = torch.matmul(rotation_z.squeeze(0), fg_slot_position.t()).t() # (K-1)x3
+
+		else: # transform to the camera coordinate
 			sampling_mean_fg = torch.cat([sampling_mean_fg, torch.ones_like(sampling_mean_fg[:, :, 0:1])], dim=-1)  # (K-1)*(P*D)*4
-			sampling_mean_fg = torch.matmul(fg_transform[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*4x1
+			sampling_mean_fg = torch.matmul(fg_transform[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*4
 			sampling_mean_fg = sampling_mean_fg[:, :, :3]  # (K-1)*(P*D)*3
 			
 			fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # (K-1)x4
@@ -1157,7 +1171,7 @@ class DecoderIPE(nn.Module):
 		return input_fg, input_bg, idx
 
 	def forward(self, mean, var, z_slots, fg_transform, fg_slot_position, dens_noise=0., 
-		 			fg_object_size=None, keep_ratio=0.0, mask_ratio=0.0, view_dirs=None, camera_rotation=True):
+		 			fg_object_size=None, keep_ratio=0.0, mask_ratio=0.0, view_dirs=None, rotate_z=False):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -1185,7 +1199,7 @@ class DecoderIPE(nn.Module):
 		# debug(sampling_coor_fg, save_name='after_transform')
 
 		input_fg, input_bg, idx = self.processQueries(mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
-						keep_ratio=keep_ratio, mask_ratio=mask_ratio, fg_object_size=fg_object_size, camera_rotation=camera_rotation)
+						keep_ratio=keep_ratio, mask_ratio=mask_ratio, fg_object_size=fg_object_size, rotate_z=rotate_z)
 		
 		tmp = self.b_before(input_bg)
 		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P*D, self.out_ch])  # (P*D)x4 -> 1x(P*D)x4

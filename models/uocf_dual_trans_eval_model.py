@@ -10,7 +10,7 @@ import time
 from .projection import Projection, pixel2world
 from .model_general import MultiRouteEncoderSeparate
 from .model_general import DecoderIPE
-from .transformer_attn import SlotAttentionTFAnchor
+from .transformer_attn import SlotAttentionTF
 from .utils import *
 from util.util import AverageMeter
 from sklearn.metrics import adjusted_rand_score
@@ -20,7 +20,7 @@ from piq import psnr as compute_psnr
 import numpy as np
 
 
-class uorfDualTransEvalModel(BaseModel):
+class uocfDualTransEvalModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -95,10 +95,16 @@ class uorfDualTransEvalModel(BaseModel):
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		# self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		# 			slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		# 			color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, random_init_pos=opt.random_init_pos,
+		# 			num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+		# 			feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
+
+		self.netSlotAttention = SlotAttentionTF(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
-					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, random_init_pos=opt.random_init_pos,
-					num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, pos_init=opt.pos_init,
+					dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
 					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
@@ -265,7 +271,7 @@ class uorfDualTransEvalModel(BaseModel):
 
 		with torch.no_grad():
 			attn = attn.detach().cpu()  # KxN
-			H_, W_ = feat_shape.shape[2], feat_shape.shape[3]
+			H_, W_ = feat_shape.shape[1:3]
 			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			# if H_ != H:
 			# 	attn = F.interpolate(attn, size=[H, W], mode='bilinear')
