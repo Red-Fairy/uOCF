@@ -367,7 +367,7 @@ class uocfDualDINOModel(BaseModel):
 		# print(slot_depth, '\n', scale, '\n', fg_slot_nss_position, '\n', cam2world_viewer[:3, 3:],  '\n')
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
 							dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
-							fg_object_size=fg_object_size,
+							fg_object_size=fg_object_size, bg_rotate=self.opt.bg_rotate,
 							)
 		
 		raws = raws.view([N, H, W, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
