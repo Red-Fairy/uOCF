@@ -38,7 +38,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 324 --n_img_each_sce
     --random_init_pos --num_anchors 4 \
     --bg_density_loss --bg_density_in 200 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --exp_id '1121/4obj-scratch-d0-m0.5' \
+    --exp_id '1121/4obj-scratch-d0-m0.5-r2' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
 
 # can try the following to list out which GPU you have access to

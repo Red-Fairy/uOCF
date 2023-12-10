@@ -1,3 +1,4 @@
+import copy
 import os
 
 import torchvision.transforms.functional as TF
@@ -23,7 +24,8 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--no_shuffle', action='store_true')
         parser.add_argument('--transparent', action='store_true')
         parser.add_argument('--bg_color', type=float, default=-1, help='background color')
-        parser.add_argument('--pre_feats', default='', type=str)
+        parser.add_argument('--camera_normalize', action='store_true', help='normalize the camera pose to (0, dist, 0)')
+        parser.add_argument('--diff_intrinsic', action='store_true', help='different intrinsics for each view')
         return parser
 
     def __init__(self, opt):
@@ -43,11 +45,12 @@ class MultiscenesDataset(BaseDataset):
         bg_in_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_providing_bg.png')))
         changed_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_changed.png')))
         bg_in_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_providing_bg.png')))
+        depth_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_depth.png')))
         changed_filenames_set, bg_in_filenames_set = set(changed_filenames), set(bg_in_filenames)
         bg_mask_filenames_set, bg_in_mask_filenames_set = set(bg_mask_filenames), set(bg_in_mask_filenames)
         image_filenames_set, mask_filenames_set = set(image_filenames), set(mask_filenames)
         fg_mask_filenames_set, moved_filenames_set = set(fg_mask_filenames), set(moved_filenames)
-        filenames_set = image_filenames_set - mask_filenames_set - fg_mask_filenames_set - moved_filenames_set - changed_filenames_set - bg_in_filenames_set - bg_mask_filenames_set - bg_in_mask_filenames_set
+        filenames_set = image_filenames_set - mask_filenames_set - fg_mask_filenames_set - moved_filenames_set - changed_filenames_set - bg_in_filenames_set - bg_mask_filenames_set - bg_in_mask_filenames_set - set(depth_filenames)
         filenames = sorted(list(filenames_set))
         self.scenes = []
         for i in range(opt.start_scene_idx, opt.start_scene_idx + self.n_scenes):
@@ -116,38 +119,45 @@ class MultiscenesDataset(BaseDataset):
             else:
                 azi_rot = np.loadtxt(azi_path)
             azi_rot = torch.tensor(azi_rot, dtype=torch.float32)
-            if self.opt.input_rotate:
-                if rd == 0: # calculate rotation angle around the z (up) axis, so that the camera is on the x-z plane
-                    # sin(alpha) * x + cos(alpha) * y = 0
-                    alpha = np.arctan2(-pose[1, 3], pose[0, 3])
-                    rotation_z = np.array([[np.cos(alpha), -np.sin(alpha), 0, 0],
-                                             [np.sin(alpha), np.cos(alpha), 0, 0],
-                                             [0, 0, 1, 0],
-                                             [0, 0, 0, 1]])
-                    input_rot = torch.tensor(rotation_z, dtype=torch.float32)
-                pose = torch.matmul(input_rot, pose)
+            if self.opt.camera_normalize:
+                if rd == 0: # rotate the camera to (0, dist, 0), z points to the center of the scene, y down, x right (opencv/COLMAP convention)
+                    cam2world = torch.zeros((4, 4))
+                    cam2world[0, 0] = -1
+                    cam2world[1, 2] = -1
+                    cam2world[2, 1] = -1
+                    cam2world[3, 3] = 1
+                    cam2world[1, 3] = torch.norm(pose[:3, 3])
+                    input_rot = torch.matmul(cam2world, torch.inverse(pose))
+                    pose = copy.deepcopy(cam2world)
+                else:
+                    pose = torch.matmul(input_rot, pose)
             
             # support two types of depth maps
-            depth_path = path.replace('.png', '_depth.pfm')
-            if os.path.isfile(depth_path):
-                depth = Image.open(depth_path)
-                depth = cv2.resize(depth, (self.opt.load_size, self.opt.load_size), interpolation=Image.BILINEAR).astype(np.float32)
-                depth = torch.from_numpy(depth)  # HxW
-                depth = depth.unsqueeze(0)  # 1xHxW
+            if (self.opt.isTrain and (self.opt.depth_supervision or self.opt.scaled_depth_map)) \
+                        or (not self.opt.isTrain and self.opt.vis_disparity):
+                depth_path_pfm = path.replace('.png', '_depth.pfm')
+                depth_path_png = path.replace('.png', '_depth.png')
+                if os.path.isfile(depth_path_pfm):
+                    depth = cv2.imread(depth_path_pfm, -1)
+                    depth = cv2.resize(depth, (self.opt.load_size, self.opt.load_size), interpolation=Image.BILINEAR).astype(np.float32)
+                    depth = torch.from_numpy(depth).unsqueeze(0)  # 1xHxW
+                elif os.path.isfile(depth_path_png):
+                    depth = Image.open(depth_path_png)
+                    depth.resize((self.opt.load_size, self.opt.load_size), Image.BILINEAR)
+                    depth = np.array(depth).astype(np.float32)
+                    depth = torch.from_numpy(depth).unsqueeze(0)  # 1xHxW
+                else:
+                    ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
-                
-            depth_path = path.replace('.png', '_depth.png')
-            if os.path.isfile(depth_path):
-                depth = Image.open(depth_path)
-                depth = np.array(depth)
-                ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
-
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
+
             if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.opt.encoder_type != 'CNN':
                 normalize = False if self.opt.encoder_type == 'SD' else True
                 ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
-            if rd == 0 and os.path.isfile(path.replace('.png', '_intrinsics.txt')):
+            if os.path.isfile(path.replace('.png', '_intrinsics.txt')):
+                if not self.opt.diff_intrinsic and rd > 0:
+                    continue
                 intrinsics_path = path.replace('.png', '_intrinsics.txt')
                 intrinsics = np.loadtxt(intrinsics_path)
                 intrinsics = torch.tensor(intrinsics, dtype=torch.float32)

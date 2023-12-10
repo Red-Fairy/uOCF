@@ -40,7 +40,7 @@ class uocfDualTransEvalModel(BaseModel):
 		parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
 		parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
 		parser.add_argument('--obj_scale', type=float, default=4.5, help='slot-centric locality constraint')
-		parser.add_argument('--world_obj_scale', type=float, default=4.5, help='locality constraint in world space')
+		# parser.add_argument('--world_obj_scale', type=float, default=4.5, help='locality constraint in world space')
 		parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
 		parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
 		parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
@@ -108,8 +108,8 @@ class uocfDualTransEvalModel(BaseModel):
 					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer, locality=False,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=False)
+													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
+													predict_depth_scale = (self.opt.scaled_depth and self.opt.depth_scale is None))
 
 		self.netEncoder = self.netEncoder.to(self.device)
 		self.netSlotAttention = self.netSlotAttention.to(self.device)
@@ -214,8 +214,6 @@ class uocfDualTransEvalModel(BaseModel):
 		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
-
 		K = z_slots.shape[0]
 
 		cam2world = self.cam2world
@@ -230,12 +228,28 @@ class uocfDualTransEvalModel(BaseModel):
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
 		if self.opt.vis_disparity:
 			disparity_rec = torch.zeros([N, 1, H, W], device=dev)
+
+		if not self.opt.scaled_depth:
+			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
+		else: 
+			if self.opt.depth_scale is None:
+				# retrerive the depth value for each slot position from the depth map self.disparity[0].squeeze() (H*W), use bilinear interpolation
+				depth_map = self.disparity[0:1] # 1*1*H*W
+				sampled_depth = F.grid_sample(depth_map, fg_slot_position.unsqueeze(0).unsqueeze(2), mode='bilinear', align_corners=False) # 1*1*K*1
+				sampled_depth = sampled_depth.squeeze(0).squeeze(0) # K*1
+				fg_slot_nss_position, scale = self.netDecoder.cam2nssDepth(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
+																nss_scale=self.opt.nss_scale, depth=sampled_depth)  # Kx3
+			else:
+				depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale
+				fg_slot_nss_position, _ = self.netDecoder.cam2nssDepth(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
+																nss_scale=self.opt.nss_scale, depth=depth)
+
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
 
 			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, z_slots, 
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder.forward(mean_, var_, z_slots, 
 								 nss2cam0, fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 			
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4

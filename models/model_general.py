@@ -10,6 +10,7 @@ from torchvision.models import vgg16
 from torch import autograd
 
 from .utils import PositionalEncoding, sin_emb, build_grid, debug, integrated_pos_enc, integrated_pos_enc_360
+from models.projection import pixel2world
 
 class Encoder(nn.Module):
 	def __init__(self, input_nc=3, z_dim=64, bottom=False, double_bottom=False, pos_emb=False):
@@ -144,7 +145,7 @@ class singleRouteEncoder(nn.Module):
 		return feat
 
 class MultiDINOStackEncoder(nn.Module):
-	def __init__(self, n_feat_layer=1, shape_dim=64, color_dim=64, input_dim=256, hidden_dim=256):
+	def __init__(self, n_feat_layer=1, shape_dim=64, color_dim=64, input_dim=256, hidden_dim=64, DINO_dim=768, global_bg_feature=False):
 		super().__init__()
 
 		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
@@ -155,8 +156,10 @@ class MultiDINOStackEncoder(nn.Module):
 		self.stack_encoder = nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
 											nn.ReLU(True),
 											nn.Conv2d(hidden_dim, color_dim, 3, stride=1, padding=1))
+		if global_bg_feature:
+			self.bg_feat = nn.Linear(DINO_dim, color_dim)
 
-	def forward(self, input_feats_shape, input_feat_color):
+	def forward(self, input_feats_shape, input_feat_color, bg_feat=None):
 		'''
 		input:
 			input_feats_shape: list of (B, input_dim, 64, 64)
@@ -168,14 +171,12 @@ class MultiDINOStackEncoder(nn.Module):
 		feat_shape = torch.sum(torch.stack(feats_shape), dim=0) / len(feats_shape)
 		feat_shape = self.combine(feat_shape)
 
-		# print(len(input_feats_shape))
-		# for i in range(len(input_feats_shape)):
-		# 	print(input_feats_shape[i].shape)
-		# print(input_feat_color.shape)
-
 		feat_color = self.stack_encoder(input_feat_color)
 
-		return feat_shape, feat_color
+		if bg_feat is not None:
+			return feat_shape, feat_color, self.bg_feat(bg_feat)
+		else:
+			return feat_shape, feat_color, None
 
 class MultiDINOEncoder(nn.Module):
 	def __init__(self, n_feat_layer=1, shape_dim=64, input_dim=256, hidden_dim=256):
@@ -1019,7 +1020,7 @@ class DecoderBox(nn.Module):
 	
 class DecoderIPE(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 
-		  			locality_ratio=4/7, fixed_locality=False, use_viewdirs=False):
+		  			locality_ratio=4/7, fixed_locality=False, predict_depth_scale=False):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
@@ -1065,8 +1066,11 @@ class DecoderIPE(nn.Module):
 
 		self.pos_enc = PositionalEncoding(max_deg=n_freq)
 
+		if predict_depth_scale:
+			self.scale = nn.Parameter(torch.tensor(1.0))
+
 	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
-					keep_ratio=0.0, mask_ratio=0.0, fg_object_size=None, rotate_z=False):
+					keep_ratio=0.0, mask_ratio=0.0, fg_object_size=None, rel_pos=True):
 		'''
 		Process the query points and the slot features
 		1. If self.fg_object_size is not None, do:
@@ -1094,22 +1098,26 @@ class DecoderIPE(nn.Module):
 		'''
 		P, D = mean.shape[0], mean.shape[1]
 		K = z_fg.shape[0] + 1
+
+		# debug(mean.reshape(4,-1,D,3).flatten(1,2), cam2world=fg_transform, save_name='before_transform')
+		# exit()
 		
 		sampling_mean_fg = mean[None, ...].expand(K-1, -1, -1, -1).flatten(1, 2) # (K-1)*(P*D)*3
 
-		if rotate_z:
+		# if rotate_z:
 			# the rotation part of fg_transform (world to cam) can be decomposed into a rotation around z axis and a rotation around x axis (because y is up)
 			# here, when back to cam coordinate, we only rotate around z axis
-			rotation_z = torch.zeros(1, 3, 3, device=fg_transform.device)
-			rotation_z[:, 0, 0] = fg_transform[:, 0, 0]
-			rotation_z[:, 0, 1] = fg_transform[:, 0, 1]
-			rotation_z[:, 1, 0] = -fg_transform[:, 0, 1]
-			rotation_z[:, 1, 1] = fg_transform[:, 0, 0]
-			rotation_z[:, 2, 2] = 1
-			sampling_mean_fg = torch.matmul(rotation_z[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*3
-			fg_slot_position = torch.matmul(rotation_z.squeeze(0), fg_slot_position.t()).t() # (K-1)x3
+			# rotation_z = torch.zeros(1, 3, 3, device=fg_transform.device)
+			# rotation_z[:, 0, 0] = fg_transform[:, 0, 0]
+			# rotation_z[:, 0, 1] = fg_transform[:, 0, 1]
+			# rotation_z[:, 1, 0] = -fg_transform[:, 0, 1]
+			# rotation_z[:, 1, 1] = fg_transform[:, 0, 0]
+			# rotation_z[:, 2, 2] = 1
+			# sampling_mean_fg = torch.matmul(rotation_z[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*3
+			# fg_slot_position = torch.matmul(rotation_z.squeeze(0), fg_slot_position.t()).t() # (K-1)x3
 
-		else: # transform to the camera coordinate
+		# else: # transform to the camera coordinate
+		if rel_pos:
 			sampling_mean_fg = torch.cat([sampling_mean_fg, torch.ones_like(sampling_mean_fg[:, :, 0:1])], dim=-1)  # (K-1)*(P*D)*4
 			sampling_mean_fg = torch.matmul(fg_transform[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*4
 			sampling_mean_fg = sampling_mean_fg[:, :, :3]  # (K-1)*(P*D)*3
@@ -1118,9 +1126,9 @@ class DecoderIPE(nn.Module):
 			fg_slot_position = torch.matmul(fg_transform.squeeze(0), fg_slot_position.t()).t() # (K-1)x4
 			fg_slot_position = fg_slot_position[:, :3]  # (K-1)x3
 
-		sampling_mean_fg = sampling_mean_fg - fg_slot_position[:, None, :]  # (K-1)x(P*D)x3
-		sampling_mean_fg = sampling_mean_fg.view([K-1, P, D, 3]).flatten(0, 1)  # ((K-1)xP)xDx3
+			sampling_mean_fg = sampling_mean_fg - fg_slot_position[:, None, :]  # (K-1)x(P*D)x3
 
+		sampling_mean_fg = sampling_mean_fg.view([K-1, P, D, 3]).flatten(0, 1)  # ((K-1)xP)xDx3
 		sampling_var_fg = var[None, ...].expand(K-1, -1, -1, -1).flatten(0, 1)  # ((K-1)xP)xDx3
 
 		sampling_mean_bg, sampling_var_bg = mean, var
@@ -1171,7 +1179,7 @@ class DecoderIPE(nn.Module):
 		return input_fg, input_bg, idx
 
 	def forward(self, mean, var, z_slots, fg_transform, fg_slot_position, dens_noise=0., 
-		 			fg_object_size=None, keep_ratio=0.0, mask_ratio=0.0, view_dirs=None, rotate_z=False):
+		 			fg_object_size=None, keep_ratio=0.0, mask_ratio=0.0, rel_pos=True):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -1181,14 +1189,16 @@ class DecoderIPE(nn.Module):
 			view_dirs: P*3, P = (N*H*W)
 			z_slots: KxC, K: #slots, C: #feat_dim
 			z_slots_texture: KxC', K: #slots, C: #texture_dim
-			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
+			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0 in nss space,
+							otherwise it is 1x3x3 azimuth rotation of nss2cam0 (not used)
 			fg_slot_position: (K-1)x3 in nss space
 			dens_noise: Noise added to density
+
+			if fg_slot_cam_position is not None, we should first project it world coordinates
+			depth: K*1, depth of the slots
 		"""
 		K, C = z_slots.shape
 		P, D = mean.shape[0], mean.shape[1]
-
-		# debug(sampling_coor_fg, fg_slot_position, save_name='before_transform')
 
 		if self.locality:
 			outsider_idx = torch.any(mean.flatten(0,1).abs() > self.locality_ratio, dim=-1).unsqueeze(0).expand(K-1, -1) # (K-1)x(P*D)
@@ -1196,10 +1206,8 @@ class DecoderIPE(nn.Module):
 		z_bg = z_slots[0:1, :]  # 1xC
 		z_fg = z_slots[1:, :]  # (K-1)xC
 
-		# debug(sampling_coor_fg, save_name='after_transform')
-
 		input_fg, input_bg, idx = self.processQueries(mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
-						keep_ratio=keep_ratio, mask_ratio=mask_ratio, fg_object_size=fg_object_size, rotate_z=rotate_z)
+						keep_ratio=keep_ratio, mask_ratio=mask_ratio, fg_object_size=fg_object_size, rel_pos=rel_pos)
 		
 		tmp = self.b_before(input_bg)
 		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P*D, self.out_ch])  # (P*D)x4 -> 1x(P*D)x4
@@ -1234,6 +1242,16 @@ class DecoderIPE(nn.Module):
 		raws = masked_raws.sum(dim=0)
 
 		return raws, masked_raws, unmasked_raws, masks
+
+	def cam2nssDepth(self, fg_slot_cam_position, cam2world, intrinsics, nss_scale, depth):
+		'''
+		Convert the depth of the slots from camera coordinate to nss coordinate, using the predicted scale of depth
+		fg_slot_cam_position: (K-1)x3
+		cam2world: 4x4
+		'''
+		scale = F.relu(self.scale) if hasattr(self, 'scale') else 1.
+		fg_slot_position = pixel2world(fg_slot_cam_position, cam2world, intrinsics, nss_scale=nss_scale, depth=depth*scale)  # (K-1)x3
+		return fg_slot_position, scale
 
 class DecoderIPEVD(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 

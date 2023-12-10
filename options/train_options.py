@@ -47,11 +47,14 @@ class TrainOptions(BaseOptions):
 		parser.add_argument('--diff_fg_init', action='store_true', help='different fg init')
 		parser.add_argument('--diff_fg_bg_lr', action='store_true', help='different fg bg lr')
 
+		# one object to multiple objects
 		parser.add_argument('--one2four', action='store_true', help='one2four')
 
 		parser.add_argument('--stratified', action='store_true', help='stratified sampling')
 
 		parser.add_argument('--large_decoder_lr', action='store_true', help='large decoder lr')
+
+		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
 
 		self.isTrain = True
 		return parser

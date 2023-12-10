@@ -1,5 +1,5 @@
 from itertools import chain
-
+import numpy as np
 import torch
 from torch import nn, optim
 import torch.nn.functional as F
@@ -76,6 +76,7 @@ class uorfNoGanModel(BaseModel):
 		self.vgg_norm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
+		self.intrinsics = np.loadtxt(os.path.join(opt.dataroot, 'camera_intrinsics_ratio.txt')) if opt.load_intrinsics else None
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
 									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 		frustum_size_fine = [self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp]
@@ -99,8 +100,6 @@ class uorfNoGanModel(BaseModel):
 			self.optimizers = [self.optimizer]
 
 		self.L2_loss = nn.MSELoss()
-
-		self.intrinsics = None
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers

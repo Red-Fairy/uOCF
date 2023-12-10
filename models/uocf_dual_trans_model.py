@@ -40,7 +40,7 @@ class uocfDualTransModel(BaseModel):
 		parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
 		parser.add_argument('--supervision_size', type=int, default=64)
 		parser.add_argument('--obj_scale', type=float, default=4.5, help='slot-centric locality constraint')
-		parser.add_argument('--world_obj_scale', type=float, default=4.5, help='locality constraint in world space')
+		# parser.add_argument('--world_obj_scale', type=float, default=4.5, help='locality constraint in world space')
 		parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')
 		parser.add_argument('--n_samp', type=int, default=64, help='num of samp per ray')
 		parser.add_argument('--n_layer', type=int, default=3, help='num of layers bef/aft skip link in decoder')
@@ -80,7 +80,6 @@ class uocfDualTransModel(BaseModel):
 		parser.add_argument('--bg_penalize_plane', type=int, default=9.5, help='penalize the background slot if it is too close to the plane')
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
-		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
 		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
 		parser.add_argument('--weight_depth_continuity', type=float, default=0.005, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=1000, help='when to start the depth supervision')
@@ -147,8 +146,8 @@ class uocfDualTransModel(BaseModel):
 					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													)
+													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
+													predict_depth_scale = False)
 			
 		if not (opt.load_pretrain or opt.continue_train):
 			self.netEncoder = networks.init_net(self.netEncoder, init_type='normal', gpu_ids=self.gpu_ids)
@@ -250,7 +249,7 @@ class uocfDualTransModel(BaseModel):
 		if 'intrinsics' in input:
 			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 			# print('Overwrite the default intrinsics with the provided ones.')
-		if 'depth' in input and self.opt.depth_supervision:
+		if input['depth'] is not None:
 			self.disparity = input['depth'].to(self.device)
 
 	def encode(self, idx=0):
@@ -303,9 +302,7 @@ class uocfDualTransModel(BaseModel):
 		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
 							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
-
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
-		
+			
 		K = attn.shape[0]
 			
 		cam2world = self.cam2world
@@ -349,10 +346,27 @@ class uocfDualTransModel(BaseModel):
 		# local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp if epoch < self.opt.dense_sample_epoch else self.opt.n_dense_samp
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
+
+		if not (self.opt.scaled_depth or self.opt.scaled_depth_map):
+			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
+		else: 
+			if self.opt.scaled_depth_map:
+				# retrerive the depth value for each slot position from the depth map self.disparity[0].squeeze() (H*W), use bilinear interpolation
+				depth_map = self.disparity[0:1] # 1*1*H*W
+				slot_depth = F.grid_sample(depth_map, fg_slot_position.unsqueeze(0).unsqueeze(2), mode='bilinear', align_corners=False) # 1*1*K*1
+				slot_depth = slot_depth.squeeze(0).squeeze(0) # K*1
+				# fg_slot_nss_position, scale = self.netDecoder.cam2nssDepth(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
+				# 												nss_scale=self.opt.nss_scale, depth=slot_depth) 
+			else:
+				slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale
+			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
+													nss_scale=self.opt.nss_scale, depth=slot_depth) # Kx3
+
+		# print(slot_depth, '\n', scale, '\n', fg_slot_nss_position, '\n', cam2world_viewer[:3, 3:],  '\n')
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
-								dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
-								rotate_z = self.opt.decoder_rotate_z,
-								fg_object_size=fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+							dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
+							fg_object_size=fg_object_size,
+							)
 		
 		raws = raws.view([N, H, W, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 
@@ -425,13 +439,26 @@ class uocfDualTransModel(BaseModel):
 			self.loss_sfs = self.opt.weight_sfs * self.sfs_loss(z_slots[1:, :self.opt.shape_dim], feat_shape.flatten(1, 2).squeeze(0))
 
 		if self.opt.position_loss and epoch >= self.opt.position_in:
-			# assert self.opt.num_slots == 2 # only support one foreground object
 			# infer the position from the second view
 			feat_shape_, feat_color_ = self.encode(1)
 			_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None,
 							dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
+
 			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
-			fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
+			if not (self.opt.scaled_depth or self.opt.scaled_depth_map):
+				fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
+			else:
+				if self.opt.depth_scale_map:
+					# retrerive the depth value for each slot position from the depth map self.disparity[1].squeeze() (H*W), use bilinear interpolation
+					depth_map = self.disparity[1:2]
+					slot_depth = F.grid_sample(depth_map, fg_slot_position_.unsqueeze(0).unsqueeze(2), mode='bilinear', align_corners=False) # 1*1*K*1
+					slot_depth = slot_depth.squeeze(0).squeeze(0) * self.opt.depth_scale # K*1
+				else:
+					slot_depth = torch.ones_like(fg_slot_position_[:, 0:1]).to(self.x.device) * self.opt.depth_scale
+				fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics,
+															nss_scale=self.opt.nss_scale, depth=slot_depth)
+			# fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale,
+			# 						depth=self.disparity[1].flatten()[fg_slot_position_[:, 0]*H + fg_slot_position_[:, 1]].unsqueeze(1) * scale) # K * 1	
 			# calculate the position loss (L2 loss between the two inferred positions)
 			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_nss_position, fg_slot_nss_position_)
 			# print('position loss: {}'.format(self.loss_position.item()))

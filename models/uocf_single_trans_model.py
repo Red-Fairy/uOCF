@@ -13,7 +13,7 @@ from .projection import Projection, pixel2world
 from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import MultiDINOEncoder, DecoderIPE, DecoderIPEVD
-from .transformer_attn import SlotAttentionTFAnchor
+from .transformer_attn import SlotAttentionTF
 from .utils import *
 import numpy as np
 
@@ -133,15 +133,14 @@ class uocfSingleTransModel(BaseModel):
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttentionTFAnchor(num_slots=opt.num_slots, in_dim=opt.shape_dim, 
+		self.netSlotAttention = SlotAttentionTF(num_slots=opt.num_slots, in_dim=opt.shape_dim, 
 					slot_dim=opt.shape_dim, color_dim=0, momentum=opt.attn_momentum, pos_init=opt.pos_init,
-					num_anchors = opt.num_anchors, dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
+					dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
 					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
 							  
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
-													locality_ratio=opt.world_obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													use_viewdirs=False,
-													)
+													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
+													predict_depth_scale = (self.opt.scaled_depth and self.opt.depth_scale is None))
 			
 		if not (opt.load_pretrain or opt.continue_train):
 			self.netEncoder = networks.init_net(self.netEncoder, init_type='normal', gpu_ids=self.gpu_ids)
@@ -243,7 +242,7 @@ class uocfSingleTransModel(BaseModel):
 		if 'intrinsics' in input:
 			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 			# print('Overwrite the default intrinsics with the provided ones.')
-		if 'depth' in input and self.opt.depth_supervision:
+		if input['depth'] is not None:
 			self.disparity = input['depth'].to(self.device)
 
 	def encode(self, idx=0):
@@ -290,12 +289,9 @@ class uocfSingleTransModel(BaseModel):
 	
 		# Slot Attention
 		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=None, 
-							dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
-		
+							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
-
-		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
-		
+			
 		K = attn.shape[0]
 			
 		cam2world = self.cam2world
@@ -339,10 +335,27 @@ class uocfSingleTransModel(BaseModel):
 		# local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
 		W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp if epoch < self.opt.dense_sample_epoch else self.opt.n_dense_samp
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
+
+		if not self.opt.scaled_depth:
+			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
+
+		else: 
+			if self.opt.depth_scale is None:
+				# retrerive the depth value for each slot position from the depth map self.disparity[0].squeeze() (H*W), use bilinear interpolation
+				depth_map = self.disparity[0:1] # 1*1*H*W
+				sampled_depth = F.grid_sample(depth_map, fg_slot_position.unsqueeze(0).unsqueeze(2), mode='bilinear', align_corners=False) # 1*1*K*1
+				sampled_depth = sampled_depth.squeeze(0).squeeze(0) # K*1
+				fg_slot_nss_position, scale = self.netDecoder.cam2nssDepth(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
+																nss_scale=self.opt.nss_scale, depth=sampled_depth)  # Kx3
+			else:
+				depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale
+				fg_slot_nss_position, scale = self.netDecoder.cam2nssDepth(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
+																nss_scale=self.opt.nss_scale, depth=depth)
+
 		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
-								dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
-								view_dirs = ray_dir if (self.opt.use_viewdirs and not self.opt.dummy_viewdirs) else None,
-								fg_object_size=fg_object_size)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+							dens_noise=dens_noise, keep_ratio=self.opt.keep_ratio, mask_ratio=mask_ratio,
+							fg_object_size=fg_object_size,
+							)
 		
 		raws = raws.view([N, H, W, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 

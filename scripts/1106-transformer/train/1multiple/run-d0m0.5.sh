@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/ABO-multiple/train-1obj'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/ABO-multiple/train-1obj-4050'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scenes 4000 --n_img_each_scene 2 \
@@ -37,12 +37,8 @@ CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scen
     --coarse_epoch 200 --niter 200 --percept_in 8 --no_locality_epoch 15 --seed 2025 \
     --stratified --fixed_locality --fg_object_size 3 --n_feat_layers 4 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --exp_id '1121-1obj/1obj-d0m0.5' \
-    --continue_train --epoch_count 101 \
+    --exp_id '1121-1obj/1obj-d0m0.5-debug' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
-
-# can try the following to list out which GPU you have access to
-#srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery
 
 # done
 echo "Done"

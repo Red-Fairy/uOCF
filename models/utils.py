@@ -434,13 +434,14 @@ def debug(coordinates, fg_position=None, cam2world=None, save_name='debug'):
     K = coordinates.shape[0]
     colors = cm.rainbow(np.linspace(0, 1, 10))
     fig = plt.figure(figsize=(40, 20))
+    if cam2world is not None:
+        cam2world = cam2world.cpu().numpy()
     for i in range(K):
         ax = plt.subplot(2, 4, i+1, projection='3d')
         # visualize the frustum
         ax.scatter(coordinates[i,:,0], coordinates[i,:,1], coordinates[i,:,2], c=colors[i], marker='o', s=3)
         # visualize the camera origin
         if cam2world is not None:
-            cam2world = cam2world.cpu().numpy()
             ax.scatter(cam2world[0,0,3], cam2world[0,1,3], cam2world[0,2,3], c='r', marker='o', s=20)
         else:
             ax.scatter(0, 0, 0, c='r', marker='o', s=20)

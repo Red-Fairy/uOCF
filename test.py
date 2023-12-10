@@ -44,8 +44,8 @@ if __name__ == '__main__':
         model.test()           # run inference: forward + compute_visuals
 
         # save model.z_slots
-        save_path = os.path.join(model.save_dir, f'{model.opt.testset_name}_{model.opt.epoch}', f'z_slots_{i}.txt')
-        np.savetxt(save_path, model.z_slots[1].detach().cpu().numpy())
+        # save_path = os.path.join(model.save_dir, f'{model.opt.testset_name}_{model.opt.epoch}', f'z_slots_{i}.txt')
+        # np.savetxt(save_path, model.z_slots[1].detach().cpu().numpy())
 
         losses = model.get_current_losses()
         visualizer.print_test_losses(i, losses)
@@ -68,11 +68,11 @@ if __name__ == '__main__':
 
         # f = model.fg_slot_image_position.detach()
 
-        # try:
-        #     write_location(file, model.fg_slot_image_position, i, description='(image position)')
-        #     write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
-        # except:
-        #     pass
+        try:
+            write_location(file, model.fg_slot_image_position, i, description='(image position)')
+            write_location(file, model.fg_slot_nss_position, i, description='(nss position)')
+        except:
+            pass
 
     webpage.save()
     file.close()

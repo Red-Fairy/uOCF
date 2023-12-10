@@ -90,8 +90,13 @@ class BaseOptions():
 		parser.add_argument('--attn_momentum', type=float, default=0.5, help='momentum in slot attention')
 		parser.add_argument('--attn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
 		parser.add_argument('--pos_init', type=str, choices=['random', 'learnable', 'zero'], default='random', help='position initialization')
-		parser.add_argument('--input_rotate', action='store_true', help='rotate input extrinsics, set camera on the positive x-axis')
-		parser.add_argument('--decoder_rotate_z', action='store_true', help='only rotate around the z-axis when rendering foreground objects')
+		parser.add_argument('--global_bg_feature', action='store_true', help='use global background feature')
+		# parser.add_argument('--decoder_rotate_z', action='store_true', help='only rotate around the z-axis when rendering foreground objects')
+
+		# uOCF - predict depth
+		parser.add_argument('--scaled_depth', action='store_true', help='predict depth')
+		parser.add_argument('--scaled_depth_map', action='store_true', help='use depth map for calculating slot positions')
+		parser.add_argument('--depth_scale', type=float, default=4.0, help='depth scale')
 		
 		self.initialized = True
 		return parser
