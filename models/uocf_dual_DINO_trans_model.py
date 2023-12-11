@@ -14,13 +14,13 @@ from torchvision.transforms import Normalize
 # SlotAttention
 from .model_general import MultiDINOStackEncoder
 from .model_general import DecoderIPE
-from .transformer_attn import SlotAttentionTF
+from .transformer_attn import SlotAttentionTransformer
 from .utils import *
 import numpy as np
 
 import torchvision
 
-class uocfDualDINOModel(BaseModel):
+class uocfDualDINOTransModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -133,11 +133,11 @@ class uocfDualDINOModel(BaseModel):
 		else:
 			assert False
 
-		self.netSlotAttention = SlotAttentionTF(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
+		self.netSlotAttention = SlotAttentionTransformer(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, pos_init=opt.pos_init,
-					dropout = opt.attn_dropout, learnable_pos=not opt.no_learnable_pos,
-					feat_dropout_dim=opt.shape_dim, iters=opt.attn_iter)
+					learnable_pos=not opt.no_learnable_pos, iters=opt.attn_iter, 
+					camera_modulation=opt.camera_modulation, camera_dim=16)
 							  
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
@@ -290,16 +290,25 @@ class uocfDualDINOModel(BaseModel):
 
 		# Encoding images
 		feat_shape, feat_color, feat_global = self.encode(0, return_global_feature=self.opt.global_bg_feature)
-		# dropout_shape_rate = (self.opt.feat_dropout_min + 
-		#        (self.opt.feat_dropout_max - self.opt.feat_dropout_min) 
-		# 	   * (epoch - self.opt.feat_dropout_start) 
-		# 	   / (self.opt.niter - self.opt.feat_dropout_start)) \
-		# 		if (epoch >= self.opt.feat_dropout_start and self.opt.feat_dropout) else None
-		# dropout_all_rate = dropout_shape_rate * self.opt.all_dropout_ratio if dropout_shape_rate is not None else None
+
+		# calculate camera cond (R, T, fx, fy, cx, cy) , 1*camera_dim, camera_dim=5, assert camera_normalized
+		if epoch >= self.opt.camera_modulation_in:
+			camExt = torch.cat([cam2world_viewer[:3, :3].flatten(), cam2world_viewer[:3, 3:4].flatten()/self.opt.nss_scale], dim=0)
+			camInt = torch.Tensor([self.intrinsics[0, 0, 0], self.intrinsics[0, 1, 1], self.intrinsics[0, 0, 2], self.intrinsics[0, 1, 2]]).to(dev) \
+				if self.intrinsics is not None else torch.Tensor([350./320., 350./240., 0., 0.]).to(dev)
+			camera_modulation = torch.cat([camExt, camInt], dim=0).unsqueeze(0)
+		else:
+			camera_modulation = None
+		# if epoch >= self.opt.camera_modulation_in:
+		# 	camera_modulation = torch.cat([cam2world_viewer[0, 1:2]/self.opt.nss_scale, self.intrinsics[0, 0, 0], 
+		# 		self.intrinsics[0, 1, 1], self.intrinsics[0, 0, 2], self.intrinsics[0, 1, 2]], dim=0).unsqueeze(0).to(dev) \
+		# 	if self.intrinsics is not None \
+		# 		else torch.Tensor([cam2world_viewer[0, 1:2]/self.opt.nss_scale, 350./320., 350./240., 0., 0.]).unsqueeze(0).to(dev)
+		# else:
+		# 	camera_modulation = None
 	
 		# transformer attention
-		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, 
-							   dropout_shape_rate=None, dropout_all_rate=None)  # 1xKxC, 1xKx2, 1xKxN
+		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, camera_modulation=camera_modulation)  # 1xKxC, 1xKx2, 1xKxN
 		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
 
 		if self.opt.global_bg_feature:

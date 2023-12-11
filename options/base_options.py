@@ -88,10 +88,11 @@ class BaseOptions():
 		parser.add_argument('--n_feat_layers', type=int, default=8, help='number of feature layers')
 		parser.add_argument('--num_anchors', type=int, default=4, help='Number of supported anchors')
 		parser.add_argument('--attn_momentum', type=float, default=0.5, help='momentum in slot attention')
-		parser.add_argument('--attn_dropout', type=float, default=0.1, help='dropout rate in slot attention')
+		parser.add_argument('--attn_dropout', type=float, default=0, help='dropout rate in slot attention')
 		parser.add_argument('--pos_init', type=str, choices=['random', 'learnable', 'zero'], default='random', help='position initialization')
 		parser.add_argument('--global_bg_feature', action='store_true', help='use global background feature')
 		parser.add_argument('--bg_rotate', action='store_true', help='rotate background in decoder')
+		parser.add_argument('--camera_modulation', action='store_true', help='use camera modulation in the slot attention')
 		# parser.add_argument('--decoder_rotate_z', action='store_true', help='only rotate around the z-axis when rendering foreground objects')
 
 		# uOCF - predict depth
