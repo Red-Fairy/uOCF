@@ -35,10 +35,11 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
     --coarse_epoch 50 --niter 100 --percept_in 10 --no_locality_epoch 20 --seed 2027 \
     --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 30 --n_feat_layers 1 \
-    --bg_density_loss --bg_density_in 20 \
-    --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --exp_id '1211-DINOModMLP/4obj-scratch-d0m0.5' \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1211-DINOModMLP/1obj-d0m0.5-rotate-cam-r1' \
+    --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' --one2four  \
     --camera_modulation --bg_rotate \
+    --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
+    --exp_id '1211-DINOModMLP/4obj-load-cam-rotate' \
     --dummy_info '' \
 
 # can try the following to list out which GPU you have access to

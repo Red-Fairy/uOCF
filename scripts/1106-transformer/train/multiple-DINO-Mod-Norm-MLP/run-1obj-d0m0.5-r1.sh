@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -37,6 +37,7 @@ CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scen
     --coarse_epoch 200 --niter 200 --percept_in 10 --no_locality_epoch 20 --seed 2025 \
     --stratified --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
+    --fg_density_loss --bg_density_loss \
     --camera_modulation --camera_normalize --scaled_depth --depth_scale 12.2 --bg_rotate \
     --exp_id '1211-DINONormModMLP/1obj-d0m0.5-r1' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \

@@ -52,7 +52,8 @@ class TrainOptions(BaseOptions):
 		parser.add_argument('--stratified', action='store_true', help='stratified sampling')
 		parser.add_argument('--large_decoder_lr', action='store_true', help='large decoder lr')
 		parser.add_argument('--depth_supervision', action='store_true', help='use depth supervision')
-
+		parser.add_argument('--collapse_prevent', type=int, default=5000, help='collapse prevent iterations')
+		
 		# uOCF - transformer
 		parser.add_argument('--camera_modulation_in', type=int, default=0, help='camera modulation in epoch')
 

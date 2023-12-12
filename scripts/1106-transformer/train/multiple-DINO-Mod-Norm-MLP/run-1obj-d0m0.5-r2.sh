@@ -33,10 +33,11 @@ CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scen
     --attn_decay_steps 100000 \
     --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 2 --attn_iter 6 --shape_dim 32 --color_dim 32 \
+    --num_slots 2 --attn_iter 6 --shape_dim 48 --color_dim 48 \
     --coarse_epoch 200 --niter 200 --percept_in 10 --no_locality_epoch 20 --seed 2023 \
     --stratified --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
+    --fg_density_loss --bg_density_loss \
     --camera_modulation --camera_normalize --scaled_depth --depth_scale 12.2 --bg_rotate \
     --exp_id '1211-DINONormModMLP/1obj-d0m0.5-r2' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \

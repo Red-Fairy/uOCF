@@ -32,12 +32,13 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --model 'uocf_dual_DINO_trans' \
     --attn_decay_steps 100000 --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 5 --attn_iter 6 --shape_dim 32 --color_dim 32 \
+    --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
     --coarse_epoch 50 --niter 100 --percept_in 10 --no_locality_epoch 20 --seed 2027 \
     --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 30 --n_feat_layers 1 \
     --bg_density_loss --bg_density_in 20 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --exp_id '1211-DINOMLP/4obj-scratch-d0m0.5' \
+    --bg_density_loss --fg_density_loss \
+    --exp_id '1211-DINOMLP/4obj-scratch-d0m0.5-basic-debug' \
     --dummy_info '' \
 
 # can try the following to list out which GPU you have access to

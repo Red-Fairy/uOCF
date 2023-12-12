@@ -8,9 +8,10 @@ import torch.nn.functional as F
 from torch.nn import init
 from torchvision.models import vgg16
 from torch import autograd
-from models.model_general import InputPosEmbedding, build_grid
+from models.model_general import InputPosEmbedding
+from .utils import PositionalEncoding, build_grid
 
-class EncoderPosEmbedding(nn.Module): # remove positional embedding on value
+class EncoderPosEmbedding(nn.Module):
 	def __init__(self, dim, slot_dim, hidden_dim=128):
 		super().__init__()
 		self.grid_embed = nn.Linear(4, dim, bias=True)
@@ -21,9 +22,7 @@ class EncoderPosEmbedding(nn.Module): # remove positional embedding on value
 		self.input_to_v_bg = nn.Linear(dim, dim, bias=False)
 
 		self.MLP_fg = nn.Linear(dim, slot_dim, bias=False)
-
 		self.MLP_bg = nn.Linear(dim, slot_dim, bias=False)
-
 		
 	def apply_rel_position_scale(self, grid, position):
 		"""
@@ -38,7 +37,7 @@ class EncoderPosEmbedding(nn.Module): # remove positional embedding on value
 		
 		return grid - position # (b, n, h, w, 2)
 
-	def forward(self, x, h, w, position_latent=None, dropout_shape_dim=48, dropout_shape_rate=None, dropout_all_rate=None):
+	def forward(self, x, h, w, position_latent=None):
 
 		grid = build_grid(h, w, x.device) # (1, h, w, 2)
 		if position_latent is not None:
@@ -50,21 +49,7 @@ class EncoderPosEmbedding(nn.Module): # remove positional embedding on value
 		rel_grid = torch.cat([rel_grid, -rel_grid], dim=-1).flatten(-3, -2) # (b, n_slot-1, h*w, 4)
 		grid_embed = self.grid_embed(rel_grid) # (b, n_slot-1, h*w, d)
 
-		if dropout_shape_rate is not None or dropout_all_rate is not None:
-			x_ = x.clone()
-			if dropout_shape_rate is not None:
-				# randomly dropout the first few dimensions of the feature, i.e., keep only the information from the shallow encoder
-				drop = (torch.rand(1, 1, 1, device=x.device) > dropout_shape_rate).expand(1, 1, dropout_shape_dim)
-				drop = torch.cat([drop, torch.ones(1, 1, x.shape[-1] - dropout_shape_dim, device=x.device)], dim=-1).expand(x.shape[0], x.shape[1], -1)
-				x_ = x_ * drop # zeroing out some dimensions of the feature
-			if dropout_all_rate is not None:
-				# randomly dropout all dimensions of the feature, i.e., keep only the position information
-				drop = torch.rand(1, 1, 1, device=x.device) > dropout_all_rate
-				x_ = x_ * drop # zeroing out all dimensions of the feature
-			k, v = self.input_to_k_fg(x_).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1) # (b, 1, h*w, d)
-		else:
-			k, v = self.input_to_k_fg(x).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1)
-
+		k, v = self.input_to_k_fg(x).unsqueeze(1), self.input_to_v_fg(x).unsqueeze(1)
 		k, v = k + grid_embed, v + grid_embed
 		k, v = self.MLP_fg(k), self.MLP_fg(v)
 
@@ -218,8 +203,7 @@ class SlotAttention(nn.Module):
 					fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
 
 			if self.learnable_pos: # add a bias term
-				fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
-				fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
+				fg_position = fg_position * 0.8 + self.attn_to_pos_bias(attn_weights_fg) * 0.2 # (B,K-1,2)
 
 			if it != self.iters - 1:
 				updates_fg = torch.empty(B, K-1, self.slot_dim, device=k.device) # (B,K-1,C)
@@ -232,7 +216,6 @@ class SlotAttention(nn.Module):
 				updates_bg = updates_bg.unsqueeze(1) # (B,1,C)
 
 				slot_bg = slot_prev_bg + self.dropout(updates_bg)
-
 				slot_fg = slot_prev_fg + self.dropout(updates_fg)
 
 			else:
@@ -373,8 +356,8 @@ class SlotAttentionTF(nn.Module):
 
 			else:
 				if self.learnable_pos: # add a bias term
-					fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
-					fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
+					fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) * 0.1 # (B,K-1,2)
+					# fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
 					
 				if feat_color is not None:
 					# calculate slot color feature
@@ -542,8 +525,8 @@ class SlotAttentionTransformer(nn.Module):
 
 			else:
 				if self.learnable_pos: # add a bias term
-					fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) / 5 # (B,K-1,2)
-					fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
+					fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) * 0.1 # (B,K-1,2)
+					# fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
 					
 				if feat_color is not None:
 					# calculate slot color feature
@@ -563,6 +546,212 @@ class SlotAttentionTransformer(nn.Module):
 		slots = torch.cat([slot_bg, slot_fg], dim=1) # (B,K,C+C')
 				
 		return slots, attn, fg_position
+
+class DecoderIPE(nn.Module):
+	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 
+		  			locality_ratio=4/7, fixed_locality=False, predict_depth_scale=False):
+		"""
+		freq: raised frequency
+		input_dim: pos emb dim + slot dim
+		z_dim: network latent dim
+		n_layers: #layers before/after skip connection.
+		locality: if True, for each obj slot, clamp sigma values to 0 outside obj_scale.
+		locality_ratio: if locality, what value is the boundary to clamp?
+		fixed_locality: if True, compute locality in world space instead of in transformed view space
+		"""
+		super().__init__()
+		super().__init__()
+		self.n_freq = n_freq
+		self.locality = locality
+		self.locality_ratio = locality_ratio
+		self.fixed_locality = fixed_locality
+		assert self.fixed_locality == True
+		self.out_ch = 4
+		self.z_dim = z_dim
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers-1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		self.f_before = nn.Sequential(*before_skip)
+		self.f_after = nn.Sequential(*after_skip)
+		self.f_after_latent = nn.Linear(z_dim, z_dim)
+		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
+		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
+									 nn.ReLU(True),
+									 nn.Linear(z_dim//4, 3))
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
+		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
+		for i in range(n_layers - 1):
+			before_skip.append(nn.Linear(z_dim, z_dim))
+			before_skip.append(nn.ReLU(True))
+			after_skip.append(nn.Linear(z_dim, z_dim))
+			after_skip.append(nn.ReLU(True))
+		after_skip.append(nn.Linear(z_dim, self.out_ch))
+		self.b_before = nn.Sequential(*before_skip)
+		self.b_after = nn.Sequential(*after_skip)
+
+		self.pos_enc = PositionalEncoding(max_deg=n_freq)
+
+		if predict_depth_scale:
+			self.scale = nn.Parameter(torch.tensor(1.0))
+
+	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, fg_object_size=None,
+					rel_pos=True, bg_rotate=False):
+		'''
+		Process the query points and the slot features
+		1. If self.fg_object_size is not None, do:
+			Remove the query point that is too far away from the slot center, 
+			the bouding box is defined as a cube with side length 2 * self.fg_object_size
+			for the points outside the bounding box, keep only keep_ratio of them
+			store the new sampling_coor_fg and the indices of the remaining points
+		2. Do the pos emb by Fourier
+		3. Concatenate the pos emb and the slot features
+		4. If self.fg_object_size is not None, return the new sampling_coor_fg and their indices
+
+		input: 	mean: PxDx3
+				var: PxDx3
+				fg_transform: 1x4x4
+				fg_slot_position: (K-1)x3
+				z_fg: (K-1)xC
+				z_bg: 1xC
+				ssize: supervision size (64)
+				mask_ratio: frequency mask ratio to the pos emb
+				rel_pos: use relative position to fg_slot_position or not
+				bg_rotate: whether to rotate the background points to the camera coordinate
+		return: input_fg: M * (60 + C) (M is the number of query points inside bbox), C is the slot feature dim, and 60 means increased-freq feat dim
+				input_bg: Px(60+C)
+				idx: M (indices of the query points inside bbox)
+		'''
+		P, D = mean.shape[0], mean.shape[1]
+		K = z_fg.shape[0] + 1
+
+		# only keep the points that inside the cube, ((K-1)*P*D)
+		mask_locality = (torch.norm(mean.flatten(0,1), dim=-1) < self.locality_ratio).expand(K-1, -1).flatten(0, 1) if self.locality else torch.ones((K-1)*P*D, device=mean.device).bool()
+		# mask_locality = torch.all(torch.abs(mean.flatten(0,1)) < self.locality_ratio, dim=-1).expand(K-1, -1).flatten(0, 1) if self.locality else torch.ones((K-1)*P*D, device=mean.device).bool()
+		
+		sampling_mean_fg = mean[None, ...].expand(K-1, -1, -1, -1).flatten(1, 2) # (K-1)*(P*D)*3
+
+		if rel_pos:
+			sampling_mean_fg = torch.cat([sampling_mean_fg, torch.ones_like(sampling_mean_fg[:, :, 0:1])], dim=-1)  # (K-1)*(P*D)*4
+			sampling_mean_fg = torch.matmul(fg_transform[None, ...], sampling_mean_fg[..., None]).squeeze(-1)  # (K-1)*(P*D)*4
+			sampling_mean_fg = sampling_mean_fg[:, :, :3]  # (K-1)*(P*D)*3
+			
+			fg_slot_position = torch.cat([fg_slot_position, torch.ones_like(fg_slot_position[:, 0:1])], dim=-1)  # (K-1)x4
+			fg_slot_position = torch.matmul(fg_transform.squeeze(0), fg_slot_position.t()).t() # (K-1)x4
+			fg_slot_position = fg_slot_position[:, :3]  # (K-1)x3
+
+			sampling_mean_fg = sampling_mean_fg - fg_slot_position[:, None, :]  # (K-1)x(P*D)x3
+
+		sampling_mean_fg = sampling_mean_fg.view([K-1, P, D, 3]).flatten(0, 1)  # ((K-1)xP)xDx3
+		sampling_var_fg = var[None, ...].expand(K-1, -1, -1, -1).flatten(0, 1)  # ((K-1)xP)xDx3
+
+		sampling_mean_bg, sampling_var_bg = mean, var
+
+		if bg_rotate:
+			sampling_mean_bg = torch.matmul(fg_transform[:, :3, :3], sampling_mean_bg[..., None]).squeeze(-1)  # PxDx3
+
+		# 1. Remove the query points too far away from the slot center
+		if fg_object_size is not None:
+			sampling_mean_fg_ = sampling_mean_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xPxD)x3
+			mask = torch.all(torch.abs(sampling_mean_fg_) < fg_object_size, dim=-1)  # ((K-1)xPxD) --> M
+			mask = mask & mask_locality
+			if mask.sum() <= 1:
+				mask[:2] = True # M == 0 / 1, keep at least two points to avoid error
+			idx = mask.nonzero().squeeze()  # Indices of valid points
+		else:
+			idx = mask_locality.nonzero().squeeze()
+			# print('mask ratio: ', 1 - mask_locality.sum().item() / (K-1) / P / D)
+
+		# 2. Compute Fourier position embeddings
+		pos_emb_fg = self.pos_enc(sampling_mean_fg, sampling_var_fg)[0]  # ((K-1)xP)xDx(6*n_freq+3)
+		pos_emb_bg = self.pos_enc(sampling_mean_bg, sampling_var_bg)[0]  # PxDx(6*n_freq+3)
+
+		pos_emb_fg, pos_emb_bg = pos_emb_fg.flatten(0, 1)[idx], pos_emb_bg.flatten(0, 1)  # Mx(6*n_freq+3), (P*D)x(6*n_freq+3)
+
+		# 3. Concatenate the embeddings with z_fg and z_bg features
+		# Assuming z_fg and z_bg are repeated for each query point
+		# Also assuming K is the first dimension of z_fg and we need to repeat it for each query point
+		
+		z_fg = z_fg[:, None, :].expand(-1, P*D, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xPxD)xC
+		z_fg = z_fg[idx]  # MxC
+
+		input_fg = torch.cat([pos_emb_fg, z_fg], dim=-1)
+		input_bg = torch.cat([pos_emb_bg, z_bg.repeat(P*D, 1)], dim=-1) # (P*D)x(6*n_freq+3+C)
+
+		# 4. Return required tensors
+		return input_fg, input_bg, idx
+
+	def forward(self, mean, var, z_slots, fg_transform, fg_slot_position, dens_noise=0., 
+		 			fg_object_size=None, rel_pos=True, bg_rotate=False):
+		"""
+		1. pos emb by Fourier
+		2. for each slot, decode all points from coord and slot feature
+		input:
+			mean: P*D*3, P = (N*H*W)
+			var: P*D*3, P = (N*H*W)
+			view_dirs: P*3, P = (N*H*W)
+			z_slots: KxC, K: #slots, C: #feat_dim
+			z_slots_texture: KxC', K: #slots, C: #texture_dim
+			fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0 in nss space,
+							otherwise it is 1x3x3 azimuth rotation of nss2cam0 (not used)
+			fg_slot_position: (K-1)x3 in nss space
+			dens_noise: Noise added to density
+
+			if fg_slot_cam_position is not None, we should first project it world coordinates
+			depth: K*1, depth of the slots
+		"""
+		K, C = z_slots.shape
+		P, D = mean.shape[0], mean.shape[1]
+
+		# if self.locality:
+		# 	outsider_idx = torch.any(mean.flatten(0,1).abs() > self.locality_ratio, dim=-1).unsqueeze(0).expand(K-1, -1) # (K-1)x(P*D)
+
+		z_bg = z_slots[0:1, :]  # 1xC
+		z_fg = z_slots[1:, :]  # (K-1)xC
+
+		input_fg, input_bg, idx = self.processQueries(mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
+						fg_object_size=fg_object_size, rel_pos=rel_pos, bg_rotate=bg_rotate)
+		
+		tmp = self.b_before(input_bg)
+		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P*D, self.out_ch])  # (P*D)x4 -> 1x(P*D)x4
+
+		tmp = self.f_before(input_fg)
+		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
+
+		latent_fg = self.f_after_latent(tmp)  # Mx64
+		fg_raw_rgb = self.f_color(latent_fg) # Mx3
+		# put back the removed query points, for indices between idx[i] and idx[i+1], put fg_raw_rgb[i] at idx[i]
+		fg_raw_rgb_full = torch.zeros((K-1)*P*D, 3, device=fg_raw_rgb.device, dtype=fg_raw_rgb.dtype) # ((K-1)xP*D)x3
+		fg_raw_rgb_full[idx] = fg_raw_rgb
+		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P*D, 3])  # ((K-1)xP*D)x3 -> (K-1)x(P*D)x3
+
+		fg_raw_shape = self.f_after_shape(tmp) # Mx1
+		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device, dtype=fg_raw_shape.dtype) # ((K-1)xP*D)x1
+		fg_raw_shape_full[idx] = fg_raw_shape
+		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
+
+		# if self.locality:
+		# 	fg_raw_shape[outsider_idx] *= 0
+		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)x(P*D)x4
+
+		all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # Kx(P*D)x4
+		raw_masks = F.relu(all_raws[:, :, -1:], True)  # Kx(P*D)x1
+		masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # Kx(P*D)x1
+
+		# print("ratio of fg density above 0.01", torch.sum(masks[1:] > 0.01) / idx.shape[0])
+		# print("ratio of bg density above 0.01", torch.sum(masks[:1] > 0.01) / raw_masks[:1].numel())
+
+		raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
+		raw_sigma = raw_masks + dens_noise * torch.randn_like(raw_masks)
+
+		unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # Kx(P*D)x4
+		masked_raws = unmasked_raws * masks
+		raws = masked_raws.sum(dim=0)
+
+		return raws, masked_raws, unmasked_raws, masks, idx
 
 # class SlotAttentionTFAnchor(nn.Module):
 # 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
