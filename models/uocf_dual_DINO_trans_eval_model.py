@@ -17,6 +17,7 @@ import lpips
 from piq import ssim as compute_ssim
 from piq import psnr as compute_psnr
 import numpy as np
+import seaborn as sns
 
 
 class uocfDualDINOTransEvalModel(BaseModel):
@@ -470,8 +471,9 @@ class uocfDualDINOTransEvalModel(BaseModel):
 				# define colors
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW
 				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
-				colors = (torch.tensor([[0, 0, 0], [255, 0, 0], [0, 255, 0], [0, 0, 255],
-										[255, 255, 0]]) / 255 * 2 - 1).to(self.device)  # 5x3
+				# define 8 colors from color palette
+				color_palette = sns.color_palette('bright', self.num_slots)
+				colors = torch.tensor(color_palette).to(self.device)  # Kx3
 				mask_visuals = colors[mask_idx]  # NxHxWx3
 				for i in range(N):
 					setattr(self, 'render_mask{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]))

@@ -156,6 +156,7 @@ class uocfDualDINOOCTModel(BaseModel):
 		self.L2_loss = nn.MSELoss()
 		self.sfs_loss = SlotFeatureSlotLoss()
 		self.pos_loss = PositionSetLoss()
+		self.pseudo_mask_loss = PseudoMaskLoss()
 
 		self.collapse_prevent_iter = opt.collapse_prevent
 
@@ -247,7 +248,9 @@ class uocfDualDINOOCTModel(BaseModel):
 			self.intrinsics = input['intrinsics'].to(self.device) # overwrite the default intrinsics, n_scenes*3*3
 		if input['depth'] is not None:
 			self.disparity = input['depth'].to(self.device)
-
+		if 'pseudo_mask' in input:
+			self.pseudo_mask = input['pseudo_mask'].to(self.device) # N*1*H*W
+			
 	def encode(self, idx=0, return_global_feature=False):
 		"""Encode the input image into a feature map.
 		Parameters:
@@ -321,6 +324,8 @@ class uocfDualDINOOCTModel(BaseModel):
 										frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
+			if self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in:
+				pseudo_mask = F.interpolate(self.pseudo_mask, size=self.opt.supervision_size, mode='bilinear', align_corners=False) 
 			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = F.interpolate(self.disparity, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -342,6 +347,8 @@ class uocfDualDINOOCTModel(BaseModel):
 			mean_, var_ = mean[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...], var[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...]
 			mean, var, z_vals, ray_dir = mean_.flatten(0, 2), var_.flatten(0, 2), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
+			if self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in:
+				pseudo_mask = self.pseudo_mask[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = self.disparity[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -396,8 +403,7 @@ class uocfDualDINOOCTModel(BaseModel):
 			''' add ranking loss, randomly pick a patch of length L, 
 			and a nearby patch of length L (no more than 32 pixels away), forming L**2 pairs. For each pair of pixels,
 			if the first pixel has smaller disparity than the second one on the ground truth, (i.e., disparity_1_gt < disparity_2_gt)
-			then loss = max(0, depth_2_rendered - depth_1_rendered + margin)
-			else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
+			then loss = max(0, depth_2_rendered - depth_1_rendered + margin, else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
 			L, diff_max = 16, 5
 			margin = 1e-4
 
@@ -423,29 +429,22 @@ class uocfDualDINOOCTModel(BaseModel):
 			self.loss_sfs = self.opt.weight_sfs * self.sfs_loss(z_slots[1:, :self.opt.shape_dim], feat_shape.flatten(1, 2).squeeze(0))
 
 		if self.opt.position_loss and epoch >= self.opt.position_in:
-			# infer the position from the second view
-			feat_shape_, feat_color_ = self.encode(1)
-			_, _, fg_slot_position_ = self.netSlotAttention(feat=feat_shape_, feat_color=None,
-							dropout_shape_rate=None, dropout_all_rate=None)  # 1xKx2
-
-			fg_slot_position_ = fg_slot_position_.squeeze(0)  # Kx2
-			if not (self.opt.scaled_depth or self.opt.scaled_depth_map):
-				fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
-			else:
-				if self.opt.depth_scale_map:
-					# retrerive the depth value for each slot position from the depth map self.disparity[1].squeeze() (H*W), use bilinear interpolation
-					depth_map = self.disparity[1:2]
-					slot_depth = F.grid_sample(depth_map, fg_slot_position_.unsqueeze(0).unsqueeze(2), mode='bilinear', align_corners=False) # 1*1*K*1
-					slot_depth = slot_depth.squeeze(0).squeeze(0) * self.opt.depth_scale # K*1
-				else:
-					slot_depth = torch.ones_like(fg_slot_position_[:, 0:1]).to(self.x.device) * self.opt.depth_scale
-				fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics,
-															nss_scale=self.opt.nss_scale, depth=slot_depth)
-			# fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale,
-			# 						depth=self.disparity[1].flatten()[fg_slot_position_[:, 0]*H + fg_slot_position_[:, 1]].unsqueeze(1) * scale) # K * 1	
-			# calculate the position loss (L2 loss between the two inferred positions)
-			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_nss_position, fg_slot_nss_position_)
-			# print('position loss: {}'.format(self.loss_position.item()))
+			assert False # not supported
+		
+		if self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in:
+			mask_slot_maps = torch.zeros(K, N, H, W).to(self.device)
+			# render mask for each slot
+			for k in range(self.num_slots):
+				raws_slot = unmasked_raws[k].flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws_slot, z_vals, ray_dir, render_mask=True, mip=True)
+				# (NxHxW)x3, (NxHxW), _, (NxHxW)
+				mask_slot_maps[k] = mask_map.view(N, H, W)
+				# debug: if mask_map has negative values, then the mask is not correct
+				assert torch.sum(mask_map < 0) == 0
+			# calculate soft mask
+			mask_maps = (mask_slot_maps / torch.sum(mask_slot_maps, dim=0, keepdim=True)).flatten(-2, -1) # K*N*(H*W)
+			pseudo_mask = pseudo_mask.squeeze(1).flatten(1, 2) # N*(H*W)
+			self.loss_pseudo_mask = self.opt.weight_pseudo_mask * self.pseudo_mask_loss(pseudo_mask, mask_maps)
 
 		with torch.no_grad():
 			attn = attn.detach().cpu()  # KxN

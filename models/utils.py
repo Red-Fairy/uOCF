@@ -427,6 +427,34 @@ class PositionSetLoss(nn.Module):
         dist = torch.sqrt(torch.sum((pos1 - pos2)**2, dim=2)) # N*N
         dist = torch.min(dist, dim=1)[0]
         return dist.mean()
+
+class PseudoMaskLoss(nn.Module):
+    '''
+    Calculate the pseudo mask loss
+    Input:
+        pseudo mask of the image (N*L), integer entries, L = H*W, denoted by array B
+        predicted soft mask of the image (K*N*L), float entries, denoted by A
+    Calculation:
+        flatten the pseudo mask and predicted soft mask
+        calculate the similarity between each soft mask entry, obtaining matrix of size N*L*L
+    '''
+    def __init__(self):
+        super(PseudoMaskLoss, self).__init__()
+    
+    def forward(self, pseudo_mask, soft_mask):
+        loss = 0.
+        N, L = pseudo_mask.shape
+        for i in range(N):
+            filter_mask = (pseudo_mask[i] != 0)
+            pseudo_filtered = pseudo_mask[i][filter_mask] # L'
+            soft_filtered = soft_mask[:, i][:, filter_mask] # K*L'
+            unique_pseudo = torch.unique(pseudo_filtered)
+            for j in unique_pseudo:
+                soft_pseudo = soft_filtered[:, pseudo_filtered == j]
+                if soft_pseudo.shape[1] > 1:
+                    loss += torch.sum(1 - torch.matmul(soft_pseudo, soft_pseudo.transpose(0,1))) # K*K
+        loss /= (N * L * L)
+        return loss
     
 def debug(coordinates, fg_position=None, cam2world=None, save_name='debug'):
     coordinates = coordinates.detach().cpu().numpy()

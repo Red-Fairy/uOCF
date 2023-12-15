@@ -208,9 +208,9 @@ class MultiscenesDataset(BaseDataset):
                     obj_idxs_test = torch.stack(obj_idxs_test)  # Kx1xHxW
                     ret['obj_idxs_fg'] = obj_idxs_test  # Kx1xHxW
             
-            # pseudo mask from SAMM
-            pseudo_mask_path = path.replace('.png', '_mask.png').replance('img', 'mask')
-            if os.path.isfile(pseudo_mask_path):
+            # pseudo mask from SAM
+            pseudo_mask_path = path.replace('.png', '_mask.png').replace('img', 'mask')
+            if os.path.isfile(pseudo_mask_path) and self.opt.pseudo_mask_loss:
                 mask = Image.open(pseudo_mask_path).convert('L')
                 mask = self._transform_mask(mask, normalize=False)
                 ret['pseudo_mask'] = mask
@@ -264,6 +264,6 @@ def collate_fn(batch):
     
     if 'pseudo_mask' in flat_batch[0]:
         pseudo_masks = torch.stack([x['pseudo_mask'] for x in flat_batch])
-        ret['pseudo_masks'] = pseudo_masks # Nx1xHxW
+        ret['pseudo_mask'] = pseudo_masks # Nx1xHxW
 
     return ret

@@ -584,6 +584,8 @@ class ProjectionOCT(object):
 
         assert intrinsics is not None
         self.construct_intrinsic(intrinsics)
+        if self.frustum_size is not None: # overwrite frustum_size
+            self.frustum_size = frustum_size
         N = cam2world.shape[0]
         W, H, D = self.frustum_size # D: num_samples
 

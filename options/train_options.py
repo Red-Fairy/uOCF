@@ -56,6 +56,8 @@ class TrainOptions(BaseOptions):
 		
 		# uOCF - transformer
 		parser.add_argument('--pseudo_mask_loss', action='store_true', help='use the pseudo mask loss')
+		parser.add_argument('--weight_pseudo_mask', type=float, default=1.0, help='pseudo mask loss weight')
+		parser.add_argument('--pseudo_mask_in', type=int, default=0, help='pseudo mask in epoch')
 
 		self.isTrain = True
 		return parser
