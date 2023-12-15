@@ -24,6 +24,7 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--no_shuffle', action='store_true')
         parser.add_argument('--transparent', action='store_true')
         parser.add_argument('--bg_color', type=float, default=-1, help='background color')
+        parser.add_argument('--encoder_size', type=int, default=256, help='encoder size')
         parser.add_argument('--camera_normalize', action='store_true', help='normalize the camera pose to (0, dist, 0)')
         parser.add_argument('--diff_intrinsic', action='store_true', help='different intrinsics for each view')
         return parser
@@ -37,25 +38,37 @@ class MultiscenesDataset(BaseDataset):
         BaseDataset.__init__(self, opt)
         self.n_scenes = opt.n_scenes
         self.n_img_each_scene = opt.n_img_each_scene
-        image_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*.png')))  # root/00000_sc000_az00_el00.png
-        mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask.png')))
-        fg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_moving.png')))
-        moved_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_moved.png')))
-        bg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_bg.png')))
-        bg_in_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_providing_bg.png')))
-        changed_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_changed.png')))
-        bg_in_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_providing_bg.png')))
-        depth_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_depth.png')))
-        changed_filenames_set, bg_in_filenames_set = set(changed_filenames), set(bg_in_filenames)
-        bg_mask_filenames_set, bg_in_mask_filenames_set = set(bg_mask_filenames), set(bg_in_mask_filenames)
-        image_filenames_set, mask_filenames_set = set(image_filenames), set(mask_filenames)
-        fg_mask_filenames_set, moved_filenames_set = set(fg_mask_filenames), set(moved_filenames)
-        filenames_set = image_filenames_set - mask_filenames_set - fg_mask_filenames_set - moved_filenames_set - changed_filenames_set - bg_in_filenames_set - bg_mask_filenames_set - bg_in_mask_filenames_set - set(depth_filenames)
-        filenames = sorted(list(filenames_set))
+        # image_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*.png')))  # root/00000_sc000_az00_el00.png
+        # mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask.png')))
+        # fg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_moving.png')))
+        # moved_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_moved.png')))
+        # bg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_bg.png')))
+        # bg_in_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_providing_bg.png')))
+        # changed_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_changed.png')))
+        # bg_in_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_providing_bg.png')))
+        # depth_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_depth.png')))
+        # changed_filenames_set, bg_in_filenames_set = set(changed_filenames), set(bg_in_filenames)
+        # bg_mask_filenames_set, bg_in_mask_filenames_set = set(bg_mask_filenames), set(bg_in_mask_filenames)
+        # image_filenames_set, mask_filenames_set = set(image_filenames), set(mask_filenames)
+        # fg_mask_filenames_set, moved_filenames_set = set(fg_mask_filenames), set(moved_filenames)
+        # filenames_set = image_filenames_set - mask_filenames_set - fg_mask_filenames_set - moved_filenames_set - changed_filenames_set - bg_in_filenames_set - bg_mask_filenames_set - bg_in_mask_filenames_set - set(depth_filenames)
+        # filenames = sorted(list(filenames_set))
+
+        # for i in range(opt.start_scene_idx, opt.start_scene_idx + self.n_scenes):
+        #     scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
+        #     self.scenes.append(scene_filenames)
+
         self.scenes = []
         for i in range(opt.start_scene_idx, opt.start_scene_idx + self.n_scenes):
-            scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
-            self.scenes.append(scene_filenames)
+            self.scenes.append([])
+
+        for filename in sorted(glob.glob(os.path.join(opt.dataroot, '*_sc????_az??.png'))) + sorted(glob.glob(os.path.join(opt.dataroot, '*_sc????_az??_dist?.png'))):
+            scene_idx = int(filename.split('/')[-1].split('_')[1][2:])
+            if scene_idx >= opt.start_scene_idx and scene_idx < opt.start_scene_idx + self.n_scenes:
+                self.scenes[scene_idx-opt.start_scene_idx].append(filename)
+    
+        for i in range(len(self.scenes)):
+            self.scenes[i] = sorted(self.scenes[i])
 
         self.bg_color = opt.bg_color
 
@@ -75,10 +88,11 @@ class MultiscenesDataset(BaseDataset):
             img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         return img
 
-    def _transform_mask(self, img):
+    def _transform_mask(self, img, normalize=True):
         img = TF.resize(img, (self.opt.load_size, self.opt.load_size), Image.NEAREST)
         img = TF.to_tensor(img)
-        img = TF.normalize(img, [0.5] * img.shape[0], [0.5] * img.shape[0])  # [0,1] -> [-1,1]
+        if normalize:
+            img = TF.normalize(img, [0.5] * img.shape[0], [0.5] * img.shape[0])  # [0,1] -> [-1,1]
         return img
 
     def __getitem__(self, index):
@@ -156,8 +170,6 @@ class MultiscenesDataset(BaseDataset):
                 normalize = False if self.opt.encoder_type == 'SD' else True
                 ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
             if os.path.isfile(path.replace('.png', '_intrinsics.txt')):
-                if not self.opt.diff_intrinsic and rd > 0:
-                    continue
                 intrinsics_path = path.replace('.png', '_intrinsics.txt')
                 intrinsics = np.loadtxt(intrinsics_path)
                 intrinsics = torch.tensor(intrinsics, dtype=torch.float32)
@@ -195,6 +207,14 @@ class MultiscenesDataset(BaseDataset):
                 if not self.opt.isTrain:
                     obj_idxs_test = torch.stack(obj_idxs_test)  # Kx1xHxW
                     ret['obj_idxs_fg'] = obj_idxs_test  # Kx1xHxW
+            
+            # pseudo mask from SAMM
+            pseudo_mask_path = path.replace('.png', '_mask.png').replance('img', 'mask')
+            if os.path.isfile(pseudo_mask_path):
+                mask = Image.open(pseudo_mask_path).convert('L')
+                mask = self._transform_mask(mask, normalize=False)
+                ret['pseudo_mask'] = mask
+
             rets.append(ret)
         return rets
 
@@ -223,12 +243,10 @@ def collate_fn(batch):
     }
     if 'img_data_large' in flat_batch[0]:
         ret['img_data_large'] = torch.stack([x['img_data_large'] for x in flat_batch if 'img_data_large' in x]) # 1x3xHxW
-    # if 'img_data_input' in flat_batch[0]:
-    #     ret['img_data_input'] = torch.stack([x['img_data_input'] for x in flat_batch if 'img_data_input' in x])
+
     if 'intrinsics' in flat_batch[0]:
         ret['intrinsics'] = torch.stack([x['intrinsics'] for x in flat_batch if 'intrinsics' in x])
-    # if 'img_feats' in flat_batch[0]:
-    #     ret['img_feats'] = torch.stack([x['img_feats'] for x in flat_batch if 'img_feats' in x])
+
     if 'mask' in flat_batch[0]:
         masks = torch.stack([x['mask'] for x in flat_batch])
         ret['masks'] = masks
@@ -243,4 +261,9 @@ def collate_fn(batch):
             ret['bg_mask'] = bg_mask # Bx1xHxW
         if 'obj_idxs_fg' in flat_batch[0]:
             ret['obj_idxs_fg'] = flat_batch[0]['obj_idxs_fg']
+    
+    if 'pseudo_mask' in flat_batch[0]:
+        pseudo_masks = torch.stack([x['pseudo_mask'] for x in flat_batch])
+        ret['pseudo_masks'] = pseudo_masks # Nx1xHxW
+
     return ret

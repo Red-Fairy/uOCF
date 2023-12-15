@@ -32,15 +32,15 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 3000 --n_img_each_sc
     --model 'uocf_dual_DINO_OCT' --diff_intrinsic \
     --attn_decay_steps 200000 --bottom --lr 0.0006 \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 8 --attn_iter 6 --shape_dim 32 --color_dim 32 --n_feat_layers 1  \
+    --num_slots 8 --attn_iter 6 --shape_dim 48 --color_dim 48 --n_feat_layers 1  \
     --coarse_epoch 100 --niter 200 --percept_in 30 --no_locality_epoch 50 --seed 2023 \
     --stratified --fixed_locality --dense_sample_epoch 60 \
-    --near 1.0 --far 10.0 --nss_scale 2.5 --fg_object_size 0.75 --obj_scale 1.5 \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1207-dualDINO/4obj-load-d0m0.5-d64-cameraNorm' \
+    --near 1.0 --far 10.0 --nss_scale 2.5 --fg_object_size 0.75 --obj_scale 2 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1211-DINONormModMLP/4obj-load' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' --one2four \
-    --scaled_depth --depth_scale 4 --global_bg_feat --camera_normalize \
-    --exp_id '1210/load-d0m0.5-cameraNorm' \
+    --camera_normalize --camera_modulation --bg_rotate --scaled_depth --depth_scale 4 --global_bg_feat  \
+    --exp_id '1212-modNorm/load-d0m0.5-cameraNorm' \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
 
 # can try the following to list out which GPU you have access to

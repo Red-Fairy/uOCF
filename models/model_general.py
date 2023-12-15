@@ -145,17 +145,29 @@ class singleRouteEncoder(nn.Module):
 		return feat
 
 class MultiDINOStackEncoder(nn.Module):
-	def __init__(self, n_feat_layer=1, shape_dim=64, color_dim=64, input_dim=256, hidden_dim=64, DINO_dim=768, global_bg_feature=False):
+	def __init__(self, n_feat_layer=1, shape_dim=64, color_dim=64, input_dim=256, hidden_dim=64, 
+			  	DINO_dim=768, kernel_size=3, mode='sum', add_relu=True, global_bg_feature=False):
 		super().__init__()
 
-		self.shallow_encoders = nn.ModuleList([nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
-											nn.ReLU(True),) for _ in range(n_feat_layer)]
-											)
-		self.combine = nn.Conv2d(hidden_dim, shape_dim, 3, stride=1, padding=1)
+		self.mode = mode
+		if mode == 'sum':
+			self.shallow_encoders = nn.ModuleList([nn.Sequential(
+												nn.Conv2d(input_dim, hidden_dim, kernel_size=kernel_size, stride=1, padding='same'),
+												nn.Identity() if not add_relu else nn.ReLU(True),
+												) for _ in range(n_feat_layer)])
+		elif mode == 'stack':
+			self.shallow_encoders = nn.ModuleList([nn.Sequential(
+											nn.Conv2d(input_dim, hidden_dim // n_feat_layer, kernel_size=kernel_size, stride=1, padding='same'),
+											nn.Identity() if not add_relu else nn.ReLU(True),
+											) for _ in range(n_feat_layer)])
+		else:
+			assert False, 'mode not supported'
+						
+		self.combine = nn.Conv2d(hidden_dim, shape_dim, kernel_size=kernel_size, stride=1, padding='same')
 		
-		self.stack_encoder = nn.Sequential(nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1),
-											nn.ReLU(True),
-											nn.Conv2d(hidden_dim, color_dim, 3, stride=1, padding=1))
+		self.stack_encoder = nn.Sequential(nn.Conv2d(input_dim, hidden_dim, kernel_size=kernel_size, stride=1, padding='same'),
+											nn.Identity() if not add_relu else nn.ReLU(True),
+											nn.Conv2d(hidden_dim, color_dim, kernel_size=kernel_size, stride=1, padding='same'))
 		if global_bg_feature:
 			self.bg_feat = nn.Linear(DINO_dim, color_dim)
 
@@ -168,9 +180,12 @@ class MultiDINOStackEncoder(nn.Module):
 			spatial feature (B, shape_dim, 64, 64)
 		'''
 		feats_shape = [shallow_encoder(input_feat) for shallow_encoder, input_feat in zip(self.shallow_encoders, input_feats_shape)]
-		feat_shape = torch.sum(torch.stack(feats_shape), dim=0) / len(feats_shape)
-		feat_shape = self.combine(feat_shape)
+		if self.mode == 'sum':
+			feat_shape = torch.sum(torch.stack(feats_shape), dim=0) / len(feats_shape)
+		elif self.mode == 'stack':
+			feat_shape = torch.cat(feats_shape, dim=1)
 
+		feat_shape = self.combine(feat_shape)
 		feat_color = self.stack_encoder(input_feat_color)
 
 		if bg_feat is not None:

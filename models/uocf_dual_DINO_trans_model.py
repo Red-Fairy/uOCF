@@ -82,7 +82,6 @@ class uocfDualDINOTransModel(BaseModel):
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
-		parser.add_argument('--weight_depth_continuity', type=float, default=0.005, help='weight of the depth supervision')
 		parser.add_argument('--depth_in', type=int, default=1000, help='when to start the depth supervision')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
@@ -112,6 +111,8 @@ class uocfDualDINOTransModel(BaseModel):
 			self.loss_names += ['fg_density']
 		if self.opt.depth_supervision:
 			self.loss_names	+= ['depth_ranking']
+		if self.opt.pseudo_mask_loss:
+			self.loss_names += ['pseudo_mask']
 		self.set_visual_names()
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		self.perceptual_net = get_perceptual_net().to(self.device)
@@ -128,13 +129,11 @@ class uocfDualDINOTransModel(BaseModel):
 		z_dim = opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
 
-		if opt.encoder_type == 'DINO':
-			self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
-			dino_dim = 768
-			self.netEncoder = MultiDINOStackEncoder(shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim, 
-							n_feat_layer=opt.n_feat_layers, global_bg_feature=opt.global_bg_feature)
-		else:
-			assert False
+		self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
+		dino_dim = 768
+		self.netEncoder = MultiDINOStackEncoder(shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim, 
+						n_feat_layer=opt.n_feat_layers, global_bg_feature=opt.global_bg_feature, 
+						kernel_size=opt.enc_kernel_size, mode=opt.enc_mode, add_relu=opt.enc_add_relu,)
 
 		self.netSlotAttention = SlotAttentionTransformer(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
@@ -241,7 +240,7 @@ class uocfDualDINOTransModel(BaseModel):
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 		if 'intrinsics' in input:
-			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
+			self.intrinsics = input['intrinsics'][0].to(self.device) # overwrite the default intrinsics
 			# print('Overwrite the default intrinsics with the provided ones.')
 		if input['depth'] is not None:
 			self.disparity = input['depth'].to(self.device)
@@ -291,9 +290,9 @@ class uocfDualDINOTransModel(BaseModel):
 		feat_shape, feat_color, feat_global = self.encode(0, return_global_feature=self.opt.global_bg_feature)
 
 		# calculate camera cond (R, T, fx, fy, cx, cy) , 1*camera_dim, camera_dim=5, assert camera_normalized
-		if epoch >= self.opt.camera_modulation_in:
+		if self.opt.camera_modulation:
 			camExt = torch.cat([cam2world_viewer[:3, :3].flatten(), cam2world_viewer[:3, 3:4].flatten()/self.opt.nss_scale], dim=0)
-			camInt = torch.Tensor([self.intrinsics[0, 0, 0], self.intrinsics[0, 1, 1], self.intrinsics[0, 0, 2], self.intrinsics[0, 1, 2]]).to(dev) \
+			camInt = torch.Tensor([self.intrinsics[0, 0], self.intrinsics[1, 1], self.intrinsics[0, 2], self.intrinsics[1, 2]]).to(dev) \
 				if self.intrinsics is not None else torch.Tensor([350./320., 350./240., 0., 0.]).to(dev)
 			camera_modulation = torch.cat([camExt, camInt], dim=0).unsqueeze(0)
 		else:
@@ -373,8 +372,7 @@ class uocfDualDINOTransModel(BaseModel):
 			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
 													nss_scale=self.opt.nss_scale, depth=slot_depth) # Kx3
 
-		# print(slot_depth, '\n', scale, '\n', fg_slot_nss_position, '\n', cam2world_viewer[:3, 3:],  '\n')
-		raws, masked_raws, unmasked_raws, masks, masked_fg_idx = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
+		raws, masked_raws, unmasked_raws, masks = self.netDecoder(mean, var, z_slots, nss2cam0, fg_slot_nss_position, 
 							dens_noise=dens_noise, fg_object_size=fg_object_size, bg_rotate=self.opt.bg_rotate,
 							)
 		

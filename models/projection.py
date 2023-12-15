@@ -28,6 +28,7 @@ def pixel2world(slot_pixel_coord, cam2world, intrinsics=None, nss_scale=7., dept
                                 [0, 0, 1, 0],
                                 [0, 0, 0, 1]]).to(device)
     else:
+        intrinsics = intrinsics.squeeze(0)
         focal_x, focal_y = intrinsics[0, 0], intrinsics[1, 1]
         bias_x, bias_y = intrinsics[0, 2] / 2 + 1 / 2., intrinsics[1, 2] / 2 + 1 / 2. # convert to [0, 1]
         intrinsic = torch.tensor([[focal_x, 0, bias_x, 0],
@@ -90,6 +91,7 @@ class Projection(object):
             bias_x = (self.frustum_size[0] - 1.) / 2.
             bias_y = (self.frustum_size[1] - 1.) / 2.
         else: # intrinsics stores focal_ratio and principal point
+            intrinsics = intrinsics.squeeze(0)
             self.focal_x = intrinsics[0, 0] * self.frustum_size[0]
             self.focal_y = intrinsics[1, 1] * self.frustum_size[1]
             bias_x = ((intrinsics[0, 2] + 1) * self.frustum_size[0] - 1.) / 2.

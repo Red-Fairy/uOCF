@@ -64,7 +64,7 @@ class BaseOptions():
 		# uOCF 
 		parser.add_argument('--not_strict', action='store_true', help='not strict load')
 		parser.add_argument('--preextract', action='store_true', help='preextract features from encoder')
-		parser.add_argument('--encoder_type', type=str, default='SAM', help='SAM, DINO, or SD')
+		parser.add_argument('--encoder_type', type=str, default='DINO', help='SAM, DINO, or SD')
 		parser.add_argument('--random_init_pos', action='store_true', help='randomly initialize foreground position')
 		parser.add_argument('--load_intrinsics', action='store_true', help='load camera intrinsics')
 		parser.add_argument('--color_in_attn', action='store_true', help='use color in attention')
@@ -78,7 +78,6 @@ class BaseOptions():
 		parser.add_argument('--sam_encoder', action='store_true', help='use sam encoder')
 		parser.add_argument('--sam_type', type=str, default='vit_l', help='sam type')
 		parser.add_argument('--sam_path', type=str, default='/viscam/u/redfairy/pretrained_weights/SAM/sam_vit_l_0b3195.pth', help='path to pretrained sam')
-		parser.add_argument('--encoder_size', type=int, default=256, help='size of input to encoder')
 
 		# uOCF - view dependent
 		parser.add_argument('--use_viewdirs', action='store_true', help='use viewdirs in the decoder')
@@ -93,6 +92,9 @@ class BaseOptions():
 		parser.add_argument('--global_bg_feature', action='store_true', help='use global background feature')
 		parser.add_argument('--bg_rotate', action='store_true', help='rotate background in decoder')
 		parser.add_argument('--camera_modulation', action='store_true', help='use camera modulation in the slot attention')
+		parser.add_argument('--enc_kernel_size', type=int, default=3, help='encoder kernel size')
+		parser.add_argument('--enc_mode', type=str, choices=['sum', 'stack'], default='sum', help='encoder mode for MultiDINOStackEncoder')
+		parser.add_argument('--enc_add_relu', action='store_false', help='add relu after encoder')
 		# parser.add_argument('--decoder_rotate_z', action='store_true', help='only rotate around the z-axis when rendering foreground objects')
 
 		# uOCF - predict depth

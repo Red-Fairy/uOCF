@@ -29,18 +29,15 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 50 --n_img
     --checkpoints_dir 'checkpoints' --name '' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
-    --model 'uocf_dual_trans_eval' \
-    --num_slots 5 --attn_iter 6 \
-    --shape_dim 72 --color_dim 24 \
-    --bottom \
+    --model 'uocf_dual_DINO_trans_eval' --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --world_obj_scale 4.5 --obj_scale 4.5 --near_plane 6 --far_plane 20 --n_feat_layers 4 \
-    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1122-2-4obj/load-d0m0.5-4050' \
-    --fixed_locality --recon_only --no_shuffle --fg_object_size 3 \
+    --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
+    --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
+    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1211-DINONormModMLP/4obj-load' \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --nss_scale 7 --epoch 80 \
-    --dummy_info 'test_real' --testset_name 'test4obj_load128' \
-
+    --camera_modulation --camera_normalize --scaled_depth --depth_scale 12.2 --bg_rotate \
+    --vis_attn --vis_mask \
+    --dummy_info '' --testset_name 'test4obj_load128' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

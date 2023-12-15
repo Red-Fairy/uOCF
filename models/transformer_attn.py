@@ -751,7 +751,7 @@ class DecoderIPE(nn.Module):
 		masked_raws = unmasked_raws * masks
 		raws = masked_raws.sum(dim=0)
 
-		return raws, masked_raws, unmasked_raws, masks, idx
+		return raws, masked_raws, unmasked_raws, masks
 
 # class SlotAttentionTFAnchor(nn.Module):
 # 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,
