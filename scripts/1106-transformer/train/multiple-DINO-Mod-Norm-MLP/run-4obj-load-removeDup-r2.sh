@@ -22,23 +22,24 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-hard-new/4obj-train-10-largeFOV'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/ABO-multiple/train-2-4obj-4050'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scenes 10 --n_img_each_scene 2 \
-    --checkpoints_dir 'checkpoints' --name 'kitchen-hard' \
+python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 2 \
+    --checkpoints_dir 'checkpoints' --name 'room_ABO_multiple' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 20 \
-    --load_size 128 --n_samp 128 --input_size 128 --supervision_size 64 --frustum_size 64 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 --frustum_size 64 \
     --model 'uocf_dual_DINO_trans' \
     --attn_decay_steps 100000 --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 8 --attn_iter 6 --shape_dim 48 --color_dim 48 \
-    --coarse_epoch 5000 --niter 10000 --percept_in 1000 --no_locality_epoch 2000 --seed 2027 \
-    --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 2000 --n_feat_layers 1 \
+    --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
+    --coarse_epoch 50 --niter 100 --percept_in 10 --no_locality_epoch 20 --seed 2027 \
+    --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 30 --n_feat_layers 1 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/OCTScenes/1212-modNorm/load-default' \
-    --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
-    --exp_id '1217-loadOCT/10scene' \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1211-DINONormModMLP/1obj-d0m0.5-r2' \
+    --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' --one2four  \
+    --remove_duplicate --remove_duplicate_in 10 --vis_mask \
+    --exp_id '1211-DINONormModMLP/4obj-load-removeDup-r2' \
     --camera_modulation --camera_normalize --scaled_depth --depth_scale 12.2 --bg_rotate \
     --dummy_info '' \
 

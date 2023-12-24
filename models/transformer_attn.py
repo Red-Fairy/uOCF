@@ -406,7 +406,8 @@ class AdaLN(nn.Module):
 class SlotAttentionTransformer(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, 
-		  momentum=0.5, pos_init='learnable', camera_dim=5, camera_modulation=False):
+		  momentum=0.5, pos_init='learnable', depth_scale_pred=False,
+		  camera_dim=5, camera_modulation=False):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
@@ -422,11 +423,16 @@ class SlotAttentionTransformer(nn.Module):
 		self.slots_init_bg = nn.Parameter((torch.randn(1, 1, slot_dim)))
 
 		self.learnable_pos = learnable_pos
-
 		if self.learnable_pos:
 			self.attn_to_pos_bias = nn.Sequential(nn.Linear(n_feats, 2), nn.Tanh()) # range (-1, 1)
 			self.attn_to_pos_bias[0].weight.data.zero_()
 			self.attn_to_pos_bias[0].bias.data.zero_()
+		
+		self.depth_scale_pred = depth_scale_pred
+		if depth_scale_pred:
+			self.scale_bias = nn.Sequential(nn.Linear(2+camera_dim, 1), nn.Tanh()) # range (-1, 1)
+			self.scale_bias[0].weight.data.zero_()
+			self.scale_bias[0].bias.data.zero_()
 
 		self.to_kv = EncoderPosEmbedding(in_dim, slot_dim)
 
@@ -449,7 +455,7 @@ class SlotAttentionTransformer(nn.Module):
 							  nn.GELU(), nn.Linear(slot_dim, slot_dim))
 
 
-	def forward(self, feat, camera_modulation, feat_color=None, num_slots=None):
+	def forward(self, feat, camera_modulation, feat_color=None, num_slots=None, remove_duplicate=False):
 		"""
 		input:
 			feat: visual feature with position information, BxHxWxC
@@ -478,19 +484,38 @@ class SlotAttentionTransformer(nn.Module):
 
 		grid = build_grid(H, W, device=feat.device).flatten(1, 2) # (1,N,2)
 
-		# attn = None
 		for it in range(self.iters):
-			fg_position_prev = fg_position
-			slot_prev_bg = slot_bg
-			slot_prev_fg = slot_fg
+			n_remove = 0
+			if remove_duplicate and it == self.iters - 1:
+				remove_idx = []
+				with torch.no_grad():
+					# calculate similarity matrix between slots
+					slot_fg_norm = slot_fg / slot_fg.norm(dim=-1, keepdim=True) # (B,K-1,C)
+					similarity_matrix = torch.matmul(slot_fg_norm, slot_fg_norm.transpose(1, 2)) # (B,K-1,K-1)
+					pos_diff = fg_position.unsqueeze(2) - fg_position.unsqueeze(1) # (B,K-1,1,2) - (B,1,K-1,2) -> (B,K-1,K-1,2)
+					pos_diff_norm = pos_diff.norm(dim=-1) # (B,K-1,K-1)
+					for i in range(K-1): # if similarity_matrix[i,j] > 0.75 and pos_diff_norm[i,j] < 0.1, then remove slot j
+						if i in remove_idx:
+							continue
+						for j in range(i+1, K-1):
+							if similarity_matrix[:, i, j] > 0.75 and pos_diff_norm[:, i, j] < 0.15 and j not in remove_idx:
+								remove_idx.append(j)
+					# shift the index (remove the duplicate)
+					remove_idx = sorted(remove_idx)
+					shuffle_idx = [i for i in range(K-1) if i not in remove_idx]
+					# shuffle_idx.extend(remove_idx)
+					slot_fg = slot_fg[:, shuffle_idx]
+					fg_position = fg_position[:, shuffle_idx]
+					n_remove = len(remove_idx)
+
 			q_fg = self.to_q_fg(self.to_q_fg_AdaLN(slot_fg, camera_modulation)) # (B,K-1,C)
 			q_bg = self.to_q_bg(self.to_q_bg_AdaLN(slot_bg, camera_modulation)) # (B,1,C)
-			
-			attn = torch.empty(B, K, N, device=feat.device)
+		
+			attn = torch.empty(B, K-n_remove, N, device=feat.device)
 			
 			k, v = self.to_kv(feat, H, W, fg_position) # (B,K-1,N,C), (B,K-1,N,C)
 			
-			for i in range(K):
+			for i in range(K-n_remove):
 				if i != 0:
 					k_i = k[:, i-1] # (B,N,C)
 					slot_qi = q_fg[:, i-1] # (B,C)
@@ -504,12 +529,12 @@ class SlotAttentionTransformer(nn.Module):
 			attn_weights_bg = attn_bg / attn_bg.sum(dim=-1, keepdim=True)  # Bx1xN
 			
 			# momentum update slot position
-			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
-			fg_position = fg_position * (1 - self.pos_momentum) + fg_position_prev * self.pos_momentum
+			# fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) # (B,K-1,N) * (B,N,2) -> (B,K-1,2)
+			fg_position = torch.einsum('bkn,bnd->bkd', attn_weights_fg, grid) * (1 - self.pos_momentum) + fg_position * self.pos_momentum
 
 			if it != self.iters - 1:
-				updates_fg = torch.empty(B, K-1, self.slot_dim, device=k.device) # (B,K-1,C)
-				for i in range(K-1):
+				updates_fg = torch.empty(B, K-1-n_remove, self.slot_dim, device=k.device) # (B,K-1,C)
+				for i in range(K-1-n_remove):
 					v_i = v[:, i] # (B,N,C)
 					attn_i = attn_weights_fg[:, i] # (B,N)
 					updates_fg[:, i] = torch.einsum('bn,bnd->bd', attn_i, v_i)
@@ -517,8 +542,8 @@ class SlotAttentionTransformer(nn.Module):
 				updates_bg = torch.einsum('bn,bnd->bd',attn_weights_bg.squeeze(1), v_bg.squeeze(1)) # (B,N,C) * (B,N) -> (B,C)
 				updates_bg = updates_bg.unsqueeze(1) # (B,1,C)
 
-				slot_bg = slot_prev_bg + updates_bg
-				slot_fg = slot_prev_fg + updates_fg
+				slot_bg = slot_bg + updates_bg
+				slot_fg = slot_fg + updates_fg
 
 				slot_bg = slot_bg + self.mlp_bg(self.mlp_bg_AdaLN(slot_bg, camera_modulation))
 				slot_fg = slot_fg + self.mlp_fg(self.mlp_fg_AdaLN(slot_fg, camera_modulation))
@@ -527,6 +552,11 @@ class SlotAttentionTransformer(nn.Module):
 				if self.learnable_pos: # add a bias term
 					fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) * 0.1 # (B,K-1,2)
 					# fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
+				
+				if self.depth_scale_pred:
+					fg_depth_scale = self.scale_bias(torch.cat([fg_position, camera_modulation.unsqueeze(1).repeat(1, fg_position.shape[1], 1)], dim=-1)) / 4 + 1 # (B,K-1,1)
+				else:
+					fg_depth_scale = torch.ones(B, K-1-n_remove, 1, device=feat.device)
 					
 				if feat_color is not None:
 					# calculate slot color feature
@@ -544,17 +574,18 @@ class SlotAttentionTransformer(nn.Module):
 			slot_bg = torch.cat([slot_bg, slot_bg_color], dim=-1) # (B,1,C+C')
 			
 		slots = torch.cat([slot_bg, slot_fg], dim=1) # (B,K,C+C')
-				
-		return slots, attn, fg_position
+		
+		return slots, attn, fg_position, fg_depth_scale
 
 class DecoderIPE(nn.Module):
 	def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, 
-		  			locality_ratio=4/7, fixed_locality=False, predict_depth_scale=False):
+		  			locality_ratio=4/7, fixed_locality=False,
+					mlp_act='relu', density_act='relu'):
 		"""
 		freq: raised frequency
 		input_dim: pos emb dim + slot dim
 		z_dim: network latent dim
-		n_layers: #layers before/after skip connection.
+		n_layers: #layers before/after skip connection.mlp_act
 		locality: if True, for each obj slot, clamp sigma values to 0 outside obj_scale.
 		locality_ratio: if locality, what value is the boundary to clamp?
 		fixed_locality: if True, compute locality in world space instead of in transformed view space
@@ -568,35 +599,39 @@ class DecoderIPE(nn.Module):
 		assert self.fixed_locality == True
 		self.out_ch = 4
 		self.z_dim = z_dim
-		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
-		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
+		before_skip = [nn.Linear(input_dim, z_dim),nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
+		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
 		for i in range(n_layers-1):
 			before_skip.append(nn.Linear(z_dim, z_dim))
-			before_skip.append(nn.ReLU(True))
+			before_skip.append(nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True))
 			after_skip.append(nn.Linear(z_dim, z_dim))
-			after_skip.append(nn.ReLU(True))
+			after_skip.append(nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True))
 		self.f_before = nn.Sequential(*before_skip)
 		self.f_after = nn.Sequential(*after_skip)
 		self.f_after_latent = nn.Linear(z_dim, z_dim)
 		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
 		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
-									 nn.ReLU(True),
+									 nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True),
 									 nn.Linear(z_dim//4, 3))
-		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
-		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True)]
+		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
+		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
 		for i in range(n_layers - 1):
 			before_skip.append(nn.Linear(z_dim, z_dim))
-			before_skip.append(nn.ReLU(True))
+			before_skip.append(nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True))
 			after_skip.append(nn.Linear(z_dim, z_dim))
-			after_skip.append(nn.ReLU(True))
+			after_skip.append(nn.ReLU(True)	if mlp_act == 'relu' else nn.SiLU(True))
 		after_skip.append(nn.Linear(z_dim, self.out_ch))
 		self.b_before = nn.Sequential(*before_skip)
 		self.b_after = nn.Sequential(*after_skip)
 
 		self.pos_enc = PositionalEncoding(max_deg=n_freq)
 
-		if predict_depth_scale:
-			self.scale = nn.Parameter(torch.tensor(1.0))
+		if density_act == 'relu':
+			self.density_act = torch.relu
+		elif density_act == 'exp':
+			self.density_act = torch.exp
+		else:
+			assert False, 'density_act should be relu or silu'
 
 	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, fg_object_size=None,
 					rel_pos=True, bg_rotate=False):
@@ -682,10 +717,10 @@ class DecoderIPE(nn.Module):
 		input_bg = torch.cat([pos_emb_bg, z_bg.repeat(P*D, 1)], dim=-1) # (P*D)x(6*n_freq+3+C)
 
 		# 4. Return required tensors
-		return input_fg, input_bg, idx
+		return input_fg, input_bg, idx, sampling_mean_fg.flatten(0, 1)[idx]
 
 	def forward(self, mean, var, z_slots, fg_transform, fg_slot_position, dens_noise=0., 
-		 			fg_object_size=None, rel_pos=True, bg_rotate=False):
+		 			fg_object_size=None, rel_pos=True, bg_rotate=False, add_blob=False):
 		"""
 		1. pos emb by Fourier
 		2. for each slot, decode all points from coord and slot feature
@@ -699,20 +734,18 @@ class DecoderIPE(nn.Module):
 							otherwise it is 1x3x3 azimuth rotation of nss2cam0 (not used)
 			fg_slot_position: (K-1)x3 in nss space
 			dens_noise: Noise added to density
+			add_blob: add a blob to foreground slots in early iterations to avoid empty slots (gaussian pdf)
 
 			if fg_slot_cam_position is not None, we should first project it world coordinates
 			depth: K*1, depth of the slots
 		"""
 		K, C = z_slots.shape
 		P, D = mean.shape[0], mean.shape[1]
-
-		# if self.locality:
-		# 	outsider_idx = torch.any(mean.flatten(0,1).abs() > self.locality_ratio, dim=-1).unsqueeze(0).expand(K-1, -1) # (K-1)x(P*D)
-
+		
 		z_bg = z_slots[0:1, :]  # 1xC
 		z_fg = z_slots[1:, :]  # (K-1)xC
 
-		input_fg, input_bg, idx = self.processQueries(mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
+		input_fg, input_bg, idx, fg_means = self.processQueries(mean, var, fg_transform, fg_slot_position, z_fg, z_bg, 
 						fg_object_size=fg_object_size, rel_pos=rel_pos, bg_rotate=bg_rotate)
 		
 		tmp = self.b_before(input_bg)
@@ -729,16 +762,19 @@ class DecoderIPE(nn.Module):
 		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P*D, 3])  # ((K-1)xP*D)x3 -> (K-1)x(P*D)x3
 
 		fg_raw_shape = self.f_after_shape(tmp) # Mx1
+		if add_blob: # add a gaussian pdf 5 * exp(-||mean||^2 / 2 * 0.2^2), (with no gradient)
+			with torch.no_grad():
+				blob = 5 * torch.exp(-torch.norm(fg_means, dim=-1, keepdim=True) ** 2 / 2 / 0.2 ** 2)
+			fg_raw_shape = fg_raw_shape + blob.detach()
 		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device, dtype=fg_raw_shape.dtype) # ((K-1)xP*D)x1
 		fg_raw_shape_full[idx] = fg_raw_shape
 		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
 
-		# if self.locality:
-		# 	fg_raw_shape[outsider_idx] *= 0
 		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)x(P*D)x4
 
 		all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # Kx(P*D)x4
-		raw_masks = F.relu(all_raws[:, :, -1:], True)  # Kx(P*D)x1
+		raw_masks = self.density_act(all_raws[:, :, -1:])  # Kx(P*D)x1
+		# raw_masks = F.relu(all_raws[:, :, -1:], True)  # Kx(P*D)x1
 		masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # Kx(P*D)x1
 
 		# print("ratio of fg density above 0.01", torch.sum(masks[1:] > 0.01) / idx.shape[0])

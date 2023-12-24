@@ -25,17 +25,18 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-hard-new/4obj-all-test'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 24 --start_scene_idx 0 --n_img_each_scene 2  \
+CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 4 --start_scene_idx 20 --n_img_each_scene 2  \
     --checkpoints_dir 'checkpoints' --name '' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
     --model 'uocf_dual_DINO_trans_eval' --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 8 --attn_iter 6 --shape_dim 48 --color_dim 48 \
+    --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
     --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
-    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/kitchen-hard/1215-loadOCT' \
+    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/kitchen-hard/1220-loadMult/fewshot' \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --camera_modulation --camera_normalize --scaled_depth --depth_scale 12.2 --bg_rotate \
+    --camera_modulation --camera_normalize --bg_rotate \
+    --depth_scale_pred --scaled_depth --depth_scale 12.2 \
     --vis_attn --vis_render_mask --recon_only \
     --dummy_info '' --testset_name 'test4obj_load128' \
 

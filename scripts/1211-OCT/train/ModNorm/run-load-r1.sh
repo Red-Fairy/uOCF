@@ -28,9 +28,9 @@ python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 3000 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'OCTScenes' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 5 \
-    --load_size 128 --n_samp 128 --input_size 128 --supervision_size 64 --frustum_size 64 \
+    --load_size 128 --n_samp 80 --input_size 128 --supervision_size 64 --frustum_size 64 \
     --model 'uocf_dual_DINO_OCT' --diff_intrinsic \
-    --attn_decay_steps 200000 --bottom --lr 0.0006 \
+    --attn_decay_steps 100000 --bottom --lr 0.0006 \
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 8 --attn_iter 6 --shape_dim 48 --color_dim 48 --n_feat_layers 1  \
     --coarse_epoch 100 --niter 200 --percept_in 30 --no_locality_epoch 50 --seed 2023 \
@@ -40,8 +40,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 3000 --n_img_each_sc
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' --one2four \
     --camera_normalize --camera_modulation --bg_rotate --scaled_depth --depth_scale 4 \
-    --exp_id '1212-modNorm/load-default' \
-    --continue_train --epoch 50 --epoch_count 50 \
+    --pseudo_mask_loss \
+    --exp_id '1212-modNorm/load-default-r2' \
+    --continue_train --epoch 15 --epoch_count 16 \
     --dummy_info 'DINO from scratch 1 obj with BG and position loss (150 epoch), dense sampling at 50' \
 
 # can try the following to list out which GPU you have access to

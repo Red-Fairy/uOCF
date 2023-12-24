@@ -95,12 +95,17 @@ class BaseOptions():
 		parser.add_argument('--enc_kernel_size', type=int, default=3, help='encoder kernel size')
 		parser.add_argument('--enc_mode', type=str, choices=['sum', 'stack'], default='sum', help='encoder mode for MultiDINOStackEncoder')
 		parser.add_argument('--enc_add_relu', action='store_false', help='add relu after encoder')
+		parser.add_argument('--dec_mlp_act', type=str, choices=['relu', 'silu'], default='relu', help='activation function in decoder mlp')
+		parser.add_argument('--dec_density_act', type=str, choices=['relu', 'exp'], default='relu', help='activation function in decoder density')
 		# parser.add_argument('--decoder_rotate_z', action='store_true', help='only rotate around the z-axis when rendering foreground objects')
 
 		# uOCF - predict depth
 		parser.add_argument('--scaled_depth', action='store_true', help='predict depth')
-		parser.add_argument('--scaled_depth_map', action='store_true', help='use depth map for calculating slot positions')
+		parser.add_argument('--depth_scale_pred', action='store_true', help='predict depth scale')
+		parser.add_argument('--depth_scale_pred_in', type=int, default=0, help='pred scale starts from epoch x')
 		parser.add_argument('--depth_scale', type=float, default=4.0, help='depth scale')
+		parser.add_argument('--remove_duplicate', action='store_true', help='remove duplicate slots')
+		parser.add_argument('--remove_duplicate_in', type=int, default=0, help='remove duplicate starts from epoch x')
 		
 		self.initialized = True
 		return parser

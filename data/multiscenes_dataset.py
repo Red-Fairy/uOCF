@@ -108,7 +108,16 @@ class MultiscenesDataset(BaseDataset):
             if self.opt.no_shuffle:
                 filenames = scene_filenames[:self.n_img_each_scene]
             else:
-                filenames = random.sample(scene_filenames, self.n_img_each_scene)
+                if len(scene_filenames) <= 5:
+                    filenames = random.sample(scene_filenames, self.n_img_each_scene)
+                else: # define a distribution for sampling, first sample the first view, then nearby views have higher probability
+                    first_view_idx = random.randint(0, len(scene_filenames)-1)
+                    sigma = 0.15
+                    idx = np.minimum(np.abs(np.arange(0, len(scene_filenames)) - first_view_idx), 1 - np.abs(np.arange(0, len(scene_filenames)) - first_view_idx)) / len(scene_filenames)
+                    p = np.exp(-idx**2 / (2 * sigma**2))
+                    p[first_view_idx] = 0
+                    p = p / np.sum(p)
+                    filenames = [scene_filenames[first_view_idx]] + list(np.random.choice(scene_filenames, self.n_img_each_scene - 1, replace=False, p=p))
         else:
             if self.opt.video:
                 filenames = scene_filenames[self.opt.visual_idx:self.opt.visual_idx + 1]
@@ -147,7 +156,7 @@ class MultiscenesDataset(BaseDataset):
                     pose = torch.matmul(input_rot, pose)
             
             # support two types of depth maps
-            if (self.opt.isTrain and (self.opt.depth_supervision or self.opt.scaled_depth_map)) \
+            if (self.opt.isTrain and self.opt.depth_supervision) \
                         or (not self.opt.isTrain and self.opt.vis_disparity):
                 depth_path_pfm = path.replace('.png', '_depth.pfm')
                 depth_path_png = path.replace('.png', '_depth.png')
@@ -210,7 +219,7 @@ class MultiscenesDataset(BaseDataset):
             
             # pseudo mask from SAM
             pseudo_mask_path = path.replace('.png', '_mask.png').replace('img', 'mask')
-            if os.path.isfile(pseudo_mask_path) and self.opt.pseudo_mask_loss:
+            if os.path.isfile(pseudo_mask_path) and self.opt.isTrain and (self.opt.pseudo_mask_loss or self.opt.vis_mask):
                 mask = Image.open(pseudo_mask_path).convert('L')
                 mask = self._transform_mask(mask, normalize=False)
                 ret['pseudo_mask'] = mask

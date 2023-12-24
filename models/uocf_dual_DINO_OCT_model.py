@@ -17,6 +17,7 @@ from .model_general import MultiDINOStackEncoder
 from .transformer_attn import SlotAttentionTransformer, DecoderIPE
 from .utils import *
 import numpy as np
+import seaborn as sns
 
 import torchvision
 
@@ -65,8 +66,6 @@ class uocfDualDINOOCTModel(BaseModel):
 		parser.add_argument('--fg_in_world', action='store_true', help='foreground objects are in world space')
 		parser.add_argument('--dens_noise', type=float, default=0., help='Noise added to density may help in mitigating rank collapse')
 		parser.add_argument('--invariant_in', type=int, default=0, help='when to start translation invariant decoding')
-		parser.add_argument('--sfs_loss', action='store_true', help='use the Slot-Feature-Slot loss')
-		parser.add_argument('--weight_sfs', type=float, default=0.1, help='weight of the Slot-Feature-Slot loss')
 		parser.add_argument('--position_in', type=int, default=100, help='when to start the position loss')
 		parser.add_argument('--weight_position', type=float, default=0.1, help='weight of the position loss')
 		parser.add_argument('--feat_dropout_start', type=int, default=100, help='when to start dropout in feature map')
@@ -103,8 +102,6 @@ class uocfDualDINOOCTModel(BaseModel):
 		BaseModel.__init__(self, opt)  # call the initialization method of BaseModel
 		assert opt.scaled_depth 
 		self.loss_names = ['recon', 'perc']
-		if self.opt.sfs_loss:
-			self.loss_names += ['sfs']
 		if self.opt.position_loss:
 			self.loss_names += ['pos']
 		if self.opt.bg_density_loss:
@@ -142,21 +139,20 @@ class uocfDualDINOOCTModel(BaseModel):
 		self.netSlotAttention = SlotAttentionTransformer(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, pos_init=opt.pos_init,
-					learnable_pos=not opt.no_learnable_pos, iters=opt.attn_iter, 
+					learnable_pos=not opt.no_learnable_pos, iters=opt.attn_iter, depth_scale_pred=self.opt.depth_scale_pred,
 					camera_modulation=opt.camera_modulation, camera_dim=16)
 							  
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
 													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality,
-													predict_depth_scale = False)
+													mlp_act=opt.dec_mlp_act, density_act=opt.dec_density_act,)
 			
 		self.netEncoder = self.netEncoder.to(self.device)
 		self.netDecoder = self.netDecoder.to(self.device)
 		self.netSlotAttention = self.netSlotAttention.to(self.device)
 
 		self.L2_loss = nn.MSELoss()
-		self.sfs_loss = SlotFeatureSlotLoss()
 		self.pos_loss = PositionSetLoss()
-		self.pseudo_mask_loss = PseudoMaskLoss()
+		self.pseudo_mask_loss = PseudoMaskLoss(opt.pseudo_mask_loss_type)
 
 		self.collapse_prevent_iter = opt.collapse_prevent
 
@@ -171,6 +167,12 @@ class uocfDualDINOOCTModel(BaseModel):
 		if set_depth:
 			self.visual_names += ['disparity_{}'.format(i) for i in range(n)] + \
 								 ['disparity_rec{}'.format(i) for i in range(n)]
+			
+		if self.opt.vis_mask:
+			self.visual_names += ['mask_render{}'.format(i) for i in range(n)]
+
+		if self.opt.pseudo_mask_loss:
+			self.visual_names += ['mask_pseudo{}'.format(i) for i in range(n)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -283,8 +285,8 @@ class uocfDualDINOOCTModel(BaseModel):
 			self.set_visual_names(set_depth=True)
 		self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
 		dens_noise = self.opt.dens_noise if epoch < self.opt.collapse_prevent else 0
-		self.loss_recon, self.loss_perc, self.loss_sfs, self.loss_pos, \
-			self.loss_bg_density, self.loss_fg_density, self.loss_depth_ranking, self.loss_pseudo_mask = 0, 0, 0, 0, 0, 0, 0, 0
+		self.loss_recon, self.loss_perc, self.loss_pos, \
+			self.loss_bg_density, self.loss_fg_density, self.loss_depth_ranking, self.loss_pseudo_mask = 0, 0, 0, 0, 0, 0, 0
 		dev = self.x[0:1].device
 		cam2world_viewer = self.cam2world[0]
 		nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
@@ -305,13 +307,15 @@ class uocfDualDINOOCTModel(BaseModel):
 			camera_modulation = None
 	
 		# transformer attention
-		z_slots, attn, fg_slot_position = self.netSlotAttention(feat_shape, feat_color=feat_color, camera_modulation=camera_modulation)  # 1xKxC, 1xKx2, 1xKxN
-		z_slots, fg_slot_position, attn = z_slots.squeeze(0), fg_slot_position.squeeze(0), attn.squeeze(0)  # KxC, Kx2, KxN
+		z_slots, attn, fg_slot_position, fg_depth_scale = self.netSlotAttention(feat_shape, feat_color=feat_color, camera_modulation=camera_modulation, 
+														  remove_duplicate=self.opt.remove_duplicate and epoch >= self.opt.remove_duplicate_in)  # 1xKxC, 1xKxN, 1xKx2, 1xKx1
+		z_slots, attn, fg_slot_position, fg_depth_scale = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0), fg_depth_scale.squeeze(0)  # KxC, KxN, Kx2, Kx1
 
 		if self.opt.global_bg_feature:
 			z_slots[0][-self.opt.color_dim:] = feat_global.squeeze(0) # use the global feature as the background slot
 			
 		K = attn.shape[0]
+		self.num_slots = K
 			
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
@@ -324,8 +328,8 @@ class uocfDualDINOOCTModel(BaseModel):
 										frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
-			if self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in:
-				pseudo_mask = F.interpolate(self.pseudo_mask, size=self.opt.supervision_size, mode='bilinear', align_corners=False) 
+			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in) or self.opt.vis_mask:
+				self.pseudo_mask = F.interpolate(self.pseudo_mask, size=self.opt.supervision_size, mode='nearest')
 			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = F.interpolate(self.disparity, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -347,8 +351,8 @@ class uocfDualDINOOCTModel(BaseModel):
 			mean_, var_ = mean[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...], var[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...]
 			mean, var, z_vals, ray_dir = mean_.flatten(0, 2), var_.flatten(0, 2), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
-			if self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in:
-				pseudo_mask = self.pseudo_mask[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
+			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in) or self.opt.vis_mask:
+				self.pseudo_mask = self.pseudo_mask[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = self.disparity[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -358,7 +362,7 @@ class uocfDualDINOOCTModel(BaseModel):
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
 
 		# scaled depth
-		slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale
+		slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale * fg_depth_scale
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics[0], 
 												nss_scale=self.opt.nss_scale, depth=slot_depth) # Kx3
 
@@ -423,35 +427,28 @@ class uocfDualDINOOCTModel(BaseModel):
 			self.loss_depth_ranking += (torch.mean(torch.clamp(depth_diff_rendered + margin, min=0) * (1 - mask_gt)) + \
 					  			torch.mean(torch.clamp(-depth_diff_rendered + margin, min=0) * mask_gt)) * self.opt.weight_depth_ranking		
 
-		if self.opt.sfs_loss:
-			# shape representations of foreground slots: z_slots[1:, :self.opt.shape_dim] # K*C
-			# representations of spatial features: feat_shape.flatten(1, 2).squeeze(0) # N*C
-			self.loss_sfs = self.opt.weight_sfs * self.sfs_loss(z_slots[1:, :self.opt.shape_dim], feat_shape.flatten(1, 2).squeeze(0))
-
 		if self.opt.position_loss and epoch >= self.opt.position_in:
 			assert False # not supported
 		
 		if self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in:
 			mask_slot_maps = torch.zeros(K, N, H, W).to(self.device)
-			# render mask for each slot
-			for k in range(self.num_slots):
+			for k in range(self.num_slots): # render mask for each slot
 				raws_slot = unmasked_raws[k].flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-				rgb_map, depth_map, _, mask_map = raw2outputs(raws_slot, z_vals, ray_dir, render_mask=True, mip=True)
-				# (NxHxW)x3, (NxHxW), _, (NxHxW)
-				mask_slot_maps[k] = mask_map.view(N, H, W)
-				# debug: if mask_map has negative values, then the mask is not correct
-				assert torch.sum(mask_map < 0) == 0
+				rgb_map, depth_map, _, mask_map = raw2outputs(raws_slot, z_vals, ray_dir, render_mask=True, mip=True) # (NxHxW)x3, (NxHxW), _, (NxHxW)
+				if self.opt.pseudo_mask_mode == 'density':
+					mask_slot_maps[k] = mask_map.view(N, H, W) # mask_map's entries are non-negative
+				elif self.opt.pseudo_mask_mode == 'depth':
+					mask_slot_maps[k] = -depth_map.view(N, H, W) # closer to the camera, smaller depth, larger mask value
 			# calculate soft mask
+			# mask_maps = mask_slot_maps.softmax(dim=0).flatten(-2, -1) # K*N*(H*W)
 			mask_maps = (mask_slot_maps / torch.sum(mask_slot_maps, dim=0, keepdim=True)).flatten(-2, -1) # K*N*(H*W)
-			pseudo_mask = pseudo_mask.squeeze(1).flatten(1, 2) # N*(H*W)
-			self.loss_pseudo_mask = self.opt.weight_pseudo_mask * self.pseudo_mask_loss(pseudo_mask, mask_maps)
+			# calculate pseudo mask loss
+			self.loss_pseudo_mask = self.opt.weight_pseudo_mask * self.pseudo_mask_loss(self.pseudo_mask.squeeze(1).flatten(1, 2), mask_maps)
 
 		with torch.no_grad():
 			attn = attn.detach().cpu()  # KxN
 			H_, W_ = feat_shape.shape[1:3]
-			attn = attn.view(self.opt.num_slots, 1, H_, W_)
-			# if H_ != H:
-			# 	attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+			attn = attn.view(self.num_slots, 1, H_, W_)
 			setattr(self, 'attn', attn)
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
@@ -494,14 +491,40 @@ class uocfDualDINOOCTModel(BaseModel):
 				for i in range(self.opt.n_img_each_scene):
 					setattr(self, 'slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
 					setattr(self, 'unmasked_slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
-				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+				setattr(self, 'slot{}_attn'.format(k), torch.zeros_like(self.attn[0]))
+
+			if self.opt.vis_mask:
+				mask_slot_maps = torch.zeros(self.opt.num_slots, N, H, W).to(self.device)
+				for k in range(self.num_slots): # render mask for each slot
+					raws_slot = unmasked_raws[k].flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+					rgb_map, depth_map, _, mask_map = raw2outputs(raws_slot, z_vals, ray_dir, render_mask=True, mip=True) # (NxHxW)x3, (NxHxW), _, (NxHxW)
+					if self.opt.pseudo_mask_mode == 'density':
+						mask_slot_maps[k] = mask_map.view(N, H, W) # mask_map's entries are non-negative
+					elif self.opt.pseudo_mask_mode == 'depth':
+						mask_slot_maps[k] = -depth_map.view(N, H, W) # closer to the camera, smaller depth, larger mask value
+
+				mask_idx = mask_slot_maps.cpu().argmax(dim=0)  # NxHxW
+				colors = sns.color_palette('hls', self.num_slots-1)
+				colors = torch.cat([torch.tensor([0., 0., 0.]).view([1, 3]), torch.tensor(colors)], dim=0).to(self.device)  # Kx3
+				mask_visuals = colors[mask_idx]  # NxHxWx3
+
+				uniques = torch.unique(self.pseudo_mask)
+				n_color_pseudo = uniques.shape[0]
+				colors_pseudo = torch.tensor(sns.color_palette('hls', n_color_pseudo-1))
+				colors_pseudo = torch.cat([torch.tensor([[0., 0., 0.]]), colors_pseudo], dim=0).to(self.device)  # n_color_pseudo x 3
+				pseudo_mask_visuals = torch.zeros(N, H, W, 3).to(self.device) # build a mapping from pseudo mask to color
+				for i in range(n_color_pseudo):
+					pseudo_mask_visuals[self.pseudo_mask.squeeze(1) == uniques[i]] = colors_pseudo[i]
+
+				for i in range(N):
+					setattr(self, 'mask_render{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]) * 2 - 1)
+					setattr(self, 'mask_pseudo{}'.format(i), pseudo_mask_visuals[i, ...].permute([2, 0, 1]) * 2 - 1)
 
 	def backward(self):
 		"""Calculate losses, gradients, and update network weights; called in every training iteration"""
-		loss = self.loss_recon + self.loss_perc + self.loss_sfs + \
+		loss = self.loss_recon + self.loss_perc + self.loss_pseudo_mask + \
 					self.loss_pos + self.loss_bg_density + self.loss_fg_density + self.loss_depth_ranking 
 		loss.backward()
-		# self.loss_perc = self.loss_perc / self.weight_percept if self.weight_percept > 0 else self.loss_perc
 
 	def optimize_parameters(self, ret_grad=False, epoch=0):
 		"""Update network weights; it will be called in every training iteration."""
@@ -552,15 +575,22 @@ class uocfDualDINOOCTModel(BaseModel):
 				load_sch_path = os.path.join(self.save_dir, load_sch_filename)
 				print('loading the optimizer from %s' % load_opm_path)
 				print('loading the lr scheduler from %s' % load_sch_path)
-				state_dict_opm = torch.load(load_opm_path, map_location=str(self.device))
-				state_dict_sch = torch.load(load_sch_path, map_location=str(self.device))
-				try:
-					opm.load_state_dict(state_dict_opm)
-					sch.load_state_dict(state_dict_sch)
-				except:
-					# pass
-					n_steps = int(state_dict_sch['last_epoch'])
-					for _ in range(n_steps):
+				# if not exist
+				if os.path.exists(load_opm_path) and os.path.exists(load_sch_path):
+					state_dict_opm = torch.load(load_opm_path, map_location=str(self.device))
+					state_dict_sch = torch.load(load_sch_path, map_location=str(self.device))
+					try:
+						opm.load_state_dict(state_dict_opm)
+						sch.load_state_dict(state_dict_sch)
+					except:
+						# pass
+						n_steps = int(state_dict_sch['last_epoch'])
+						for _ in range(n_steps):
+							sch.step()
+				else:
+					print('Optimizer and lr scheduler not found, using default initialization')
+					# step the optimizer for self.opt.epoch_count * self.opt.n_scenes times
+					for _ in range(self.opt.epoch_count * self.opt.n_scenes):
 						sch.step()
 
 			# for i, opm in enumerate(self.optimizers):

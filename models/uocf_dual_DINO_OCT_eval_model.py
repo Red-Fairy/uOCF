@@ -7,7 +7,8 @@ from .base_model import BaseModel
 from . import networks
 import os
 import time
-from .projection import Projection, pixel2world
+from .projection import pixel2world
+from .projection import ProjectionOCT as Projection
 from .model_general import MultiDINOStackEncoder
 from .transformer_attn import SlotAttentionTransformer, DecoderIPE
 from .utils import *
@@ -20,7 +21,7 @@ import numpy as np
 import seaborn as sns
 
 
-class uocfDualDINOTransEvalModel(BaseModel):
+class uocfDualDINOOCTEvalModel(BaseModel):
 
 	@staticmethod
 	def modify_commandline_options(parser, is_train=True):
@@ -80,9 +81,8 @@ class uocfDualDINOTransEvalModel(BaseModel):
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
-		self.intrinsics = np.loadtxt(os.path.join(opt.dataroot, 'camera_intrinsics_ratio.txt')) if opt.load_intrinsics else None
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
-									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size, intrinsics=self.intrinsics)
+									 frustum_size=frustum_size, near=opt.near_plane, far=opt.far_plane, render_size=render_size)
 
 		z_dim = opt.color_dim + opt.shape_dim
 		self.num_slots = opt.num_slots
@@ -157,7 +157,7 @@ class uocfDualDINOTransEvalModel(BaseModel):
 			self.cam2world_azi = input['azi_rot'].to(self.device)
 		self.image_paths = input['paths']
 		if 'intrinsics' in input:
-			self.intrinsics = input['intrinsics'][0].to(self.device).squeeze(0) # overwrite the default intrinsics
+			self.intrinsics = input['intrinsics'].to(self.device) # overwrite the default intrinsics
 
 		if not self.opt.recon_only and not self.opt.video:
 			self.gt_masks = input['masks']
@@ -210,7 +210,7 @@ class uocfDualDINOTransEvalModel(BaseModel):
 		# calculate camera cond (R, T, fx, fy, cx, cy) , 1*camera_dim, camera_dim=5, assert camera_normalized
 		if self.opt.camera_modulation:
 			camExt = torch.cat([cam2world_viewer[:3, :3].flatten(), cam2world_viewer[:3, 3:4].flatten()/self.opt.nss_scale], dim=0)
-			camInt = torch.Tensor([self.intrinsics[0, 0], self.intrinsics[1, 1], self.intrinsics[0, 2], self.intrinsics[1, 2]]).to(dev) \
+			camInt = torch.Tensor([self.intrinsics[0, 0, 0], self.intrinsics[0, 1, 1], self.intrinsics[0, 0, 2], self.intrinsics[0, 1, 2]]).to(dev) \
 				if self.intrinsics is not None else torch.Tensor([350./320., 350./240., 0., 0.]).to(dev)
 			camera_modulation = torch.cat([camExt, camInt], dim=0).unsqueeze(0)
 		else:
@@ -221,15 +221,14 @@ class uocfDualDINOTransEvalModel(BaseModel):
 														  remove_duplicate=self.opt.remove_duplicate)  # 1xKxC, 1xKxN, 1xKx2, 1xKx1
 		z_slots, attn, fg_slot_position, fg_depth_scale = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0), fg_depth_scale.squeeze(0)  # KxC, KxN, Kx2, Kx1
 
-		K = z_slots.shape[0] # num_slots - n_remove
-		self.num_slots = K
+		K = z_slots.shape[0]
 
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics)
 		# scale**2x(NxHxW)xDx3, scale**2x(NxHxW)xDx3x3, scale**2x(NxHxW)xD, scale**2x(NxHxW)x3
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
@@ -240,11 +239,8 @@ class uocfDualDINOTransEvalModel(BaseModel):
 		# local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
 		W, H, D = self.projection.frustum_size
 
-		if not self.opt.scaled_depth:
-			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
-		else: 
-			slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale * fg_depth_scale
-			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
+		slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale * fg_depth_scale
+		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics[0], 
 													nss_scale=self.opt.nss_scale, depth=slot_depth) # Kx3
 
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
@@ -289,7 +285,7 @@ class uocfDualDINOTransEvalModel(BaseModel):
 		with torch.no_grad():
 			attn = attn.detach().cpu()  # KxN
 			H_, W_ = feat_shape.shape[1:3]
-			attn = attn.view(self.num_slots, 1, H_, W_)
+			attn = attn.view(self.opt.num_slots, 1, H_, W_)
 			# if H_ != H:
 			# 	attn = F.interpolate(attn, size=[H, W], mode='bilinear')
 			setattr(self, 'attn', attn)
@@ -327,7 +323,7 @@ class uocfDualDINOTransEvalModel(BaseModel):
 
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
-		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics)
 		#  4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
@@ -396,7 +392,7 @@ class uocfDualDINOTransEvalModel(BaseModel):
 		W, H, D = self.projection.frustum_size
 		scale = H // self.opt.render_size
 
-		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+		(mean, var), z_vals, ray_dir = self.projection.sample_along_rays(cam2world, partitioned=True, intrinsics=self.intrinsics)
 		# 4x(NxDx(H/2)x(W/2))x3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
@@ -440,12 +436,10 @@ class uocfDualDINOTransEvalModel(BaseModel):
 			
 			for k in range(self.num_slots):
 				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
-			for k in range(self.num_slots, self.opt.num_slots):
-				setattr(self, 'slot{}_attn'.format(k), torch.zeros_like(self.attn[0]))
 
 			for k in range(self.num_slots):
 				raws = masked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics)
 				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True, mip=True)
 				# mask_maps.append(mask_map.view(N, H, W))
@@ -453,13 +447,10 @@ class uocfDualDINOTransEvalModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(N):
 					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
-			for k in range(self.num_slots, self.opt.num_slots):
-				for i in range(N):
-					setattr(self, 'slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
 
 			for k in range(self.num_slots):
 				raws = unmasked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
+				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics)
 				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True, mip=True)
 				mask_maps.append(mask_map.view(N, H, W))
@@ -467,16 +458,13 @@ class uocfDualDINOTransEvalModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(N):
 					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
-			for k in range(self.num_slots, self.opt.num_slots):
-				for i in range(N):
-					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), torch.zeros_like(x_recon[i]))
 
 			if self.opt.vis_render_mask and self.opt.recon_only:
 				# define colors
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW
 				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
 				# define 8 colors from color palette
-				color_palette = sns.color_palette('bright', self.num_slots)
+				color_palette = sns.color_palette('bright', self.num_slots-1)
 				colors = torch.cat([torch.tensor([0., 0., 0.]).view([1, 3]), torch.tensor(color_palette)], dim=0).to(self.device)  # Kx3
 				mask_visuals = colors[mask_idx]  # NxHxWx3
 				for i in range(N):

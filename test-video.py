@@ -98,7 +98,8 @@ for j, data in enumerate(dataset):
 			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(0, -1.5))
 			# 0.5-0.7 (0, -2)
 			# kithard
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.8, 1.0), origin=(0., -1.))
+			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.8, 1.0), origin=(0., -1.))
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 8, angle_xy + np.pi / 8), 30, height_range=(0.9, 1.1), radius_range=(1.0, 1.0), origin=(0., 0.))
 		else:
 			assert False
 

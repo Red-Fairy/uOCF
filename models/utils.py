@@ -438,22 +438,34 @@ class PseudoMaskLoss(nn.Module):
         flatten the pseudo mask and predicted soft mask
         calculate the similarity between each soft mask entry, obtaining matrix of size N*L*L
     '''
-    def __init__(self):
+    def __init__(self, loss_type='cosine'):
         super(PseudoMaskLoss, self).__init__()
+        self.loss_type = loss_type
     
     def forward(self, pseudo_mask, soft_mask):
         loss = 0.
         N, L = pseudo_mask.shape
         for i in range(N):
+            loss_i = 0
             filter_mask = (pseudo_mask[i] != 0)
             pseudo_filtered = pseudo_mask[i][filter_mask] # L'
             soft_filtered = soft_mask[:, i][:, filter_mask] # K*L'
             unique_pseudo = torch.unique(pseudo_filtered)
             for j in unique_pseudo:
-                soft_pseudo = soft_filtered[:, pseudo_filtered == j]
-                if soft_pseudo.shape[1] > 1:
-                    loss += torch.sum(1 - torch.matmul(soft_pseudo, soft_pseudo.transpose(0,1))) # K*K
-        loss /= (N * L * L)
+                soft_pseudo = soft_filtered[:, pseudo_filtered == j] # K*L''
+                if soft_pseudo.shape[1] > 10:
+                    if self.loss_type == 'contrastive':
+                        sum_soft_pseudo = torch.sum(soft_pseudo, dim=1)
+                        max_idx_all = torch.argmax(sum_soft_pseudo)
+                        # for each soft mask, loss = max(mask) - mask[max_idx]
+                        max_idx = torch.argmax(soft_pseudo, dim=0) # K
+                        loss_i -= (torch.sum(soft_pseudo[max_idx_all, :] - soft_pseudo[max_idx, torch.arange(soft_pseudo.shape[1])])) / soft_pseudo.shape[1]
+                    elif self.loss_type == 'cosine':
+                        loss_i += torch.sum(1 - torch.matmul(soft_pseudo.transpose(1,0), soft_pseudo)) / (soft_pseudo.shape[1] * (soft_pseudo.shape[1] - 1))
+                    else:
+                        raise NotImplementedError
+            loss += loss_i
+        loss /= N
         return loss
     
 def debug(coordinates, fg_position=None, cam2world=None, save_name='debug'):
