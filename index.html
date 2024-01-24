@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Similarity Min-Max: Zero-Shot Day-Night Domain Adaptation</title>
+  <title>Unsupervised Discovery of Object-Centric Neural Fields</title>
   <!-- Bootstrap -->
   <link rel="preconnect" href="https://rsms.me/">
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
@@ -27,36 +27,27 @@
     <div class="container-fluid">
       <div class="row">
         <div class="col">
-          <h2 style="font-size:30px;">Similarity Min-Max: Zero-Shot Day-Night Domain Adaptation</h2>
-          <h4 style="color:#6e6e6e;"> ICCV 2023 (Oral) </h4>
+          <h2 style="font-size:30px;">Unsupervised Discovery of Object-Centric Neural Fields</h2>
+          <h4 style="color:#6e6e6e;"> Under Review </h4>
           <hr>
-          <h6>
-            <a class="a2" href="https://red-fairy.github.io/" target="_blank">Rundong Luo</a><sup>1</sup>&nbsp; &nbsp;
-            <a class="a2" href="https://daooshee.github.io/website/" target="_blank">Wenjing Wang</a><sup>1</sup>&nbsp;
+          <!-- <h6>
+            <a class="a2" href="https://red-fairy.github.io/" target="_blank">Rundong Luo*</a><sup>1</sup>&nbsp; &nbsp;
+            <a class="a2" href="https://kovenyu.com/" target="_blank">Hong-Xing Yu*</a><sup>2</sup>&nbsp;
             &nbsp;
-            <a class="a2" href="https://flyywh.github.io/" target="_blank">Wenhan Yang</a><sup>2</sup>&nbsp; &nbsp;
-            <a class="a2" href="http://39.96.165.147/people/liujiaying.html" target="_blank">Jiaying
-              Liu</a><sup>1</sup>&nbsp;
-            &nbsp;
+            <a class="a2" href="https://jiajunwu.com/" target="_blank">Jiajun Wu</a><sup>2</sup>&nbsp; &nbsp;
             <br>
             <br>
 
             <p>
               <sup>1</sup>Peking University&nbsp; &nbsp;
-              <sup>2</sup>Peng Cheng Laboratory&nbsp; &nbsp;
+              <sup>2</sup>Stanford University&nbsp; &nbsp;
             </p>
-            <!-- <p> <sup>*</sup> Corresponding author &nbsp;
-              <br>
-            </p> -->
-          </h6>
-          <!-- <p> <a class="btn btn-secondary btn-lg" href="" role="button">Paper</a> 
-                <a class="btn btn-secondary btn-lg" href="" role="button">Code</a> 
-                <a class="btn btn-secondary btn-lg" href="" role="button">Data</a> </p> -->
-
+          </h6> -->
           <div class="row justify-content-center">
             <div class="column">
               <p class="mb-5">
-                <a class="btn btn-large btn-light" href="https://arxiv.org/abs/2307.08779" role="button" target="_blank">
+                <a class="btn btn-large btn-light" href="https://github.com/Red-Fairy/uOCF-webpage" role="button"
+                  target="_blank">
                   <i class="fa fa-file"></i> Paper </a>
               </p>
             </div>
@@ -68,7 +59,7 @@
             </div> -->
             <div class="column">
               <p class="mb-5">
-                <a class="btn btn-large btn-light" href="https://github.com/Red-Fairy/ZeroShotDayNightDA" role="button"
+                <a class="btn btn-large btn-light" href="https://github.com/Red-Fairy/uOCF-webpage" role="button"
                   target="_blank">
                   <i class="fa fa-github-alt"></i> Code </a>
               </p>
@@ -96,78 +87,39 @@
       <div class="col-12 text-center">
         <hr style="margin-top:0px">
         <div class="row justify-content-center" style="align-items:center; display:flex;">
-          <img src="assets/images/teaser.jpg" alt="input" class="img-responsive graph" width="70%" />
+          <img src="assets/images/teaser.png" alt="input" class="img-responsive graph" width="100%" />
           <br>
         </div>
-        <p class="text-justify">
-          In this work, we present a novel similarity min-max framework for zero-shot day-night domain adaptation.
-          On the image level, we generate a synthetic nighttime domain that shares minimum feature similarity with the
-          daytime domain to enlarge the domain gap. On the model level, we learn illumination-robust representations by
-          maximizing the feature similarity of images from the two domains for better model adaptation. Our framework
-          can serve as a plug-and-play remedy to existing daytime models. To verify its effectiveness, we conduct
-          extensive experiments on multiple high-level nighttime vision tasks, including classification, semantic
-          segmentation, visual place recognition, and video action recognition. Results on various benchmarks
-          demonstrate our superiority over the state-of-the-art.
-        </p>
-        <!-- </div> -->
       </div>
     </div>
   </div>
-</section>
-<br>
-
-<section>
-  <div class="container">
-    <div class="row">
-      <div class="col-12 text-center">
-        <!-- Video Section -->
-        <video width="560" height="315" controls>
-          <source src="./assets/videos/video-kiteasy.mp4" type="video/mp4">
-          Your browser does not support the video tag.
-        </video>
-      </div>
-    </div>
   </div>
 </section>
-
-<!-- <section>
-  <div class="container">
-    <div class="row">
-      <div class="col-12 text-center">
-        <iframe width="560" height="315" src="https://www.youtube.com/embed/_Urw6HBjzAk?si=FAur3Ikj-tBFG8p0"
-        title="YouTube video player" frameborder="0"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        allowfullscreen>
-        </iframe>
-      </div>
-    </div>
-  </div>
-</section>
-<br> -->
-
-
 
 <!-- abstract -->
 <section>
   <div class="container">
     <div class="row">
       <div class="col-12">
-        <h2><strong>Abstract</strong></h2>
+        <h3><strong>Abstract</strong></h3>
         <hr style="margin-top:0px">
         <p class="text-justify">
-          Low-light conditions not only hamper human visual experience but also degrade the model's performance on
-          downstream vision tasks. While existing works make remarkable progress on day-night domain adaptation, they
-          rely heavily on domain knowledge derived from the task-specific nighttime dataset. This paper challenges a
-          more complicated scenario with border applicability, <i>i.e.</i>, zero-shot day-night domain adaptation, which
-          eliminates reliance on any nighttime data. Unlike prior zero-shot adaptation approaches emphasizing either
-          image-level translation or model-level adaptation, we propose a similarity min-max paradigm that considers
-          them under a unified framework. On the image level, we darken images towards minimum feature similarity to
-          enlarge the domain gap. Then on the model level, we maximize the feature similarity between the darkened
-          images and their normal-light counterparts for better model adaptation. To the best of our knowledge, this
-          work represents the pioneering effort in jointly optimizing both aspects, resulting in a significant
-          improvement of model generalizability. Extensive experiments demonstrate our method's effectiveness and broad
-          applicability on various nighttime vision tasks, including classification, semantic segmentation, visual place
-          recognition, and video action recognition.
+          We study inferring 3D object-centric scene representations from a single image.
+          While recent methods have shown potential in unsupervised 3D object discovery from simple synthetic images,
+          they fail to generalize to real-world scenes with visually rich and diverse objects.
+          This limitation stems from their object representations, which entangle objects' intrinsic attributes
+          like shape and appearance with extrinsic, viewer-centric properties such as their 3D location.
+          To address this fundamental bottleneck, we propose Unsupervised discovery of Object-Centric neural Fields
+          (uOCF).
+          uOCF focuses on learning the intrinsics of objects and models the extrinsics separately.
+          Our approach significantly improves systematic generalization,
+          thus enabling unsupervised learning of high-fidelity object-centric scene representations from sparse
+          real-world images.
+          To evaluate our approach, we collect three new datasets including two real kitchen environments.
+          Extensive experiments show that uOCF enables unsupervised discovery of visually rich objects from a single
+          real image,
+          allowing applications such as 3D object segmentation and scene manipulation.
+          Impressively, uOCF even demonstrates zero-shot generalizability to unseen, more difficult objects.
         </p>
       </div>
     </div>
@@ -177,116 +129,126 @@
 
 <section>
   <div class="container">
+    <h3><strong>Inferring object representations from single image</strong></h3>
     <div class="row">
-      <div class="col-12">
-        <h2><strong>Method</strong></h2>
-        <hr style="margin-top:0px">
-        <!-- <h3 style="margin-top:20px; margin-bottom:20px; color:#717980"><b>Full pipeline</b></h3> -->
-        <div class="row justify-content-center" style="align-items:center; display:flex;">
-          <img src="assets/images/pipe.jpg" alt="input" class="img-responsive graph" width="95%" />
-        </div>
-        <p class="text-justify">
-          We propose a similarity min-max framework for zero-shot day-night domain adaptation.
-          (a) We first train a darkening module $D$ with a fixed feature extractor to generate <i>synthesized</i>
-          nighttime images that share minimum similarity with their daytime counterparts.
-          (b) After obtaining $D$, we freeze its weights and maximize the day-night feature similarity to adapt the
-          model to nighttime.
-        </p>
+      <!-- First Video -->
+      <div class="col-md-6 text-center">
+        <video width="100%" height="auto" controls>
+          <source src="assets/videos/video-kiteasy.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <!-- Second Video -->
+      <div class="col-md-6 text-center">
+        <video width="100%" height="auto" controls>
+          <source src="assets/videos/video-kithard.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
       </div>
     </div>
   </div>
-  </div>
 </section>
-<br <section>
-<div>
+<br>
+
+<!-- Video -->
+<section>
   <div class="container">
+    <h3><strong>Video</strong></h3>
+    <hr style="margin-top:0px">
     <div class="row">
-      <div class="col-12">
-        <h2><strong>Selected Experimental Results</strong></h2>
-        <hr style="margin-top:0px">
-        <p class="text-justify">
-          <b>Nighttime Semantic Segmentation.</b> Qualitative comparison results for semantic segmentation on
-          Dark-Zurich.
-          Low-light enhancement methods perform poorly on nighttime street scenes. Our method better extracts
-          information hidden by darkness and thus generates more accurate semantic maps.
-        </p>
-        <div class="row justify-content-center" style="align-items:center; display:flex;">
-          <img src="assets/images/segmentation.jpg" alt="input" class="img-responsive graph" width="95%" />
-        </div>
-
-        <p class="text-justify">
-          <b>Visual Place Recognition.</b> For each group, the query image is shown on the left; the first two images
-          (<i>i.e.,</i> two images that have the highest similarity with the query image) are shown on the right.
-          Compared
-          with the baseline model (GeM) that often gets deceived by the nighttime appearance,
-          our model can extract features more robust to illumination and thus retrieve the correct daytime image
-          showing the same scene as the query image.
-        </p>
-        <div class="row justify-content-center" style="align-items:center; display:flex;">
-          <img src="assets/images/retrieval.jpg" alt="input" class="img-responsive graph" width="95%" />
-        </div>
-
-        <p class="text-justify">
-          <b>Low-Light Video Action Recognition.</b> Qualitative comparison results for low-light video action
-          recognition on ARID.
-          All video enhancement methods perform poorly and therefore mislead the classifier, while our adapted model
-          correctly classifies the video with more than 99% confidence.
-        </p>
-        <div class="row justify-content-center" style="align-items:center; display:flex;">
-          <img src="assets/images/action_recognition.jpg" alt="input" class="img-responsive graph" width="95%" />
-        </div>
-
+      <div class="col-12 text-center">
+        <iframe width="560" height="315" src="https://www.youtube.com/embed/_Urw6HBjzAk?si=FAur3Ikj-tBFG8p0"
+          title="YouTube video player" frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen>
+        </iframe>
       </div>
     </div>
   </div>
-</div>
 </section>
 <br>
-<br>
 
-<!--   
-  <section>
-    <div class="container">
-      <div class="row">
-        <div class="col-12">
-          <h2><strong>Language-guided Dexterous Grasping</strong></h2>
-            <hr style="margin-top:0px">
-              <div class="row justify-content-center" style="align-items:center; display:flex;">
-                <img src="assets/images/language.png" alt="input" class="img-responsive graph" width="60%"/>
-              </div>
-              <p class="text-justify">
-                <b>Qualitative results of language-guided grasp proposal selection</b>.
-                CLIP can select proposals complying with the language instruction, 
-                allowing goal-conditioned policy to execute potentially functional grasps.
-              </p>
-            <br>
-        </div>
+<section>
+  <div class="container">
+    <h3><strong>Novel View Synthesis</strong></h3>
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/novel-view-synthesis.png" alt="input" class="img-responsive graph" width="100%" />
+          <br>
         </div>
       </div>
     </div>
-  </section>
-  <br>
-  <br>
+  </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2><strong>Scene segmentation</strong></h2>
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/scene-segmentation.png" alt="input" class="img-responsive graph" width="100%" />
+          <br>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2><strong>Scene segmentation</strong></h2>
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/occlusion/test-gif.gif" alt="input" class="img-responsive graph" width="100%" />
+          <br>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
 
   <section>
     <div class="container">
       <div class="row">
+        <h2><strong>Method</strong></h2>
         <div class="col-12">
-          <h2><strong>Qualitative results</strong></h2>
           <hr style="margin-top:0px">
           <div class="row justify-content-center" style="align-items:center; display:flex;">
-            <img src="assets/images/gallery2.png" alt="input" class="img-responsive graph" width="60%"/>
+            <img src="assets/images/framework.png" alt="input" class="img-responsive graph" width="95%" />
           </div>
+          <p class="text-justify">
+            Our model consists of an encoder, a latent inference module, and a decoder. The encoder extracts features
+            from
+            the input image. The latent inference module infers the objects' latent representations and positions
+            in the underlying 3D scene from the obtained feature map. Finally, the object NeRF decoder decodes the
+            latent representations and positions into the object-centric neural fields and composes them to reconstruct
+            the scene.
+          </p>
           <div class="row justify-content-center" style="align-items:center; display:flex;">
-            <img src="assets/images/gallery.png" alt="input" class="img-responsive graph" width="100%"/>
+            <img src="assets/images/object-centric.png" alt="input" class="img-responsive graph" width="95%" />
           </div>
-        </div>
+          <p class="text-justify">
+            To fully exploit the object-centricity, we propose two training strategies, namely <i>object-centric
+              prior learning</i> and <i>object-centric sampling</i>. For object-centric prior learning, we first train
+            the model on single-object synthetic scenes to learn <i>category-agnostic</i> object priors. Then, we
+            adapt the model on limited real scenes. For object-centric sampling, we drop the samples distant from
+            the predicted object positions to improve reconstruction quality.
+          </p>
         </div>
       </div>
     </div>
-  </section>
-  <br>
-  <br> -->
+</div>
+</section>
 
 <!-- citing -->
 <div class="container">
@@ -296,11 +258,11 @@
       <hr style="margin-top:0px">
       <pre style="background-color: #e9eeef;padding: 0 1.5em">
         <code>
-@inproceedings{luo2023similarity,
-  title={Similarity Min-Max: Zero-Shot Day-Night Domain Adaptation},
-  author={Luo, Rundong and Wang, Wenjing and Yang, Wenhan and Liu, Jiaying},
-  booktitle={ICCV},
-  year={2023},
+@inproceedings{uOCF,
+  title={Unsupervised Discovery of Object-Centric Neural Fields},
+  author={Luo, Rundong and Yu, Hong-Xing and Wu, Jiajun},
+  booktitle={arXiv},
+  year={2024},
 }</code>
       </pre>
     </div>
@@ -316,12 +278,9 @@
       <hr style="margin-top:0px">
       <p>If you have any questions, please feel free to contact us:
       <ul>
-        <li><b>Rundong Luo</b>&colon; rundong_luo<span style="display:none">Prevent spamming</span>@<span
-            style="display:none">Prevent spamming</span>stu.pku.edu.cn </li>
+        <li><b>Rundong Luo</b>&colon; rundongluo2002<span style="display:none">Prevent spamming</span>@<span
+            style="display:none">Prevent spamming</span>gmail.com</li>
       </ul>
-      <p>
-        Group Page: <a href="http://39.96.165.147/struct.html">STRUCT</a>
-      </p>
       </p>
       </pre>
     </div>

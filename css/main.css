@@ -11,6 +11,16 @@
 }
 
 .container {
-	width: 80%;
+	width: 100%;
 	max-width: 800px!important;
+}
+
+.col-1 {
+    flex: 1;
+    max-width: 25%; /* Each column takes up 25% of the row */
+}
+
+img, video {
+    width: 100%;
+    height: auto;
 }
