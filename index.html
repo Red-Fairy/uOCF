@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unsupervised Discovery of Object-Centric Neural Fields</title>
+  <!-- Bootstrap -->
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link href="css/bootstrap-4.4.1.css" rel="stylesheet">
+  <link href="css/main.css" rel="stylesheet">
+  <!-- <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css"> -->
+  <style>
+    body {
+      background: rgb(255, 255, 255) no-repeat fixed top left;
+      font-family: "Inter", 'Open Sans', sans-serif;
+    }
+  </style>
+
+</head>
+
+<!-- cover -->
+<section>
+  <div class="jumbotron text-center mt-0">
+    <div class="container-fluid">
+      <div class="row">
+        <div class="col">
+          <h2 style="font-size:30px;">Unsupervised Discovery of Object-Centric Neural Fields</h2>
+          <h4 style="color:#6e6e6e;"> Under Review </h4>
+          <hr>
+          <!-- <h6>
+            <a class="a2" href="https://red-fairy.github.io/" target="_blank">Rundong Luo*</a><sup>1</sup>&nbsp; &nbsp;
+            <a class="a2" href="https://kovenyu.com/" target="_blank">Hong-Xing Yu*</a><sup>2</sup>&nbsp;
+            &nbsp;
+            <a class="a2" href="https://jiajunwu.com/" target="_blank">Jiajun Wu</a><sup>2</sup>&nbsp; &nbsp;
+            <br>
+            <br>
+
+            <p>
+              <sup>1</sup>Peking University&nbsp; &nbsp;
+              <sup>2</sup>Stanford University&nbsp; &nbsp;
+            </p>
+          </h6> -->
+          <div class="row justify-content-center">
+            <div class="column">
+              <p class="mb-5">
+                <a class="btn btn-large btn-light" href="https://github.com/Red-Fairy/uOCF-webpage" role="button"
+                  target="_blank">
+                  <i class="fa fa-file"></i> Paper </a>
+              </p>
+            </div>
+            <!-- <div class="column">
+              <p class="mb-5">
+                <a class="btn btn-large btn-light" href="./supp.pdf" role="button" target="_blank">
+                  <i class="fa fa-github-alt"></i> Supplementary </a>
+              </p>
+            </div> -->
+            <div class="column">
+              <p class="mb-5">
+                <a class="btn btn-large btn-light" href="https://github.com/Red-Fairy/uOCF-webpage" role="button"
+                  target="_blank">
+                  <i class="fa fa-github-alt"></i> Code </a>
+              </p>
+            </div>
+            <!-- <div class="column">
+                  <p class="mb-5">
+                    <a class="btn btn-large btn-light" href="./index.html" role="button" target="_blank" style="pointer-events: none">
+                <i class="fa fa-github-alt"></i> Dataset (Coming soon) </a> </p>
+              </div> -->
+            <!-- <div class="column">
+                  <p class="mb-5"><a class="btn btn-large btn-light" href="./index.html" role="button" target="_blank" style="pointer-events: none">
+                <i class="fa fa-github-alt"></i> Dataset (Coming soon) </a> </p>
+              </div> -->
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/teaser.png" alt="input" class="img-responsive graph" width="100%" />
+          <br>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<!-- abstract -->
+<section>
+  <div class="container">
+    <div class="row">
+      <div class="col-12">
+        <h3><strong>Abstract</strong></h3>
+        <hr style="margin-top:0px">
+        <p class="text-justify">
+          We study inferring 3D object-centric scene representations from a single image.
+          While recent methods have shown potential in unsupervised 3D object discovery from simple synthetic images,
+          they fail to generalize to real-world scenes with visually rich and diverse objects.
+          This limitation stems from their object representations, which entangle objects' intrinsic attributes
+          like shape and appearance with extrinsic, viewer-centric properties such as their 3D location.
+          To address this fundamental bottleneck, we propose Unsupervised discovery of Object-Centric neural Fields
+          (uOCF).
+          uOCF focuses on learning the intrinsics of objects and models the extrinsics separately.
+          Our approach significantly improves systematic generalization,
+          thus enabling unsupervised learning of high-fidelity object-centric scene representations from sparse
+          real-world images.
+          To evaluate our approach, we collect three new datasets including two real kitchen environments.
+          Extensive experiments show that uOCF enables unsupervised discovery of visually rich objects from a single
+          real image,
+          allowing applications such as 3D object segmentation and scene manipulation.
+          Impressively, uOCF even demonstrates zero-shot generalizability to unseen, more difficult objects.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+<br>
+
+<section>
+  <div class="container">
+    <h3><strong>Inferring object representations from single image</strong></h3>
+    <div class="row">
+      <!-- First Video -->
+      <div class="col-md-6 text-center">
+        <video width="100%" height="auto" controls>
+          <source src="assets/videos/video-kiteasy.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <!-- Second Video -->
+      <div class="col-md-6 text-center">
+        <video width="100%" height="auto" controls>
+          <source src="assets/videos/video-kithard.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+    </div>
+  </div>
+</section>
+<br>
+
+<!-- Video -->
+<section>
+  <div class="container">
+    <h3><strong>Video (Placeholder)</strong></h3>
+    <hr style="margin-top:0px">
+    <div class="row">
+      <div class="col-12 text-center">
+        <iframe width="560" height="315" src="https://www.youtube.com/embed/_Urw6HBjzAk?si=FAur3Ikj-tBFG8p0"
+          title="YouTube video player" frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen>
+        </iframe>
+      </div>
+    </div>
+  </div>
+</section>
+<br>
+
+<section>
+  <div class="container">
+    <h3><strong>Novel View Synthesis</strong></h3>
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/novel-view-synthesis.png" alt="input" class="img-responsive graph" width="100%" />
+          <br>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2><strong>Scene segmentation</strong></h2>
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/scene-segmentation.png" alt="input" class="img-responsive graph" width="100%" />
+          <br>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2><strong>Scene segmentation</strong></h2>
+    <div class="row">
+      <div class="col-12 text-center">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/occlusion/test-gif.gif" alt="input" class="img-responsive graph" width="100%" />
+          <br>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+
+  <section>
+    <div class="container">
+      <div class="row">
+        <h2><strong>Method</strong></h2>
+        <div class="col-12">
+          <hr style="margin-top:0px">
+          <div class="row justify-content-center" style="align-items:center; display:flex;">
+            <img src="assets/images/framework.png" alt="input" class="img-responsive graph" width="95%" />
+          </div>
+          <p class="text-justify">
+            Our model consists of an encoder, a latent inference module, and a decoder. The encoder extracts features
+            from
+            the input image. The latent inference module infers the objects' latent representations and positions
+            in the underlying 3D scene from the obtained feature map. Finally, the object NeRF decoder decodes the
+            latent representations and positions into the object-centric neural fields and composes them to reconstruct
+            the scene.
+          </p>
+          <div class="row justify-content-center" style="align-items:center; display:flex;">
+            <img src="assets/images/object-centric.png" alt="input" class="img-responsive graph" width="95%" />
+          </div>
+          <p class="text-justify">
+            To fully exploit the object-centricity, we propose two training strategies, namely <i>object-centric
+              prior learning</i> and <i>object-centric sampling</i>. For object-centric prior learning, we first train
+            the model on single-object synthetic scenes to learn <i>category-agnostic</i> object priors. Then, we
+            adapt the model on limited real scenes. For object-centric sampling, we drop the samples distant from
+            the predicted object positions to improve reconstruction quality.
+          </p>
+        </div>
+      </div>
+    </div>
+</div>
+</section>
+
+<!-- citing -->
+<!-- <div class="container">
+  <div class="row ">
+    <div class="col-12">
+      <h2><strong>Citation</strong></h2>
+      <hr style="margin-top:0px">
+      <pre style="background-color: #e9eeef;padding: 0 1.5em">
+        <code>
+@inproceedings{uOCF,
+  title={Unsupervised Discovery of Object-Centric Neural Fields},
+  author={Luo, Rundong and Yu, Hong-Xing and Wu, Jiajun},
+  booktitle={arXiv},
+  year={2024},
+}</code>
+      </pre>
+    </div>
+  </div>
+</div>
+<br>
+
+<div class="container">
+  <div class="row ">
+    <div class="col-12">
+      <h2><strong>Contact</strong></h2>
+      <hr style="margin-top:0px">
+      <p>If you have any questions, please feel free to contact us:
+      <ul>
+        <li><b>Rundong Luo</b>&colon; rundongluo2002<span style="display:none">Prevent spamming</span>@<span
+            style="display:none">Prevent spamming</span>gmail.com</li>
+      </ul>
+      </p>
+      </pre>
+    </div>
+  </div>
+</div> -->
+
+
+<!-- <a href="https://hits.seeyoufarm.com">
+  <img id="myImage"
+    src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fpku-epic.github.io%2FUniDexGrasp%2B%2B%2F&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false" />
+  <script>
+    function hideImage() {
+      document.getElementById("myImage").style.display = "none";
+    }
+    window.onload = hideImage;
+  </script>
+</a> -->
+
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      macros: {
+        bm: ["{\\boldsymbol #1}", 1],
+      }
+    }
+  };
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</body>
+
+</html>
