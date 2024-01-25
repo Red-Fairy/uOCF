@@ -11,14 +11,86 @@
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <link href="css/bootstrap-4.4.1.css" rel="stylesheet">
   <link href="css/main.css" rel="stylesheet">
-  <!-- <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css"> -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
     body {
-      background: rgb(255, 255, 255) no-repeat fixed top left;
+      background: #f8f9fa;
+      color: #333;
       font-family: "Inter", 'Open Sans', sans-serif;
     }
-  </style>
 
+    .jumbotron {
+      padding: 40px 0;
+      background-color: #ffffff;
+    }
+
+    h2 {
+      font-size: 30px;
+      font-weight: bold;
+    }
+
+    h3 {
+      font-size: 28px;
+      color: #7a7a7a;
+      margin-top: 1px;
+      margin-bottom: 10px;
+    }
+
+    hr {
+      border-top-color: #bbbbbb;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .container {
+      padding: 0 10px;
+    }
+
+    .row {
+      margin: 0 -20px;
+    }
+
+    .icon-container {
+      display: flex;
+      /* Use flexbox to layout icons */
+      flex-wrap: wrap;
+      /* Allows icons to wrap onto the next line if needed */
+      justify-content: center; 
+      gap: 2px;
+      /* Adds space between icons */
+    }
+
+    .icon {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      background-color: #333;
+      color: white;
+      text-decoration: none;
+      border-radius: 20px;
+      font-family: "Inter", 'Open Sans', sans-serif;
+      font-size: 14px;
+    }
+
+    .icon i {
+      margin-right: 8px;
+    }
+
+    /* Optional: Add this if you want the icons to have a fixed width */
+    .icon {
+      width: 100px;
+      /* Adjust the width as needed */
+      justify-content: center;
+      /* Center the icon and text inside the .icon */
+    }
+
+    /* Hover effect for the icons */
+    .icon:hover {
+      background-color: #555;
+    }
+  </style>
 </head>
 
 <!-- cover -->
@@ -27,9 +99,7 @@
     <div class="container-fluid">
       <div class="row">
         <div class="col">
-          <h3 style="font-size:30px;">Unsupervised Discovery of Object-Centric Neural Fields</h3>
-          <h4 style="color:#6e6e6e;"> Under Review </h4>
-          <hr>
+          <h2 style="font-size:40px;">Unsupervised Discovery of<br>Object-Centric Neural Fields</h2>
           <!-- <h6>
             <a class="a2" href="https://red-fairy.github.io/" target="_blank">Rundong Luo*</a><sup>1</sup>&nbsp; &nbsp;
             <a class="a2" href="https://kovenyu.com/" target="_blank">Hong-Xing Yu*</a><sup>2</sup>&nbsp;
@@ -43,38 +113,17 @@
               <sup>2</sup>Stanford University&nbsp; &nbsp;
             </p>
           </h6> -->
-          <div class="row justify-content-center">
-            <div class="column">
-              <p class="mb-5">
-                <a class="btn btn-large btn-light" href="https://red-fairy.github.io/uOCF-website/" role="button"
-                  target="_blank">
-                  <i class="fa fa-file"></i> Paper </a>
-              </p>
-            </div>
-            <!-- <div class="column">
-              <p class="mb-5">
-                <a class="btn btn-large btn-light" href="./supp.pdf" role="button" target="_blank">
-                  <i class="fa fa-github-alt"></i> Supplementary </a>
-              </p>
-            </div> -->
-            <div class="column">
-              <p class="mb-5">
-                <a class="btn btn-large btn-light" href="https://red-fairy.github.io/uOCF-website/" role="button"
-                  target="_blank">
-                  <i class="fa fa-github-alt"></i> Code </a>
-              </p>
-            </div>
-            <!-- <div class="column">
-                  <p class="mb-5">
-                    <a class="btn btn-large btn-light" href="./index.html" role="button" target="_blank" style="pointer-events: none">
-                <i class="fa fa-github-alt"></i> Dataset (Coming soon) </a> </p>
-              </div> -->
-            <!-- <div class="column">
-                  <p class="mb-5"><a class="btn btn-large btn-light" href="./index.html" role="button" target="_blank" style="pointer-events: none">
-                <i class="fa fa-github-alt"></i> Dataset (Coming soon) </a> </p>
-              </div> -->
+          <h4 style="color:#6e6e6e"> Under Review </h4>
+            <div class="icon-container">
+              <a href="link-to-arXiv" class="icon" id="arxiv"><i class="fa fa-file-alt"></i> arXiv</a>
+              <!-- <a href="link-to-paper" class="icon" id="paper"><i class="fa fa-file"></i> Paper</a>
+              <a href="link-to-supplementary-material" class="icon" id="supp"><i class="fa fa-file-archive"></i>
+                Supp</a>
+              <a href="link-to-code-repository" class="icon" id="code"><i class="fa fa-code"></i> Code</a>
+              <a href="link-to-video" class="icon" id="video"><i class="fa fa-video"></i> Video</a>
+              <a href="link-to-poster" class="icon" id="poster"><i class="fa fa-image"></i> Poster</a>
+              <a href="link-to-slides" class="icon" id="slides"><i class="fa fa-sliders-h"></i> Slides</a> -->
           </div>
-
         </div>
       </div>
     </div>
@@ -216,37 +265,37 @@
   </div>
 </section>
 
-  <section>
-    <div class="container">
-      <div class="row">
-        <h3><strong>Method</strong></h3>
-        <div class="col-12">
-          <hr style="margin-top:0px">
-          <div class="row justify-content-center" style="align-items:center; display:flex;">
-            <img src="assets/images/framework.png" alt="input" class="img-responsive graph" width="95%" />
-          </div>
-          <p class="text-justify">
-            Our model consists of an encoder, a latent inference module, and a decoder. The encoder extracts features
-            from
-            the input image. The latent inference module infers the objects' latent representations and positions
-            in the underlying 3D scene from the obtained feature map. Finally, the object NeRF decoder decodes the
-            latent representations and positions into the object-centric neural fields and composes them to reconstruct
-            the scene.
-          </p>
-          <div class="row justify-content-center" style="align-items:center; display:flex;">
-            <img src="assets/images/object-centric.png" alt="input" class="img-responsive graph" width="95%" />
-          </div>
-          <p class="text-justify">
-            To fully exploit the object-centricity, we propose two training strategies, namely <i>object-centric
-              prior learning</i> and <i>object-centric sampling</i>. For object-centric prior learning, we first train
-            the model on single-object synthetic scenes to learn <i>category-agnostic</i> object priors. Then, we
-            adapt the model on limited real scenes. For object-centric sampling, we drop the samples distant from
-            the predicted object positions to improve reconstruction quality.
-          </p>
+<section>
+  <div class="container">
+    <div class="row">
+      <h3><strong>Method</strong></h3>
+      <div class="col-12">
+        <hr style="margin-top:0px">
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/framework.png" alt="input" class="img-responsive graph" width="95%" />
         </div>
+        <p class="text-justify">
+          Our model consists of an encoder, a latent inference module, and a decoder. The encoder extracts features
+          from
+          the input image. The latent inference module infers the objects' latent representations and positions
+          in the underlying 3D scene from the obtained feature map. Finally, the object NeRF decoder decodes the
+          latent representations and positions into the object-centric neural fields and composes them to reconstruct
+          the scene.
+        </p>
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/object-centric.png" alt="input" class="img-responsive graph" width="95%" />
+        </div>
+        <p class="text-justify">
+          To fully exploit the object-centricity, we propose two training strategies, namely <i>object-centric
+            prior learning</i> and <i>object-centric sampling</i>. For object-centric prior learning, we first train
+          the model on single-object synthetic scenes to learn <i>category-agnostic</i> object priors. Then, we
+          adapt the model on limited real scenes. For object-centric sampling, we drop the samples distant from
+          the predicted object positions to improve reconstruction quality.
+        </p>
       </div>
     </div>
-</div>
+  </div>
+  </div>
 </section>
 
 <!-- citing -->
