@@ -1,0 +1,3 @@
+[submodule "uOCF-website"]
+	path = uOCF-website
+	url = git@github.com:Red-Fairy/uOCF-website.git
