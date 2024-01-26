@@ -33,10 +33,10 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 56 --start
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
     --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
-    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/kitchen_hard/1211-DINONormModMLP/4obj-load' \
+    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/kitchen-hard/1225-DINONormModMLP/4obj-load-single-r2' \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
     --camera_modulation --camera_normalize --scaled_depth --depth_scale 12.2 --bg_rotate \
-    --vis_attn --vis_render_mask --recon_only \
+    --vis_attn --vis_render_mask --recon_only --vis_disparity \
     --dummy_info '' --testset_name 'test4obj_load128' \
 
 

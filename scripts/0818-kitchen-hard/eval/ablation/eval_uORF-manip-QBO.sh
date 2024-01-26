@@ -34,7 +34,7 @@ CUDA_VISIBLE_DEVICES=1 python test.py --dataroot $DATAROOT --n_scenes 35 --n_img
     --fixed_locality --learnable_slot_init \
     --manipulate_mode 'translation' --no_loss \
     --wanted_indices '21' \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-hard/uORF-4obj-intrinsics-QBO' \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/kitchen-hard/uORF-4obj-intrinsics-QBO' \
     --attn_iter 3 --testset_name 'translation'  \
 
 echo "Done"

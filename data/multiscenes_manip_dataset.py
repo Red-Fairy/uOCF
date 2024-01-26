@@ -17,6 +17,7 @@ class MultiscenesManipDataset(BaseDataset):
         parser.set_defaults(input_nc=3, output_nc=3)
         parser.add_argument('--start_scene_idx', type=int, default=0, help='start scene index')
         parser.add_argument('--n_scenes', type=int, default=1000, help='dataset length is #scenes')
+        parser.add_argument('--encoder_size', type=int, default=256, help='encoder size')
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
         parser.add_argument('--mask_size', type=int, default=128)
@@ -192,6 +193,9 @@ class MultiscenesManipDataset(BaseDataset):
     def __len__(self):
         """Return the total number of images in the dataset."""
         return self.n_scenes
+
+    def set_epoch(self, epoch):
+        pass
 
 
 def collate_fn(batch):

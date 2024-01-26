@@ -37,6 +37,8 @@ class BaseOptions():
 		parser.add_argument('--batch_size', type=int, default=1, help='input batch size')
 		parser.add_argument('--load_size', type=int, default=286, help='scale images to this size')
 		parser.add_argument('--max_dataset_size', type=int, default=float("inf"), help='Maximum number of samples allowed per dataset. If the dataset directory contains more than max_dataset_size, only a subset is loaded.')
+		parser.add_argument('--white_bkgd', action='store_true', help='use white background')
+
 		# additional parameters
 		parser.add_argument('--epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
 		parser.add_argument('--load_iter', type=int, default='0', help='which iteration to load? if load_iter > 0, the code will load models by iter_[load_iter]; otherwise, the code will load models by [epoch]')
@@ -88,24 +90,27 @@ class BaseOptions():
 		parser.add_argument('--num_anchors', type=int, default=4, help='Number of supported anchors')
 		parser.add_argument('--attn_momentum', type=float, default=0.5, help='momentum in slot attention')
 		parser.add_argument('--attn_dropout', type=float, default=0, help='dropout rate in slot attention')
-		parser.add_argument('--pos_init', type=str, choices=['random', 'learnable', 'zero'], default='random', help='position initialization')
+		parser.add_argument('--pos_init', type=str, choices=['random', 'learnable', 'zero'], default='zero', help='position initialization')
 		parser.add_argument('--global_bg_feature', action='store_true', help='use global background feature')
 		parser.add_argument('--bg_rotate', action='store_true', help='rotate background in decoder')
 		parser.add_argument('--camera_modulation', action='store_true', help='use camera modulation in the slot attention')
 		parser.add_argument('--enc_kernel_size', type=int, default=3, help='encoder kernel size')
 		parser.add_argument('--enc_mode', type=str, choices=['sum', 'stack'], default='sum', help='encoder mode for MultiDINOStackEncoder')
-		parser.add_argument('--enc_add_relu', action='store_false', help='add relu after encoder')
 		parser.add_argument('--dec_mlp_act', type=str, choices=['relu', 'silu'], default='relu', help='activation function in decoder mlp')
-		parser.add_argument('--dec_density_act', type=str, choices=['relu', 'exp'], default='relu', help='activation function in decoder density')
+		parser.add_argument('--dec_density_act', type=str, choices=['relu', 'softplus'], default='relu', help='activation function in decoder density')
 		# parser.add_argument('--decoder_rotate_z', action='store_true', help='only rotate around the z-axis when rendering foreground objects')
 
 		# uOCF - predict depth
 		parser.add_argument('--scaled_depth', action='store_true', help='predict depth')
 		parser.add_argument('--depth_scale_pred', action='store_true', help='predict depth scale')
+		parser.add_argument('--depth_scale_param', type=float, default=4., help='depth scale prediction parameter')
 		parser.add_argument('--depth_scale_pred_in', type=int, default=0, help='pred scale starts from epoch x')
-		parser.add_argument('--depth_scale', type=float, default=4.0, help='depth scale')
+		parser.add_argument('--depth_scale', type=float, default=None, help='depth scale')
 		parser.add_argument('--remove_duplicate', action='store_true', help='remove duplicate slots')
 		parser.add_argument('--remove_duplicate_in', type=int, default=0, help='remove duplicate starts from epoch x')
+
+		# uOCF - triplane
+		parser.add_argument('--triplane_dim', type=int, default=40, help='triplane dimension')
 		
 		self.initialized = True
 		return parser

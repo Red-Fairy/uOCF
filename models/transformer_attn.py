@@ -1,13 +1,9 @@
 import math
-from os import X_OK
-
-from .op import conv2d_gradfix
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.nn import init
 from torchvision.models import vgg16
-from torch import autograd
 from models.model_general import InputPosEmbedding
 from .utils import PositionalEncoding, build_grid
 
@@ -406,8 +402,8 @@ class AdaLN(nn.Module):
 class SlotAttentionTransformer(nn.Module):
 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8,
 		  learnable_pos=True, n_feats=64*64, global_feat=False, 
-		  momentum=0.5, pos_init='learnable', depth_scale_pred=False,
-		  camera_dim=5, camera_modulation=False):
+		  momentum=0.5, pos_init='learnable', depth_scale_pred=False, depth_scale_param=2,
+		  camera_dim=5, camera_modulation=False, ):
 		super().__init__()
 		self.num_slots = num_slots
 		self.iters = iters
@@ -430,9 +426,10 @@ class SlotAttentionTransformer(nn.Module):
 		
 		self.depth_scale_pred = depth_scale_pred
 		if depth_scale_pred:
-			self.scale_bias = nn.Sequential(nn.Linear(2+camera_dim, 1), nn.Tanh()) # range (-1, 1)
+			self.scale_bias = nn.Sequential(nn.Linear(2+camera_dim+slot_dim+color_dim, 1), nn.Tanh()) # range (-1, 1)
 			self.scale_bias[0].weight.data.zero_()
 			self.scale_bias[0].bias.data.zero_()
+			self.depth_scale_param = depth_scale_param
 
 		self.to_kv = EncoderPosEmbedding(in_dim, slot_dim)
 
@@ -552,11 +549,6 @@ class SlotAttentionTransformer(nn.Module):
 				if self.learnable_pos: # add a bias term
 					fg_position = fg_position + self.attn_to_pos_bias(attn_weights_fg) * 0.1 # (B,K-1,2)
 					# fg_position = fg_position.clamp(-1, 1) # (B,K-1,2)
-				
-				if self.depth_scale_pred:
-					fg_depth_scale = self.scale_bias(torch.cat([fg_position, camera_modulation.unsqueeze(1).repeat(1, fg_position.shape[1], 1)], dim=-1)) / 4 + 1 # (B,K-1,1)
-				else:
-					fg_depth_scale = torch.ones(B, K-1-n_remove, 1, device=feat.device)
 					
 				if feat_color is not None:
 					# calculate slot color feature
@@ -572,6 +564,11 @@ class SlotAttentionTransformer(nn.Module):
 		if feat_color is not None:
 			slot_fg = torch.cat([slot_fg, slot_fg_color], dim=-1) # (B,K-1,C+C')
 			slot_bg = torch.cat([slot_bg, slot_bg_color], dim=-1) # (B,1,C+C')
+
+		if self.depth_scale_pred:
+			fg_depth_scale = self.scale_bias(torch.cat([fg_position, camera_modulation.unsqueeze(1).repeat(1, fg_position.shape[1], 1), slot_fg], dim=-1)) / self.depth_scale_param + 1 # (B,K-1,1)
+		else:
+			fg_depth_scale = torch.ones(B, K-1-n_remove, 1, device=feat.device)
 			
 		slots = torch.cat([slot_bg, slot_fg], dim=1) # (B,K,C+C')
 		
@@ -599,27 +596,28 @@ class DecoderIPE(nn.Module):
 		assert self.fixed_locality == True
 		self.out_ch = 4
 		self.z_dim = z_dim
-		before_skip = [nn.Linear(input_dim, z_dim),nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
-		after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
+		activation_mlp = self._build_activation(mlp_act)
+		before_skip = [nn.Linear(input_dim, z_dim), activation_mlp()]
+		after_skip = [nn.Linear(z_dim+input_dim, z_dim), activation_mlp()]
 		for i in range(n_layers-1):
 			before_skip.append(nn.Linear(z_dim, z_dim))
-			before_skip.append(nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True))
+			before_skip.append(activation_mlp())
 			after_skip.append(nn.Linear(z_dim, z_dim))
-			after_skip.append(nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True))
+			after_skip.append(activation_mlp())
 		self.f_before = nn.Sequential(*before_skip)
 		self.f_after = nn.Sequential(*after_skip)
 		self.f_after_latent = nn.Linear(z_dim, z_dim)
 		self.f_after_shape = nn.Linear(z_dim, self.out_ch - 3)
 		self.f_color = nn.Sequential(nn.Linear(z_dim, z_dim//4),
-									 nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True),
+									 activation_mlp(),
 									 nn.Linear(z_dim//4, 3))
-		before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
-		after_skip = [nn.Linear(z_dim + input_dim, z_dim), nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True)]
+		before_skip = [nn.Linear(input_dim, z_dim), activation_mlp()]
+		after_skip = [nn.Linear(z_dim + input_dim, z_dim), activation_mlp()]
 		for i in range(n_layers - 1):
 			before_skip.append(nn.Linear(z_dim, z_dim))
-			before_skip.append(nn.ReLU(True) if mlp_act == 'relu' else nn.SiLU(True))
+			before_skip.append(activation_mlp())
 			after_skip.append(nn.Linear(z_dim, z_dim))
-			after_skip.append(nn.ReLU(True)	if mlp_act == 'relu' else nn.SiLU(True))
+			after_skip.append(activation_mlp())
 		after_skip.append(nn.Linear(z_dim, self.out_ch))
 		self.b_before = nn.Sequential(*before_skip)
 		self.b_after = nn.Sequential(*after_skip)
@@ -628,10 +626,10 @@ class DecoderIPE(nn.Module):
 
 		if density_act == 'relu':
 			self.density_act = torch.relu
-		elif density_act == 'exp':
-			self.density_act = torch.exp
+		elif density_act == 'softplus':
+			self.density_act = torch.nn.functional.softplus
 		else:
-			assert False, 'density_act should be relu or silu'
+			assert False, 'density_act should be relu or softplus'
 
 	def processQueries(self, mean, var, fg_transform, fg_slot_position, z_fg, z_bg, fg_object_size=None,
 					rel_pos=True, bg_rotate=False):
@@ -750,6 +748,7 @@ class DecoderIPE(nn.Module):
 		
 		tmp = self.b_before(input_bg)
 		bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P*D, self.out_ch])  # (P*D)x4 -> 1x(P*D)x4
+		bg_raws = torch.cat([bg_raws[...,:-1], self.density_act(bg_raws[..., -1:])], dim=-1)
 
 		tmp = self.f_before(input_fg)
 		tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # Mx64
@@ -762,18 +761,22 @@ class DecoderIPE(nn.Module):
 		fg_raw_rgb = fg_raw_rgb_full.view([K-1, P*D, 3])  # ((K-1)xP*D)x3 -> (K-1)x(P*D)x3
 
 		fg_raw_shape = self.f_after_shape(tmp) # Mx1
-		if add_blob: # add a gaussian pdf 5 * exp(-||mean||^2 / 2 * 0.2^2), (with no gradient)
-			with torch.no_grad():
-				blob = 5 * torch.exp(-torch.norm(fg_means, dim=-1, keepdim=True) ** 2 / 2 / 0.2 ** 2)
-			fg_raw_shape = fg_raw_shape + blob.detach()
+		# if add_blob: # add a gaussian pdf 5 * exp(-||mean||^2 / 2), (with no gradient)
+		# 	with torch.no_grad():
+		# 		blob = 5 * torch.exp(-torch.norm(fg_means, dim=-1, keepdim=True) ** 2 / 2)
+		# 	fg_raw_shape = fg_raw_shape + blob.detach()
+		# fill with -inf
+		# fg_raw_shape_full = torch.nan_to_num(torch.full((K-1)*P*D, float('-inf'), device=fg_raw_shape.device, dtype=fg_raw_shape.dtype))
 		fg_raw_shape_full = torch.zeros((K-1)*P*D, 1, device=fg_raw_shape.device, dtype=fg_raw_shape.dtype) # ((K-1)xP*D)x1
-		fg_raw_shape_full[idx] = fg_raw_shape
+		# fg_raw_shape_full[idx] = fg_raw_shape
+		fg_raw_shape_full[idx] = self.density_act(fg_raw_shape)
 		fg_raw_shape = fg_raw_shape_full.view([K - 1, P*D])  # ((K-1)xP*D)x1 -> (K-1)x(P*D), density
 
 		fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)x(P*D)x4
 
 		all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # Kx(P*D)x4
-		raw_masks = self.density_act(all_raws[:, :, -1:])  # Kx(P*D)x1
+		raw_masks = all_raws[..., -1:]
+		# raw_masks = self.density_act(all_raws[:, :, -1:])  # Kx(P*D)x1
 		# raw_masks = F.relu(all_raws[:, :, -1:], True)  # Kx(P*D)x1
 		masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # Kx(P*D)x1
 
@@ -788,6 +791,16 @@ class DecoderIPE(nn.Module):
 		raws = masked_raws.sum(dim=0)
 
 		return raws, masked_raws, unmasked_raws, masks
+
+	def _build_activation(self, options):
+		if options == 'softplus':
+			return nn.Softplus
+		elif options == 'relu':
+			return nn.ReLU
+		elif options == 'silu':
+			return nn.SiLU
+		else:
+			assert False, 'activation should be softplus or relu'
 
 # class SlotAttentionTFAnchor(nn.Module):
 # 	def __init__(self, num_slots, in_dim=64, slot_dim=64, color_dim=8, iters=4, eps=1e-8, hidden_dim=128,

@@ -78,11 +78,11 @@ class uocfDualDINOOCTModel(BaseModel):
 		parser.add_argument('--fg_density_loss', action='store_true', help='use density loss for the foreground slot')
 		parser.add_argument('--bg_density_loss', action='store_true', help='use density loss for the background slot')
 		parser.add_argument('--bg_density_in', type=int, default=0, help='when to start the background density loss')
-		parser.add_argument('--bg_penalize_plane', type=int, default=8, help='penalize the background slot if it is too close to the plane')
+		parser.add_argument('--bg_penalize_plane', type=float, default=8, help='penalize the background slot if it is too close to the plane')
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
 		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
-		parser.add_argument('--depth_in', type=int, default=1000, help='when to start the depth supervision')
+		parser.add_argument('--depth_in', type=int, default=0, help='when to start the depth supervision')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -328,7 +328,7 @@ class uocfDualDINOOCTModel(BaseModel):
 										frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
-			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in) or self.opt.vis_mask:
+			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in):
 				self.pseudo_mask = F.interpolate(self.pseudo_mask, size=self.opt.supervision_size, mode='nearest')
 			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = F.interpolate(self.disparity, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
@@ -351,7 +351,7 @@ class uocfDualDINOOCTModel(BaseModel):
 			mean_, var_ = mean[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...], var[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...]
 			mean, var, z_vals, ray_dir = mean_.flatten(0, 2), var_.flatten(0, 2), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
-			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in) or self.opt.vis_mask:
+			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in):
 				self.pseudo_mask = self.pseudo_mask[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
 				disparity = self.disparity[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
@@ -362,7 +362,8 @@ class uocfDualDINOOCTModel(BaseModel):
 		fg_object_size = self.opt.fg_object_size / self.opt.nss_scale if epoch >= self.opt.dense_sample_epoch else None
 
 		# scaled depth
-		slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale * fg_depth_scale
+		depth_scale = self.opt.depth_scale if self.opt.depth_scale is not None else torch.norm(cam2world_viewer[:3, 3:4])
+		slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * depth_scale * fg_depth_scale
 		fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics[0], 
 												nss_scale=self.opt.nss_scale, depth=slot_depth) # Kx3
 
@@ -497,17 +498,17 @@ class uocfDualDINOOCTModel(BaseModel):
 				mask_slot_maps = torch.zeros(self.opt.num_slots, N, H, W).to(self.device)
 				for k in range(self.num_slots): # render mask for each slot
 					raws_slot = unmasked_raws[k].flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-					rgb_map, depth_map, _, mask_map = raw2outputs(raws_slot, z_vals, ray_dir, render_mask=True, mip=True) # (NxHxW)x3, (NxHxW), _, (NxHxW)
-					if self.opt.pseudo_mask_mode == 'density':
-						mask_slot_maps[k] = mask_map.view(N, H, W) # mask_map's entries are non-negative
-					elif self.opt.pseudo_mask_mode == 'depth':
-						mask_slot_maps[k] = -depth_map.view(N, H, W) # closer to the camera, smaller depth, larger mask value
-
+					rgb_map, _, _, mask_map = raw2outputs(raws_slot, z_vals, ray_dir, render_mask=True, mip=True) # (NxHxW)x3, (NxHxW), _, (NxHxW)
+					mask_slot_maps[k] = mask_map.view(N, H, W) # mask_map's entries are non-negative
 				mask_idx = mask_slot_maps.cpu().argmax(dim=0)  # NxHxW
-				colors = sns.color_palette('hls', self.num_slots-1)
-				colors = torch.cat([torch.tensor([0., 0., 0.]).view([1, 3]), torch.tensor(colors)], dim=0).to(self.device)  # Kx3
+				color_palette = sns.color_palette('hls', self.num_slots-1)
+				colors = torch.cat([torch.tensor([0., 0., 0.]).view([1, 3]), torch.tensor(color_palette)], dim=0).to(self.device)  # Kx3
 				mask_visuals = colors[mask_idx]  # NxHxWx3
 
+				for i in range(N):
+					setattr(self, 'mask_render{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]))
+
+			if self.opt.pseudo_mask_loss:
 				uniques = torch.unique(self.pseudo_mask)
 				n_color_pseudo = uniques.shape[0]
 				colors_pseudo = torch.tensor(sns.color_palette('hls', n_color_pseudo-1))
@@ -515,9 +516,7 @@ class uocfDualDINOOCTModel(BaseModel):
 				pseudo_mask_visuals = torch.zeros(N, H, W, 3).to(self.device) # build a mapping from pseudo mask to color
 				for i in range(n_color_pseudo):
 					pseudo_mask_visuals[self.pseudo_mask.squeeze(1) == uniques[i]] = colors_pseudo[i]
-
 				for i in range(N):
-					setattr(self, 'mask_render{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]) * 2 - 1)
 					setattr(self, 'mask_pseudo{}'.format(i), pseudo_mask_visuals[i, ...].permute([2, 0, 1]) * 2 - 1)
 
 	def backward(self):
@@ -592,21 +591,6 @@ class uocfDualDINOOCTModel(BaseModel):
 					# step the optimizer for self.opt.epoch_count * self.opt.n_scenes times
 					for _ in range(self.opt.epoch_count * self.opt.n_scenes):
 						sch.step()
-
-			# for i, opm in enumerate(self.optimizers):
-			# 	load_filename = '{}_optimizer_{}.pth'.format(surfix, i)
-			# 	load_path = os.path.join(self.save_dir, load_filename)
-			# 	print('loading the optimizer from %s' % load_path)
-			# 	state_dict = torch.load(load_path, map_location=str(self.device))
-			# 	opm.load_state_dict(state_dict)
-
-			# for i, sch in enumerate(self.schedulers):
-			# 	load_filename = '{}_lr_scheduler_{}.pth'.format(surfix, i)
-			# 	load_path = os.path.join(self.save_dir, load_filename)
-			# 	print('loading the lr scheduler from %s' % load_path)
-			# 	state_dict = torch.load(load_path, map_location=str(self.device))
-			# 	sch.load_state_dict(state_dict)
-
 
 if __name__ == '__main__':
 	pass

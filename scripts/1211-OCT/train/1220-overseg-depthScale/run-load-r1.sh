@@ -41,7 +41,6 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 3000 --n_img_each_sc
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' --one2four \
     --camera_normalize --camera_modulation --bg_rotate \
     --depth_scale_pred --scaled_depth --depth_scale 4 \
-    --pseudo_mask_loss --pseudo_mask_in 50 --vis_mask \
     --remove_duplicate --remove_duplicate_in 10 \
     --continue_train --epoch_count 99 \
     --exp_id '1202-overseg-predScale/load-oldckpt-removeDup' \

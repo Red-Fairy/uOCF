@@ -34,6 +34,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 24 --n_img
     --fixed_locality \
     --manipulate_mode 'translation' --no_loss \
     --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-hard/uORF-4obj-intrinsics' \
+    --wanted_indices '6' \
     --attn_iter 3 --testset_name 'translation'  \
 
 echo "Done"

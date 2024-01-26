@@ -32,21 +32,29 @@ set_seed(opt.seed)
 suffix = ''
 
 remove = False
-remove_obj_idx = [0, 1, 2, 3]
+remove_obj_idx = [0]
 
 translate = False
 r = 0.36
-bias = torch.tensor([-0.1, 0, 0]).to(model.device)
-# translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
-translate_dst = torch.tensor([[-r, 0, 0], [r, 0, 0], [0, -r, 0], [0, r, 0]]).to(model.device) + bias
 
-# translate_dst = torch.tensor([[0, 0, 0], [-0.025, -0.015, 0.2], [-0.02, -0.02, 0.14], [-0.02, -0.02, 0.08]]).to(model.device) + bias
-translate_dst = torch.tensor([[-0.15, 0.15, 0], [0.15, -0.15, 0], [-0.15, 0.15, 0.05], [0.14, -0.16, 0.05]]).to(model.device) + bias
+# bias = torch.tensor([-0.15, -0.1, 0]).to(model.device)
+# translate_dst = torch.tensor([[0, r, 0], [0, -r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias # kitchen-easy, scene 97
+
+bias = torch.tensor([-0.1, 0, 0]).to(model.device)
+translate_dst = torch.tensor([[0, r, 0], [r, 0, 0], [0, -r, 0], [-r, 0, 0]]).to(model.device) + bias # kitchen-hard, scene 6
+
+top = False
+# translate_dst_top = torch.tensor([[0, 0, 0], [-0.025, -0.015, 0.2], [-0.02, -0.02, 0.14], [-0.02, -0.02, 0.08]]).to(model.device) + bias
+# translate_dst_top = torch.tensor([[-0.15, 0.15, 0], [0.15, -0.15, 0], [-0.15, 0.15, 0.05], [0.14, -0.16, 0.05]]).to(model.device) + bias
+translate_dst_top = torch.tensor([[-0.01, 0., 0.13], [0, 0., 0.05], [0.033, 0.045, 0.21], [0, 0, 0]]).to(model.device) + bias # kithard, scene 6
+# translate_dst_top = torch.tensor([[-0.15, 0.15, 0], [0.15, -0.15, 0], [-0.15, 0.11, 0.12], [0.14, -0.20, 0.08]]).to(model.device) + bias # kiteasy, scene 97
 
 if remove:
 	suffix += f'_remove_obj_{"_".join([str(idx) for idx in remove_obj_idx])}'
 if translate:
-	suffix += '_translate_top'
+	suffix += '_translate'
+if top:
+	suffix += '_translate3_top'
 
 wanted_indices = parse_wanted_indice(opt.wanted_indices)
 
@@ -58,7 +66,7 @@ for j, data in enumerate(dataset):
 	print('Visualizing scene No.: ', j)
 
 	web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
-							f'{opt.testset_name}/scene{j}_{opt.video_mode}{suffix}')  # define the website directory
+							f'{opt.testset_name}_{opt.epoch}/scene{j}_{opt.video_mode}{suffix}')  # define the website directory
 	print('creating web directory', web_dir)
 	webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
@@ -74,6 +82,10 @@ for j, data in enumerate(dataset):
 			model.fg_slot_nss_position = translate_dst
 			model.forward_position()
 
+		if top:
+			model.fg_slot_nss_position = translate_dst_top
+			model.forward_position()
+
 		if remove:
 			num_slots = opt.num_slots if opt.n_objects_eval is None else opt.n_objects_eval
 			for idx in remove_obj_idx:
@@ -83,6 +95,8 @@ for j, data in enumerate(dataset):
 		model.compute_visuals()
 		visuals = model.get_current_visuals()
 		save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size)
+
+		exit()
 
 		cam2world_input = model.cam2world[0:1].cpu()
 		radius = torch.sqrt(torch.sum(cam2world_input[:, :3, 3] ** 2, dim=1))
@@ -95,11 +109,10 @@ for j, data in enumerate(dataset):
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
 		elif opt.video_mode == 'spiral':
 			# kiteasy
-			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(0, -1.5))
+			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.5, 0.7), origin=(-1., -1.5, 0.))
 			# 0.5-0.7 (0, -2)
 			# kithard
-			# cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.8, 1.0), origin=(0., -1.))
-			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy - np.pi / 8, angle_xy + np.pi / 8), 30, height_range=(0.9, 1.1), radius_range=(1.0, 1.0), origin=(0., 0.))
+			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi / 3), 60, height_range=(0.9, 1.1), radius_range=(0.8, 1.0), origin=(-1., -1., 0.))
 		else:
 			assert False
 
@@ -118,22 +131,22 @@ for j, data in enumerate(dataset):
 			visuals = model.get_current_visuals()
 			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
 
-		resolution = (opt.frustum_size, opt.frustum_size)
+		# resolution = (opt.frustum_size, opt.frustum_size)
 
-		video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 60, resolution)
-		visual_image_paths = list(filter(lambda x: 'rec0' in x and 'disparity' not in x, glob(os.path.join(web_dir, 'images', '*.png'))))
-		visual_image_paths.sort()
-		for visual_image_path in visual_image_paths:
-			img = cv2.imread(visual_image_path)
-			video_writer.write(img)
-		video_writer.release()
+		# video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 60, resolution)
+		# visual_image_paths = list(filter(lambda x: 'rec0' in x and 'disparity' not in x, glob(os.path.join(web_dir, 'images', '*.png'))))
+		# visual_image_paths.sort()
+		# for visual_image_path in visual_image_paths:
+		# 	img = cv2.imread(visual_image_path)
+		# 	video_writer.write(img)
+		# video_writer.release()
 
-		video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered_disparity.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 60, resolution)
-		# render disparity map if opt.vis_disparity is True
-		if opt.vis_disparity:
-			visual_image_paths = list(filter(lambda x: 'disparity_rec0' in x, glob(os.path.join(web_dir, 'images', '*.png'))))
-			visual_image_paths.sort()
-			for visual_image_path in visual_image_paths:
-				img = cv2.imread(visual_image_path)
-				video_writer.write(img)
-		video_writer.release()
+		# video_writer = cv2.VideoWriter(os.path.join(web_dir, 'rendered_disparity.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 60, resolution)
+		# # render disparity map if opt.vis_disparity is True
+		# if opt.vis_disparity:
+		# 	visual_image_paths = list(filter(lambda x: 'disparity_rec0' in x, glob(os.path.join(web_dir, 'images', '*.png'))))
+		# 	visual_image_paths.sort()
+		# 	for visual_image_path in visual_image_paths:
+		# 		img = cv2.imread(visual_image_path)
+		# 		video_writer.write(img)
+		# video_writer.release()

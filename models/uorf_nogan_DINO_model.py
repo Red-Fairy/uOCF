@@ -142,6 +142,8 @@ class uorfNoGanDINOModel(BaseModel):
 		self.cam2world = input['cam2world'].to(self.device)
 		if not self.opt.fixed_locality:
 			self.cam2world_azi = input['azi_rot'].to(self.device)
+		if 'intrinsics' in input:
+			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -180,7 +182,7 @@ class uorfNoGanDINOModel(BaseModel):
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
 		if self.opt.stage == 'coarse':
-			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world)
+			frus_nss_coor, z_vals, ray_dir = self.projection.construct_sampling_coor(cam2world, intrinsics=self.intrinsics)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
@@ -188,7 +190,7 @@ class uorfNoGanDINOModel(BaseModel):
 			W, H, D = self.opt.frustum_size_fine, self.opt.frustum_size_fine, self.opt.n_samp
 			start_range = self.opt.frustum_size_fine - self.opt.render_size
 			rs = self.opt.render_size
-			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world)
+			frus_nss_coor, z_vals, ray_dir = self.projection_fine.construct_sampling_coor(cam2world, intrinsics=self.intrinsics)
 			# (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 			frus_nss_coor, z_vals, ray_dir = frus_nss_coor.view([N, D, H, W, 3]), z_vals.view([N, H, W, D]), ray_dir.view([N, H, W, 3])
 			H_idx = torch.randint(low=0, high=start_range, size=(1,), device=dev)

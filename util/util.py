@@ -401,11 +401,48 @@ class GroupMeters(object):
 		else:
 			meters_kv = values
 		return meters_kv
-	
-import numpy as np
-import torch
 
-def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range=(0.8, 1.25), radius_range=(1., 1.), origin=(0, 0)):
+def gen_cam2world(cam_pos, origin=(0,0,0)):
+	'''
+	cam_pos: 3D position of the camera
+	origin: 3D position of the origin
+	'''
+	x, y, z = cam_pos
+
+	# Calculte the cam2world matrix for the camera positioned at (x, y, z), pointing at (origin[0], origin[1], origin[2])
+	forward_direction = torch.tensor([origin[0]-x, origin[1]-y, origin[2]-z], dtype=torch.float32)
+	forward_direction = forward_direction / torch.norm(forward_direction)
+
+	# world up vector is (0, 1, 0)
+	# up_direction = torch.tensor([x*z/(x**2 + y**2), y*z/(x**2 + y**2), -1], dtype=torch.float32)
+	up_direction = torch.tensor([(x-origin[0])*(z-origin[2])/((x-origin[0])**2 + (y-origin[1])**2), (y-origin[1])*(z-origin[2])/((x-origin[0])**2 + (y-origin[1])**2), -1], dtype=torch.float32)
+	up_direction = up_direction / torch.norm(up_direction)
+	right_direction = torch.cross(up_direction, forward_direction)
+
+	# Construct the cam2world matrix
+	rotation_matrix = torch.stack([right_direction, up_direction, forward_direction], dim=1)
+	# flip the y axis (we use left hand coordinate system)
+	# rotation_matrix[:, 1] = -rotation_matrix[:, 1]
+	translation_vector = torch.tensor([x, y, z], dtype=torch.float32).view(3, 1)
+	cam2world_matrix = torch.cat([rotation_matrix, translation_vector], dim=1)
+	cam2world_matrix = torch.cat([cam2world_matrix, torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)], dim=0) # [4, 4]
+
+	return cam2world_matrix
+
+def get_cam2world_from_path(path, n_views, origin=(0,0,0)):
+    cam2world_input = torch.from_numpy(np.loadtxt(path))
+    x, y, z = cam2world_input[0, 3], cam2world_input[1, 3], cam2world_input[2, 3]
+    radius_xy, azimuth_xy = torch.sqrt(x ** 2 + y ** 2).item(), torch.atan2(y, x).item()
+
+    n_azimuths = n_views
+    azimuths = torch.linspace(0, 2*np.pi, n_azimuths+1)[:-1] + azimuth_xy
+    # generate camera positions
+    cam_positions = torch.stack([radius_xy * torch.cos(azimuths), radius_xy * torch.sin(azimuths), z * torch.ones(n_azimuths)], dim=1)
+    # generate cam2world matrices
+    cam2world_matrices = torch.stack([gen_cam2world(cam_positions[i]) for i in range(n_azimuths)], dim=0)
+    return cam2world_matrices
+
+def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radians=True, height_range=(0.8, 1.25), radius_range=(1., 1.), origin=(0, 0, 0)):
 	"""
 	Get spiral camera to world matrix
 	radius: radius of the spiral
@@ -456,34 +493,14 @@ def get_spiral_cam2world(radius, height, angle_range=(0, 360), n_views=48, radia
 		# Calculate the camera position on the spiral
 		x = radius * np.cos(angle) * i2radius(i)
 		y = radius * np.sin(angle) * i2radius(i)
-	
-		# Calculte the cam2world matrix for the camera positioned at (x, y, z), pointing at (origin[0], origin[1], 0)
-		forward_direction = torch.tensor([origin[0]-x, origin[1]-y, -z], dtype=torch.float32)
-		forward_direction = forward_direction / torch.norm(forward_direction)
-
-		# world up vector is (0, 1, 0)
-		# up_direction = torch.tensor([x*z/(x**2 + y**2), y*z/(x**2 + y**2), -1], dtype=torch.float32)
-		up_direction = torch.tensor([(x-origin[0])*z/((x-origin[0])**2 + (y-origin[1])**2), (y-origin[1])*z/((x-origin[0])**2 + (y-origin[1])**2), -1], dtype=torch.float32)
-		up_direction = up_direction / torch.norm(up_direction)
-		right_direction = torch.cross(up_direction, forward_direction)
-
-		# Construct the cam2world matrix
-		rotation_matrix = torch.stack([right_direction, up_direction, forward_direction], dim=1)
-		# flip the y axis (we use left hand coordinate system)
-		# rotation_matrix[:, 1] = -rotation_matrix[:, 1]
-		translation_vector = torch.tensor([x, y, z], dtype=torch.float32).view(3, 1)
-		cam2world_matrix = torch.cat([rotation_matrix, translation_vector], dim=1)
-		cam2world_matrix = torch.cat([cam2world_matrix, torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)], dim=0) # [4, 4]
-
-		cam2world_matrices.append(cam2world_matrix)
-
+		cam2world_matrices.append(gen_cam2world((x, y, z), origin))
 
 	# Convert the list to a tensor
 	cam2world_matrices = torch.stack(cam2world_matrices, dim=0)
 
 	return cam2world_matrices
 
-def get_spherical_cam2world(radius, theta, n_views=48, radians=True):
+def get_spherical_cam2world(radius, elevation, n_views=48, radians=True, camera_normalize=False, origin=(0, 0, 0), around_table=False):
 	"""
 	Get spherical camera to world matrix
 	radius: radius of the sphere
@@ -492,51 +509,57 @@ def get_spherical_cam2world(radius, theta, n_views=48, radians=True):
 	return: Tensor of shape (n_views, 4, 4)
 	"""
 
-	# Convert theta to radians
+	# Convert elevation to radians
 	if not radians:
-		theta = np.radians(theta)
+		elevation = np.radians(elevation)
 
 	# Calculate the rotation angle for each view
-	rotation_angles = np.linspace(0, 2 * np.pi, n_views, endpoint=False)
+	azimuths = np.linspace(0, 2 * np.pi, n_views, endpoint=False)
 
 	# Initialize a list to store the transformation matrices
 	cam2world_matrices = []
 
-	for angle in rotation_angles:
+	for azimuth in azimuths:
 		# Calculate the camera position on the sphere
-		x = radius * np.sin(theta) * np.cos(angle)
-		y = radius * np.sin(theta) * np.sin(angle)
-		z = radius * np.cos(theta)
+		# if camera_normalize:
+		# 	x = radius * np.sin(theta) * np.cos(angle) + origin[0]
+		# 	z = radius * np.sin(theta) * np.sin(angle) + origin[2]
+		# 	y = radius * np.cos(theta) + origin[1]
+		# else:
+		x = radius * np.cos(elevation) * np.cos(azimuth)
+		y = radius * np.cos(elevation) * np.sin(azimuth)
+		z = radius * np.sin(elevation)
 
-		camera_position = np.array([x, y, z])
+		cam2world_matrices.append(gen_cam2world((x, y, z), origin))
 
-		# Calculate the camera's forward direction vector
-		forward = -camera_position / np.linalg.norm(camera_position)
+	if around_table:
+		canonical_pose = torch.Tensor([[-1, 0, 0, 0],
+										[0, 0, -1, radius],
+										[0, -1, 0, 0],
+										[0, 0, 0, 1]])
+		rot = torch.matmul(canonical_pose, cam2world_matrices[0].inverse())
+		for i in range(len(cam2world_matrices)):
+			cam2world_matrices[i] = torch.matmul(rot, cam2world_matrices[i])
 
-		# Calculate the camera's up vector
-		up = np.array([0, 0, 1])
-		if np.abs(np.dot(up, forward)) > 0.999:
-			up = np.array([0, 1, 0])
+	cam2world_matrices = torch.stack(cam2world_matrices, dim=0)
 
-		# Calculate the camera's right direction vector
-		right = -np.cross(up, forward)
-		right /= np.linalg.norm(right)
+	return cam2world_matrices
 
-		# Update the camera's up vector to be orthogonal to forward and right vectors
-		up = np.cross(forward, right)
-
-		# Create the camera to world matrix
-		cam2world = np.eye(4)
-		cam2world[:3, 0] = right
-		cam2world[:3, 1] = up
-		cam2world[:3, 2] = forward
-		cam2world[:3, 3] = camera_position
-
-		cam2world_matrices.append(cam2world)
-
-	cam2world_matrices = np.stack(cam2world_matrices)
-
-	return torch.from_numpy(cam2world_matrices).float()
+def get_predefined_cam2world(root, scene_id, n_views=60, radius=4):
+	file_paths = [f'{scene_id*n_views+i:05d}_sc{scene_id:04d}_az{i:02d}_RT.txt' for i in range(n_views)]
+	file_paths = [os.path.join(root, file_path) for file_path in file_paths]
+	cam2world_matrices = []
+	for file_path in file_paths:
+		cam2world_matrices.append(torch.from_numpy(np.loadtxt(file_path)).to(torch.float32))
+	canonical = torch.Tensor([[-1, 0, 0, 0],
+						  [0, 0, -1, radius],
+						  [0, -1, 0, 0],
+						  [0, 0, 0, 1]]).to(torch.float32)
+	rot = torch.matmul(canonical, cam2world_matrices[0].inverse())
+	for i in range(len(cam2world_matrices)):
+		cam2world_matrices[i] = torch.matmul(rot, cam2world_matrices[i])
+	cam2world_matrices = torch.stack(cam2world_matrices, dim=0)
+	return cam2world_matrices
 
 def parse_wanted_indice(wanted_indices):
 	if wanted_indices is None:

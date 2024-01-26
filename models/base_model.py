@@ -220,8 +220,9 @@ class BaseModel(ABC):
                     for key in incompatible.missing_keys:
                         unloaded_keys.append(key)
                 if incompatible.unexpected_keys and not self.opt.continue_train: # if continue train, ignore unexpected keys
-                    assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
-                    # pass
+                    # assert False, 'Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys
+                    print('Unexpected keys in pretrained network: %s' % incompatible.unexpected_keys)
+                    pass
                     # add loaded keys to loaded_keys_frozen
                 for key, _ in net.named_parameters():
                     if key not in incompatible.missing_keys or self.opt.continue_train:

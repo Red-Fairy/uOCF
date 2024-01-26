@@ -244,7 +244,7 @@ def cylinder_to_gaussian(d, t0, t1, radius, diag):
     t_var = (t1 - t0) ** 2 / 12
     return lift_gaussian(d, t_mean, t_var, r_var, diag)
 
-def raw2outputs(raw, z_vals, rays_d, render_mask=False, mip=False):
+def raw2outputs(raw, z_vals, rays_d, render_mask=False, mip=False, white_bkgd=False):
     """Transforms model's predictions to semantically meaningful values.
     Args:
         raw: [num_rays, num_samples along ray, 4]. Prediction from model.
@@ -281,8 +281,12 @@ def raw2outputs(raw, z_vals, rays_d, render_mask=False, mip=False):
 
     if render_mask:
         density = raw[..., 3]  # [N_rays, N_samples]
-        mask_map = torch.sum(weights * density, dim=1)  # [N_rays,]
-        return rgb_map, depth_map, weights_norm, mask_map
+        mask_map = torch.sum(weights_norm * density, dim=1)  # [N_rays,]
+        return rgb_map, depth_map, weights, mask_map
+
+    if white_bkgd:
+        acc_map = torch.sum(weights, -1)  # [N_rays,]
+        rgb_map = rgb_map + (1. - acc_map[..., None])
 
     return rgb_map, depth_map, weights # un-normed weights falls in [0, 1], but may exceed 1
 
@@ -343,7 +347,7 @@ def build_grid(H, W, device, reverse=False):
     if not reverse:
         grid = torch.stack([x, y], dim=2).to(device).unsqueeze(0) # (1, H, W, 2)
     else:
-        grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0)
+        grid = torch.stack([x, y, -x, -y], dim=2).to(device).unsqueeze(0) # (1, H, W, 4)
     return grid
 
 class surfaceLoss(nn.Module):

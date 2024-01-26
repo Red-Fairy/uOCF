@@ -23,15 +23,15 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 
 DATAROOT=${1:-'/svl/u/redfairy/datasets/real/kitchen-easy/4obj-all-test-0817'}
 PORT=${2:-12783}
-CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 20 --start_scene_idx 80 --n_img_each_scene 2 \
+CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 102 --start_scene_idx 0 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'kitchen-easy' --results_dir 'results' \
     --display_port $PORT --display_ncols 4 \
     --load_size 128 --input_size 128 --render_size 8 --frustum_size 128 --bottom \
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' \
     --fixed_locality --near_plane 6 --far_plane 20 \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/kitchen-easy/uORF-4obj-intrinsics' \
-    --recon_only --epoch 1140 --vis_render_mask \
-    --attn_iter 3 --testset_name 'regular_test_all'  \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/kitchen-easy/uORF-4obj-intrinsics' \
+    --recon_only --epoch 988 --vis_render_mask \
+    --attn_iter 3 --testset_name 'regular_test_102scenes'  \
 # done
 echo "Done"

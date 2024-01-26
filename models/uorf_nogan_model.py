@@ -322,19 +322,29 @@ class uorfNoGanModel(BaseModel):
 		super().load_networks(surfix)
 
 		if self.isTrain:
-			for i, opm in enumerate(self.optimizers):
-				load_filename = '{}_optimizer_{}.pth'.format(surfix, i)
-				load_path = os.path.join(self.save_dir, load_filename)
-				print('loading the optimizer from %s' % load_path)
-				state_dict = torch.load(load_path, map_location=str(self.device))
-				opm.load_state_dict(state_dict)
-
-			for i, sch in enumerate(self.schedulers):
-				load_filename = '{}_lr_scheduler_{}.pth'.format(surfix, i)
-				load_path = os.path.join(self.save_dir, load_filename)
-				print('loading the lr scheduler from %s' % load_path)
-				state_dict = torch.load(load_path, map_location=str(self.device))
-				sch.load_state_dict(state_dict)
+			for i, (opm, sch) in enumerate(zip(self.optimizers, self.schedulers)):
+				load_opm_filename = '{}_optimizer_{}.pth'.format(surfix, i)
+				load_sch_filename = '{}_lr_scheduler_{}.pth'.format(surfix, i)
+				load_opm_path = os.path.join(self.save_dir, load_opm_filename)
+				load_sch_path = os.path.join(self.save_dir, load_sch_filename)
+				print('loading the optimizer from %s' % load_opm_path)
+				print('loading the lr scheduler from %s' % load_sch_path)
+				if os.path.exists(load_opm_path) and os.path.exists(load_sch_path):
+					state_dict_opm = torch.load(load_opm_path, map_location=str(self.device))
+					state_dict_sch = torch.load(load_sch_path, map_location=str(self.device))
+					try:
+						opm.load_state_dict(state_dict_opm)
+						sch.load_state_dict(state_dict_sch)
+					except:
+						# pass
+						n_steps = int(state_dict_sch['last_epoch'])
+						for _ in range(n_steps):
+							sch.step()
+				else:
+					print('Optimizer and lr scheduler not found, using default initialization')
+					# step the optimizer for self.opt.epoch_count * self.opt.n_scenes times
+					for _ in range(self.opt.epoch_count * self.opt.n_scenes):
+						sch.step()
 
 
 if __name__ == '__main__':

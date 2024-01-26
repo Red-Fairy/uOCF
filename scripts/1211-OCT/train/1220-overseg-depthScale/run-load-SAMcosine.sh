@@ -45,7 +45,7 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 3000 --n_img_each_sc
     --remove_duplicate --remove_duplicate_in 10 \
     --exp_id '1202-overseg-predScale/load-SAMcosine' \
     --continue_train --epoch 69 --epoch_count 70 \
-    --pseudo_mask_loss --pseudo_mask_in 60 --pseudo_mask_loss_type 'cosine' \
+    --pseudo_mask_loss --pseudo_mask_in 60 --pseudo_mask_loss_type 'cosine' --weight_pseudo_mask 0.01 \
     --dummy_info '' \
 
 # can try the following to list out which GPU you have access to

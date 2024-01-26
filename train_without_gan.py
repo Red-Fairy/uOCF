@@ -27,6 +27,11 @@ if __name__ == '__main__':
     set_seed(opt.seed)
 
     for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
+        # if epoch >= opt.train_dec_only_epoch: # Only train the decoder
+        #     model.netEncoder.eval()
+        #     model.netEncoder.requires_grad_(False)
+        #     model.netSlotAttention.eval()
+        #     model.netSlotAttention.requires_grad_(False)
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
         epoch_iter = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
@@ -34,6 +39,7 @@ if __name__ == '__main__':
         meters_trn = {stat: AverageMeter() for stat in model.loss_names}
         opt.stage = 'coarse' if epoch < opt.coarse_epoch else 'fine'
         model.netDecoder.locality = True if epoch < opt.no_locality_epoch else False
+        dataset.dataloader.dataset.set_epoch(epoch)
         for i, data in enumerate(dataset):  # inner loop within one epoch
             iter_start_time = time.time()  # timer for computation per iteration
             if total_iters % opt.print_freq == 0:
@@ -43,7 +49,9 @@ if __name__ == '__main__':
             epoch_iter += opt.batch_size
             model.set_input(data)         # unpack data from dataset and apply preprocessing
             layers, avg_grad = model.optimize_parameters(opt.display_grad, epoch)   # calculate loss functions, get gradients, update network weights
-            if opt.custom_lr and (opt.stage == 'coarse' or (hasattr(opt, 'depth_in') and epoch >= opt.depth_in)):
+            # if opt.custom_lr and (opt.stage == 'coarse' or (hasattr(opt, 'depth_in') and epoch >= opt.depth_in)):
+            # if opt.custom_lr and opt.stage == 'coarse':
+            if opt.custom_lr:
                 model.update_learning_rate()    # update learning rates at the beginning of every step
 
             if total_iters % opt.display_freq == 0:   # display images on visdom and save images to a HTML file

@@ -75,11 +75,11 @@ class uocfDualDINOTransModel(BaseModel):
 		parser.add_argument('--fg_density_loss', action='store_true', help='use density loss for the foreground slot')
 		parser.add_argument('--bg_density_loss', action='store_true', help='use density loss for the background slot')
 		parser.add_argument('--bg_density_in', type=int, default=0, help='when to start the background density loss')
-		parser.add_argument('--bg_penalize_plane', type=int, default=8, help='penalize the background slot if it is too close to the plane')
+		parser.add_argument('--bg_penalize_plane', type=float, default=9.0, help='penalize the background slot if it is too close to the plane')
 		parser.add_argument('--weight_bg_density', type=float, default=0.1, help='weight of the background plane penalty')
 		parser.add_argument('--frequency_mask', action='store_true', help='use frequency mask in the decoder')
-		parser.add_argument('--weight_depth_ranking', type=float, default=1, help='weight of the depth supervision')
-		parser.add_argument('--depth_in', type=int, default=1000, help='when to start the depth supervision')
+		parser.add_argument('--weight_depth_ranking', type=float, default=0.5, help='weight of the depth supervision')
+		parser.add_argument('--depth_in', type=int, default=0, help='when to start the depth supervision')
 		
 		parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
 							dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -108,11 +108,11 @@ class uocfDualDINOTransModel(BaseModel):
 			self.loss_names	+= ['depth_ranking']
 		if self.opt.pseudo_mask_loss:
 			self.loss_names += ['pseudo_mask']
-		self.set_visual_names()
+		self.set_visual_names(set_depth=self.opt.depth_supervision)
 		self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
 		self.perceptual_net = get_perceptual_net().to(self.device)
 		self.vgg_norm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-		self.intrinsics = np.loadtxt(os.path.join(opt.dataroot, 'camera_intrinsics_ratio.txt')) if opt.load_intrinsics else None
+		self.intrinsics = torch.tensor(np.loadtxt(os.path.join(opt.dataroot, 'camera_intrinsics_ratio.txt')), dtype=torch.float32) if opt.load_intrinsics else None
 		render_size = (opt.render_size, opt.render_size)
 		frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
 		self.projection = Projection(device=self.device, nss_scale=opt.nss_scale,
@@ -127,13 +127,13 @@ class uocfDualDINOTransModel(BaseModel):
 		self.pretrained_encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14').to(self.device).eval()
 		dino_dim = 768
 		self.netEncoder = MultiDINOStackEncoder(shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim, 
-						n_feat_layer=opt.n_feat_layers, global_bg_feature=opt.global_bg_feature, 
-						kernel_size=opt.enc_kernel_size, mode=opt.enc_mode, add_relu=opt.enc_add_relu,)
+						n_feat_layer=opt.n_feat_layers, global_bg_feature=opt.global_bg_feature,
+						kernel_size=opt.enc_kernel_size, mode=opt.enc_mode)
 
 		self.netSlotAttention = SlotAttentionTransformer(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					color_dim=0 if opt.color_in_attn else opt.color_dim, momentum=opt.attn_momentum, pos_init=opt.pos_init,
-					learnable_pos=not opt.no_learnable_pos, iters=opt.attn_iter, depth_scale_pred=self.opt.depth_scale_pred,
+					learnable_pos=not opt.no_learnable_pos, iters=opt.attn_iter, depth_scale_pred=self.opt.depth_scale_pred, depth_scale_param=opt.depth_scale_param,
 					camera_modulation=opt.camera_modulation, camera_dim=16,)
 							  
 		self.netDecoder = DecoderIPE(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=z_dim, n_layers=opt.n_layer,
@@ -293,13 +293,10 @@ class uocfDualDINOTransModel(BaseModel):
 		feat_shape, feat_color, feat_global = self.encode(0, return_global_feature=self.opt.global_bg_feature)
 
 		# calculate camera cond (R, T, fx, fy, cx, cy) , 1*camera_dim, camera_dim=5, assert camera_normalized
-		if self.opt.camera_modulation:
-			camExt = torch.cat([cam2world_viewer[:3, :3].flatten(), cam2world_viewer[:3, 3:4].flatten()/self.opt.nss_scale], dim=0)
-			camInt = torch.Tensor([self.intrinsics[0, 0], self.intrinsics[1, 1], self.intrinsics[0, 2], self.intrinsics[1, 2]]).to(dev) \
-				if self.intrinsics is not None else torch.Tensor([350./320., 350./240., 0., 0.]).to(dev)
-			camera_modulation = torch.cat([camExt, camInt], dim=0).unsqueeze(0) # 1xcamera_dim
-		else:
-			camera_modulation = None
+		camExt = torch.cat([cam2world_viewer[:3, :3].flatten(), cam2world_viewer[:3, 3:4].flatten()/self.opt.nss_scale], dim=0)
+		camInt = torch.Tensor([self.intrinsics[0, 0], self.intrinsics[1, 1], self.intrinsics[0, 2], self.intrinsics[1, 2]]).to(dev) \
+			if self.intrinsics is not None else torch.Tensor([350./320., 350./240., 0., 0.]).to(dev)
+		camera_modulation = torch.cat([camExt, camInt], dim=0).unsqueeze(0) # 1xcamera_dim
 	
 		# transformer attention
 		z_slots, attn, fg_slot_position, fg_depth_scale = self.netSlotAttention(feat_shape, feat_color=feat_color, camera_modulation=camera_modulation, 
@@ -323,9 +320,9 @@ class uocfDualDINOTransModel(BaseModel):
 										frustum_size=frustum_size, stratified=self.opt.stratified if epoch >= self.opt.dense_sample_epoch else False)
 			# (NxHxW)xDx3, (NxHxW)xDx3x3, (NxHxW)xD, (NxHxW)x3
 			x = F.interpolate(self.x, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
-			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in) or self.opt.vis_mask:
+			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in):
 				self.pseudo_mask = F.interpolate(self.pseudo_mask, size=self.opt.supervision_size, mode='nearest')
-			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
+			if self.opt.depth_supervision:
 				disparity = F.interpolate(self.disparity, size=self.opt.supervision_size, mode='bilinear', align_corners=False)
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 		else:
@@ -346,9 +343,9 @@ class uocfDualDINOTransModel(BaseModel):
 			mean_, var_ = mean[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...], var[:, H_idx:H_idx + rs, W_idx:W_idx + rs, ...]
 			mean, var, z_vals, ray_dir = mean_.flatten(0, 2), var_.flatten(0, 2), z_vals_.flatten(0, 2), ray_dir_.flatten(0, 2)
 			x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
-			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in) or self.opt.vis_mask:
+			if (self.opt.pseudo_mask_loss and epoch >= self.opt.pseudo_mask_in):
 				self.pseudo_mask = self.pseudo_mask[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
-			if self.opt.depth_supervision and epoch >= self.opt.depth_in:
+			if self.opt.depth_supervision:
 				disparity = self.disparity[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
 			self.z_vals, self.ray_dir = z_vals, ray_dir
 
@@ -359,7 +356,8 @@ class uocfDualDINOTransModel(BaseModel):
 		if not self.opt.scaled_depth:
 			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)  # Kx3
 		else:
-			slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * self.opt.depth_scale  # Kx1
+			depth_scale = self.opt.depth_scale if self.opt.depth_scale is not None else torch.norm(cam2world_viewer[:3, 3:4])
+			slot_depth = torch.ones_like(fg_slot_position[:, 0:1]).to(self.x.device) * depth_scale  # Kx1
 			if epoch >= self.opt.depth_scale_pred_in:
 				slot_depth = slot_depth * fg_depth_scale
 			fg_slot_nss_position = pixel2world(fg_slot_position, cam2world_viewer, intrinsics=self.intrinsics, 
@@ -388,44 +386,48 @@ class uocfDualDINOTransModel(BaseModel):
 			if self.opt.bg_density_loss:
 				bg_density = masks[0, ..., -1].flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
 				# option 1: penalize if the bg_density is too small
-				self.loss_bg_density = collapse_prevent_weight * torch.clamp(5e-4 - torch.mean(bg_density), min=0)
-				# option 2: penalize the near-camera region, first define a mask
-				# n_penalize = int(D*(self.opt.bg_penalize_plane-self.opt.near_plane)/(self.opt.far_plane-self.opt.near_plane))
-				# mask = torch.zeros_like(bg_density)
-				# mask[:, :n_penalize] = 1
-				# self.loss_bg_density = self.opt.weight_bg_density * torch.sum(bg_density * mask) / (N*n_penalize*H*W)
+				self.loss_bg_density = collapse_prevent_weight * torch.clamp(1e-3 - torch.mean(bg_density), min=0)
 			if self.opt.fg_density_loss:
 				fg_density = torch.sum(masks[1:, ..., -1], dim=0).flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
 				# penalize if fg_density if too small
-				self.loss_fg_density = collapse_prevent_weight * torch.clamp(5e-4 - torch.mean(fg_density), min=0)
+				self.loss_fg_density = collapse_prevent_weight * torch.clamp(1e-3 - torch.mean(fg_density), min=0)
 			self.collapse_prevent_iter -= 1
+		
+		if self.opt.bg_density_loss and epoch >= self.opt.bg_density_in:
+			# option 2: penalize the near-camera region, first define a mask
+			bg_density = masks[0, ..., -1].flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
+			n_penalize = int(D*(self.opt.bg_penalize_plane-self.opt.near_plane)/(self.opt.far_plane-self.opt.near_plane))
+			mask = torch.zeros_like(bg_density)
+			mask[:, :n_penalize] = 1
+			self.loss_bg_density = self.opt.weight_bg_density * torch.sum(bg_density * mask) / (N*n_penalize*H*W)
 
-		if self.opt.depth_supervision and epoch >= self.opt.depth_in:
+		if self.opt.depth_supervision:
 			depth_rendered = depth_map.view(N, H, W).clamp(min=1e-6).unsqueeze(1) # Nx1xHxW
 			disparity_rendered = 1 / depth_rendered # Nx1xHxW
-			''' add ranking loss, randomly pick a patch of length L, 
-			and a nearby patch of length L (no more than 32 pixels away), forming L**2 pairs. For each pair of pixels,
-			if the first pixel has smaller disparity than the second one on the ground truth, (i.e., disparity_1_gt < disparity_2_gt)
-			then loss = max(0, depth_2_rendered - depth_1_rendered + margin)
-			else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
-			L, diff_max = 16, 5
-			margin = 1e-4
+			if epoch >= self.opt.depth_in:
+				''' add ranking loss, randomly pick a patch of length L, 
+				and a nearby patch of length L (no more than 32 pixels away), forming L**2 pairs. For each pair of pixels,
+				if the first pixel has smaller disparity than the second one on the ground truth, (i.e., disparity_1_gt < disparity_2_gt)
+				then loss = max(0, depth_2_rendered - depth_1_rendered + margin)
+				else loss = max(0, depth_1_rendered - depth_2_rendered + margin) '''
+				L, diff_max = 16, 5
+				margin = 1e-4
 
-			patch1_start_h, patch1_start_w = torch.randint(low=diff_max, high=H-L-diff_max, size=(1,), device=dev), \
-											torch.randint(low=diff_max, high=W-L-diff_max, size=(1,), device=dev)
-			patch2_start_h, patch2_start_w = torch.randint(low=-diff_max, high=diff_max, size=(1,), device=dev) + patch1_start_h, \
-											torch.randint(low=-diff_max, high=diff_max, size=(1,), device=dev) + patch1_start_w
+				patch1_start_h, patch1_start_w = torch.randint(low=diff_max, high=H-L-diff_max, size=(1,), device=dev), \
+												torch.randint(low=diff_max, high=W-L-diff_max, size=(1,), device=dev)
+				patch2_start_h, patch2_start_w = torch.randint(low=-diff_max, high=diff_max, size=(1,), device=dev) + patch1_start_h, \
+												torch.randint(low=-diff_max, high=diff_max, size=(1,), device=dev) + patch1_start_w
 
-			disparity_gt_1 = disparity[:, 0, patch1_start_h:patch1_start_h+L, patch1_start_w:patch1_start_w+L].flatten() # N*L**2
-			disparity_gt_2 = disparity[:, 0, patch2_start_h:patch2_start_h+L, patch2_start_w:patch2_start_w+L].flatten() # N*L**2
-			mask_gt = (disparity_gt_1 < disparity_gt_2).float()
+				disparity_gt_1 = disparity[:, 0, patch1_start_h:patch1_start_h+L, patch1_start_w:patch1_start_w+L].flatten() # N*L**2
+				disparity_gt_2 = disparity[:, 0, patch2_start_h:patch2_start_h+L, patch2_start_w:patch2_start_w+L].flatten() # N*L**2
+				mask_gt = (disparity_gt_1 < disparity_gt_2).float()
 
-			depth_rendered_1 = depth_rendered[:, 0, patch1_start_h:patch1_start_h+L, patch1_start_w:patch1_start_w+L].flatten() # N*L**2
-			depth_rendered_2 = depth_rendered[:, 0, patch2_start_h:patch2_start_h+L, patch2_start_w:patch2_start_w+L].flatten() # N*L**2
+				depth_rendered_1 = depth_rendered[:, 0, patch1_start_h:patch1_start_h+L, patch1_start_w:patch1_start_w+L].flatten() # N*L**2
+				depth_rendered_2 = depth_rendered[:, 0, patch2_start_h:patch2_start_h+L, patch2_start_w:patch2_start_w+L].flatten() # N*L**2
 
-			depth_diff_rendered = (depth_rendered_1 - depth_rendered_2)
-			self.loss_depth_ranking += (torch.mean(torch.clamp(depth_diff_rendered + margin, min=0) * (1 - mask_gt)) + \
-					  			torch.mean(torch.clamp(-depth_diff_rendered + margin, min=0) * mask_gt)) * self.opt.weight_depth_ranking		
+				depth_diff_rendered = (depth_rendered_1 - depth_rendered_2)
+				self.loss_depth_ranking += (torch.mean(torch.clamp(depth_diff_rendered + margin, min=0) * (1 - mask_gt)) + \
+									torch.mean(torch.clamp(-depth_diff_rendered + margin, min=0) * mask_gt)) * self.opt.weight_depth_ranking		
 
 		if self.opt.position_loss and epoch >= self.opt.position_in:
 			# infer the position from the second view
@@ -437,7 +439,8 @@ class uocfDualDINOTransModel(BaseModel):
 			if not self.opt.scaled_depth:
 				fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics, nss_scale=self.opt.nss_scale)
 			else:
-				slot_depth = torch.ones_like(fg_slot_position_[:, 0:1]).to(self.x.device) * self.opt.depth_scale * fg_depth_scale_ # Kx1
+				depth_scale = self.opt.depth_scale if self.opt.depth_scale is not None else torch.norm(cam2world_viewer[:3, 3:4])
+				slot_depth = torch.ones_like(fg_slot_position_[:, 0:1]).to(self.x.device) * depth_scale * fg_depth_scale_ # Kx1
 				fg_slot_nss_position_ = pixel2world(fg_slot_position_, cam2world[1], intrinsics=self.intrinsics,
 															nss_scale=self.opt.nss_scale, depth=slot_depth)
 			self.loss_pos = self.opt.weight_position * self.pos_loss(fg_slot_nss_position, fg_slot_nss_position_)
@@ -452,7 +455,8 @@ class uocfDualDINOTransModel(BaseModel):
 				elif self.opt.pseudo_mask_mode == 'depth':
 					mask_slot_maps[k] = -depth_map.view(N, H, W) # closer to the camera, smaller depth, larger mask value
 			# calculate soft mask
-			mask_maps = (mask_slot_maps / torch.sum(mask_slot_maps, dim=0, keepdim=True)).flatten(-2, -1) # K*N*(H*W)
+			mask_maps = mask_slot_maps.softmax(dim=0).flatten(-2, -1) # K*N*(H*W)
+			# mask_maps = (mask_slot_maps / torch.sum(mask_slot_maps, dim=0, keepdim=True)).flatten(-2, -1) # K*N*(H*W)
 			# calculate pseudo mask loss
 			self.loss_pseudo_mask = self.opt.weight_pseudo_mask * self.pseudo_mask_loss(self.pseudo_mask.squeeze(1).flatten(1, 2), mask_maps)
 
@@ -464,7 +468,7 @@ class uocfDualDINOTransModel(BaseModel):
 			for i in range(self.opt.n_img_each_scene):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 				setattr(self, 'x{}'.format(i), x[i])
-				if self.opt.depth_supervision and epoch >= self.opt.depth_in:
+				if self.opt.depth_supervision:
 					# normalize to 0-1
 					setattr(self, 'disparity_{}'.format(i), (disparity[i] - disparity[i].min()) / (disparity[i].max() - disparity[i].min()))
 					setattr(self, 'disparity_rec{}'.format(i), (disparity_rendered[i] - disparity_rendered[i].min()) / (disparity_rendered[i].max() - disparity_rendered[i].min()))

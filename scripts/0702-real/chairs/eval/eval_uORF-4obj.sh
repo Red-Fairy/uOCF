@@ -21,7 +21,7 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
-DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/test-4obj'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/test-2-4obj'}
 PORT=${2:-12783}
 python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
     --checkpoints_dir 'checkpoints' --name 'room_real_chairs' --results_dir 'results' \
@@ -30,7 +30,7 @@ python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4 \
     --n_samp 256 --z_dim 96 --num_slots 5 \
     --model 'uorf_eval' \
     --vis_mask --vis_attn \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/I-uORF/checkpoints/room_real_chairs/ablation/uORF-4obj-GAN-96' \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/room_real_chairs/ablation/uORF-4obj-GAN-inPaperResults' \
     --attn_iter 3 --testset_name 'regular_test' --epoch 240 \
 # done
 echo "Done"

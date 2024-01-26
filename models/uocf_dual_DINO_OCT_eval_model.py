@@ -91,7 +91,7 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 		dino_dim = 768
 		self.netEncoder = MultiDINOStackEncoder(shape_dim=opt.shape_dim, color_dim=opt.color_dim, input_dim=dino_dim, 
 						n_feat_layer=opt.n_feat_layers, global_bg_feature=opt.global_bg_feature, 
-						kernel_size=opt.enc_kernel_size, mode=opt.enc_mode, add_relu=opt.enc_add_relu,)
+						kernel_size=opt.enc_kernel_size, mode=opt.enc_mode)
 
 		self.netSlotAttention = SlotAttentionTransformer(num_slots=opt.num_slots, in_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
 					slot_dim=opt.shape_dim+opt.color_dim if opt.color_in_attn else opt.shape_dim, 
@@ -119,18 +119,20 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 							['slot{}_view{}_unmasked'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 
-		if self.opt.vis_gt_mask or self.opt.vis_mask:
-			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)]
+		if self.opt.vis_mask:
+			self.visual_names += ['mask_gt{}'.format(i) for i in range(n)]
 		
 		if self.opt.vis_render_mask or self.opt.vis_mask:
-			self.visual_names += ['render_mask{}'.format(i) for i in range(n)]
+			self.visual_names += ['mask_rec{}'.format(i) for i in range(n)]
 
 		if self.opt.vis_attn:
 			self.visual_names += ['slot{}_attn'.format(k) for k in range(n_slot)]
 
 		if self.opt.vis_disparity:
-			self.visual_names += ['disparity_{}'.format(i) for i in range(n)] + \
-								 ['disparity_rec{}'.format(i) for i in range(n)]
+			self.visual_names += ['disparity_{}'.format(i) for i in range(n)]
+
+		if self.opt.vis_disparity or self.opt.vis_render_disparity:
+			self.visual_names += ['disparity_rec{}'.format(i) for i in range(n)]
 
 	def setup(self, opt):
 		"""Load and print networks; create schedulers
@@ -222,6 +224,7 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 		z_slots, attn, fg_slot_position, fg_depth_scale = z_slots.squeeze(0), attn.squeeze(0), fg_slot_position.squeeze(0), fg_depth_scale.squeeze(0)  # KxC, KxN, Kx2, Kx1
 
 		K = z_slots.shape[0]
+		self.num_slots = K
 
 		cam2world = self.cam2world
 		N = cam2world.shape[0]
@@ -233,7 +236,7 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 		x = self.x
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
-		if self.opt.vis_disparity:
+		if self.opt.vis_disparity or self.opt.vis_render_disparity:
 			disparity_rec = torch.zeros([N, 1, H, W], device=dev)
 
 		# local_locality_ratio = self.opt.obj_scale/self.opt.nss_scale if epoch >= self.opt.locality_in and epoch < self.opt.no_locality_epoch else None
@@ -262,7 +265,7 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 			rendered[..., h::scale, w::scale] = rendered_
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
-			if self.opt.vis_disparity:
+			if self.opt.vis_disparity or self.opt.vis_render_disparity:
 				disparity_rec_ = 1 / depth_map_.view(N, 1, H_, W_)
 				disparity_rec[..., h::scale, w::scale] = disparity_rec_
 
@@ -285,9 +288,7 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 		with torch.no_grad():
 			attn = attn.detach().cpu()  # KxN
 			H_, W_ = feat_shape.shape[1:3]
-			attn = attn.view(self.opt.num_slots, 1, H_, W_)
-			# if H_ != H:
-			# 	attn = F.interpolate(attn, size=[H, W], mode='bilinear')
+			attn = attn.view(self.num_slots, 1, H_, W_)
 			setattr(self, 'attn', attn)
 
 			for i in range(self.opt.n_img_each_scene):
@@ -298,6 +299,7 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 					setattr(self, 'gt_novel_view{}'.format(i), x[i])
 				if self.opt.vis_disparity: # normalize disparity to [0, 1]
 					setattr(self, 'disparity_{}'.format(i), (self.disparity[i] - self.disparity[i].min()) / (self.disparity[i].max() - self.disparity[i].min()))
+				if self.opt.vis_render_disparity or self.opt.vis_disparity:
 					setattr(self, 'disparity_rec{}'.format(i), (disparity_rec[i] - disparity_rec[i].min()) / (disparity_rec[i].max() - disparity_rec[i].min()))
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
@@ -327,15 +329,15 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 		#  4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xDx3, 4x(Nx(H/2)x(W/2))xD, 4x(Nx(H/2)x(W/2))x3
 		x_recon, rendered, masked_raws, unmasked_raws = \
 			torch.zeros([N, 3, H, W], device=dev), torch.zeros([N, 3, H, W], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev), torch.zeros([K, N, H, W, D, 4], device=dev)
-		if self.opt.vis_disparity:
+		if self.opt.vis_disparity or self.opt.vis_render_disparity:
 			disparity_rec = torch.zeros([N, 1, H, W], device=dev)
 		for (j, (mean_, var_, z_vals_, ray_dir_)) in enumerate(zip(mean, var, z_vals, ray_dir)):
 			h, w = divmod(j, scale)
 			H_, W_ = H // scale, W // scale
 
-			# print(z_slots.shape, sampling_coor_bg_.shape, sampling_coor_fg_.shape, nss2cam0.shape, fg_slot_nss_position.shape)
-			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, self.z_slots, 
-								 nss2cam0, self.fg_slot_nss_position, fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
+			raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(mean_, var_, self.z_slots, nss2cam0, 
+							self.fg_slot_nss_position, bg_rotate=self.opt.bg_rotate,
+							fg_object_size=self.opt.fg_object_size/self.opt.nss_scale)  # (NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x4, Kx(NxHxWxD)x1
 			raws_ = raws_.view([N, H_, W_, D, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 			masked_raws_ = masked_raws_.view([K, N, H_, W_, D, 4])
 			unmasked_raws_ = unmasked_raws_.view([K, N, H_, W_, D, 4])
@@ -347,17 +349,16 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 			rendered[..., h::scale, w::scale] = rendered_
 			x_recon_ = rendered_ * 2 - 1
 			x_recon[..., h::scale, w::scale] = x_recon_
-			if self.opt.vis_disparity:
+			if self.opt.vis_disparity or self.opt.vis_render_disparity:
 				disparity_rec_ = 1 / depth_map_.view(N, 1, H_, W_)
 				disparity_rec[..., h::scale, w::scale] = disparity_rec_
 
 		with torch.no_grad():
-			# for i in range(self.opt.n_img_each_scene):
 			for i in range(1):
 				setattr(self, 'x_rec{}'.format(i), x_recon[i])
 			setattr(self, 'masked_raws', masked_raws.detach())
 			setattr(self, 'unmasked_raws', unmasked_raws.detach())
-			if self.opt.vis_disparity: # normalize disparity to [0, 1]
+			if self.opt.vis_disparity or self.opt.vis_render_disparity: # normalize disparity to [0, 1]
 				setattr(self, 'disparity_rec{}'.format(i), (disparity_rec[i] - disparity_rec[i].min()) / (disparity_rec[i].max() - disparity_rec[i].min()))
 
    
@@ -436,10 +437,12 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 			
 			for k in range(self.num_slots):
 				setattr(self, 'slot{}_attn'.format(k), self.attn[k] * 2 - 1)
+			for k in range(self.num_slots, self.opt.num_slots):
+				setattr(self, 'slot{}_attn'.format(k), torch.zeros_like(self.attn[0]))
 
 			for k in range(self.num_slots):
 				raws = masked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics)
+				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True, mip=True)
 				# mask_maps.append(mask_map.view(N, H, W))
@@ -447,10 +450,13 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(N):
 					setattr(self, 'slot{}_view{}'.format(k, i), x_recon[i])
+			for k in range(self.num_slots, self.opt.num_slots):
+				for i in range(N):
+					setattr(self, 'slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
 
 			for k in range(self.num_slots):
 				raws = unmasked_raws[k]  # NxDxHxWx4
-				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics)
+				_, z_vals, ray_dir = self.projection.sample_along_rays(cam2world, intrinsics=self.intrinsics if (self.intrinsics is not None and not self.opt.load_intrinsics) else None)
 				raws = raws.flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 				rgb_map, depth_map, _, mask_map = raw2outputs(raws, z_vals, ray_dir, render_mask=True, mip=True)
 				mask_maps.append(mask_map.view(N, H, W))
@@ -458,17 +464,20 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 				x_recon = rendered * 2 - 1
 				for i in range(N):
 					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), x_recon[i])
+			for k in range(self.num_slots, self.opt.num_slots):
+				for i in range(N):
+					setattr(self, 'slot{}_view{}_unmasked'.format(k, i), torch.zeros_like(x_recon[i]))
 
 			if self.opt.vis_render_mask and self.opt.recon_only:
 				# define colors
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW
 				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
 				# define 8 colors from color palette
-				color_palette = sns.color_palette('bright', self.num_slots-1)
+				color_palette = sns.color_palette('bright', self.num_slots)
 				colors = torch.cat([torch.tensor([0., 0., 0.]).view([1, 3]), torch.tensor(color_palette)], dim=0).to(self.device)  # Kx3
 				mask_visuals = colors[mask_idx]  # NxHxWx3
 				for i in range(N):
-					setattr(self, 'render_mask{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]))
+					setattr(self, 'mask_rec{}'.format(i), mask_visuals[i, ...].permute([2, 0, 1]))
 
 			if not self.opt.recon_only and not self.opt.video:
 				mask_maps = torch.stack(mask_maps)  # KxNxHxW
@@ -496,8 +505,8 @@ class uocfDualDINOOCTEvalModel(BaseModel):
 
 				nvari_meter = AverageMeter()
 				for i in range(N):
-					setattr(self, 'render_mask{}'.format(i), mask_visuals[:, i, ...])
-					setattr(self, 'gt_mask{}'.format(i), self.gt_masks[i])
+					setattr(self, 'mask_rec{}'.format(i), mask_visuals[:, i, ...])
+					setattr(self, 'mask_gt{}'.format(i), self.gt_masks[i])
 					this_mask_idx = mask_idx[i].flatten(start_dim=0)
 					gt_mask_idx = self.mask_idx[i]  # HW
 					fg_idx = self.fg_idx[i]

@@ -39,8 +39,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_ABO_multiple/1211-DINONormModMLP/1obj-d0m0.5-r2' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' --one2four  \
     --remove_duplicate --remove_duplicate_in 10 --vis_mask \
-    --exp_id '1211-DINONormModMLP/4obj-load-removeDup-r2' \
-    --camera_modulation --camera_normalize --scaled_depth --depth_scale 12.2 --bg_rotate \
+    --exp_id '1211-DINONormModMLP/4obj-load-extrinsicDepth' \
+    --camera_modulation --camera_normalize --scaled_depth --bg_rotate \
+    --continue_train --epoch_count 41 --epoch 40 \
     --dummy_info '' \
 
 # can try the following to list out which GPU you have access to

@@ -26,6 +26,7 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--bg_color', type=float, default=-1, help='background color')
         parser.add_argument('--encoder_size', type=int, default=256, help='encoder size')
         parser.add_argument('--camera_normalize', action='store_true', help='normalize the camera pose to (0, dist, 0)')
+        parser.add_argument('--fixed_dist', default=None, type=float, help='fixed distance when camera_normalize')
         parser.add_argument('--diff_intrinsic', action='store_true', help='different intrinsics for each view')
         return parser
 
@@ -129,31 +130,35 @@ class MultiscenesDataset(BaseDataset):
         for rd, path in enumerate(filenames):
             img = Image.open(path).convert('RGB')
             img_data = self._transform(img)
-            pose_path = path.replace('.png', '_RT.txt')
-            try:
+
+            if self.opt.fixed_dist is not None and self.n_img_each_scene == 1:
+                pose = torch.Tensor([[-1, 0, 0, 0], 
+                                    [0, 0, -1, self.opt.fixed_dist], 
+                                    [0, -1, 0, 0], 
+                                    [0, 0, 0, 1]])
+            else:
+                pose_path = path.replace('.png', '_RT.txt')
+                assert os.path.isfile(pose_path)
                 pose = np.loadtxt(pose_path)
-            except FileNotFoundError:
-                print('filenotfound error: {}'.format(pose_path))
-                assert False
-            pose = torch.tensor(pose, dtype=torch.float32)
-            azi_path = pose_path.replace('_RT.txt', '_azi_rot.txt')
+                pose = torch.tensor(pose, dtype=torch.float32)
+                if self.opt.camera_normalize:
+                    if rd == 0: # rotate the camera to (0, dist, 0), z points to the center of the scene, y down, x right (opencv/COLMAP convention)
+                        cam2world = torch.Tensor([[-1, 0, 0, 0],
+                                                [0, 0, -1, 0],
+                                                [0, -1, 0, 0],
+                                                [0, 0, 0, 1]])
+                        cam2world[1, 3] = torch.norm(pose[:3, 3]) if self.opt.fixed_dist is None else self.opt.fixed_dist
+                        input_rot = torch.matmul(cam2world, torch.inverse(pose))
+                        pose = copy.deepcopy(cam2world)
+                    else:
+                        pose = torch.matmul(input_rot, pose)
+
             if self.opt.fixed_locality:
                 azi_rot = np.eye(3)  # not used; placeholder
             else:
+                azi_path = pose_path.replace('_RT.txt', '_azi_rot.txt')
                 azi_rot = np.loadtxt(azi_path)
             azi_rot = torch.tensor(azi_rot, dtype=torch.float32)
-            if self.opt.camera_normalize:
-                if rd == 0: # rotate the camera to (0, dist, 0), z points to the center of the scene, y down, x right (opencv/COLMAP convention)
-                    cam2world = torch.zeros((4, 4))
-                    cam2world[0, 0] = -1
-                    cam2world[1, 2] = -1
-                    cam2world[2, 1] = -1
-                    cam2world[3, 3] = 1
-                    cam2world[1, 3] = torch.norm(pose[:3, 3])
-                    input_rot = torch.matmul(cam2world, torch.inverse(pose))
-                    pose = copy.deepcopy(cam2world)
-                else:
-                    pose = torch.matmul(input_rot, pose)
             
             # support two types of depth maps
             if (self.opt.isTrain and self.opt.depth_supervision) \
@@ -170,7 +175,7 @@ class MultiscenesDataset(BaseDataset):
                     depth = np.array(depth).astype(np.float32)
                     depth = torch.from_numpy(depth).unsqueeze(0)  # 1xHxW
                 else:
-                    ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
+                    assert False
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
             else:
                 ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
@@ -178,6 +183,7 @@ class MultiscenesDataset(BaseDataset):
             if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.opt.encoder_type != 'CNN':
                 normalize = False if self.opt.encoder_type == 'SD' else True
                 ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
+                
             if os.path.isfile(path.replace('.png', '_intrinsics.txt')):
                 intrinsics_path = path.replace('.png', '_intrinsics.txt')
                 intrinsics = np.loadtxt(intrinsics_path)
@@ -230,6 +236,9 @@ class MultiscenesDataset(BaseDataset):
     def __len__(self):
         """Return the total number of images in the dataset."""
         return self.n_scenes
+
+    def set_epoch(self, epoch):
+        pass
 
 
 def collate_fn(batch):

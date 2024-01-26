@@ -45,16 +45,25 @@ for j, data in enumerate(dataset):
 	with torch.no_grad():
 		model.forward()
 
-		# fg_positions = model.fg_slot_nss_position.clone()
+		fg_positions = model.fg_slot_nss_position.clone()
 		# model.fg_slot_nss_position[0] = fg_positions[1]
 		# model.fg_slot_nss_position[1] = fg_positions[2]
 		# model.fg_slot_nss_position[2] = fg_positions[3]
 		# model.fg_slot_nss_position[3] = fg_positions[0]
 
+		# scene 6
+		# model.fg_slot_nss_position[0] += torch.tensor([0.15, -0.3, 0]).to(model.device)
+		# model.fg_slot_nss_position[1] += torch.tensor([-0.2, -0.35, 0]).to(model.device)
+		# model.fg_slot_nss_position[2] += torch.tensor([0.25, 0.6, 0]).to(model.device)
+
+		# scene 21
+		# model.fg_slot_nss_position[0] -= torch.tensor([0.2, 0.4, 0]).to(model.device)
+		# model.fg_slot_nss_position[3] -= torch.tensor([-0.2, -0.4, 0]).to(model.device)
+
 		# model.fg_slot_nss_position = torch.zeros_like(model.fg_slot_nss_position)
 		
 		model.fg_slot_nss_position[1] += torch.tensor([100, 100, 0]).to(model.device)
-		model.fg_slot_nss_position[0] += torch.tensor([100, 100, 0]).to(model.device)
+		model.fg_slot_nss_position[3] += torch.tensor([100, 100, 0]).to(model.device)
 
 		model.forward_position()
 		model.compute_visuals()

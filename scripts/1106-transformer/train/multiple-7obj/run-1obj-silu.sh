@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:3090:1
+#SBATCH --gres=gpu:a40:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -28,7 +28,7 @@ python -m visdom.server -p $PORT &>/dev/null &
 CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scenes 4000 --n_img_each_scene 2 \
     --checkpoints_dir 'checkpoints' --name 'room_ABO_multiple' \
     --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 5 \
-    --load_size 128 --n_samp 56 --input_size 128 --supervision_size 128 --frustum_size 128 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
     --model 'uocf_dual_DINO_trans' \
     --attn_decay_steps 100000 \
     --bottom \

@@ -129,6 +129,8 @@ class uorfManipModel(BaseModel):
 
 		if 'intrinsics' in input:
 			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
+		else:
+			self.intrinsics = None
 
 		if 'masks' in input:
 			self.gt_masks = input['masks']
@@ -228,7 +230,7 @@ class uorfManipModel(BaseModel):
 			move_slot_idx = 1
 			self.movement = torch.tensor([1.5, 1.5, 0.], device=self.device)
 
-		n_remove = 2
+		n_remove = 1
 		if self.opt.manipulate_mode == 'removal': K -= n_remove
 
 		x_recon, rendered, masked_raws, unmasked_raws = \
@@ -240,13 +242,19 @@ class uorfManipModel(BaseModel):
 			if self.opt.manipulate_mode == 'translation':
 				sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1).clone()  # (K-1)xPx3
 				# sampling_coor_fg_[move_slot_idx] = sampling_coor_fg_[move_slot_idx] - self.movement / self.opt.nss_scale
-				sampling_coor_fg_[2] -= torch.tensor([-0.3, 0.7, 0]).to(self.device)
-				sampling_coor_fg_[3] -= torch.tensor([0.3, -0.7, 0]).to(self.device)
+				# sampling_coor_fg_[0] -= torch.tensor([0.15, -0.3, 0]).to(self.device)  # scene 6
+				# sampling_coor_fg_[1] -= torch.tensor([-0.2, -0.35, 0]).to(self.device)
+				# sampling_coor_fg_[2] -= torch.tensor([0.25, 0.6, 0]).to(self.device)
+				sampling_coor_fg_[0] -= torch.tensor([0.2, 0.2, 0]).to(self.device) # scene 21
+				sampling_coor_fg_[0] -= torch.tensor([-0.2, -0.2, 0]).to(self.device)
 				z_slots_ = z_slots.clone()
 			else:
 				sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1).clone() 
-				z_slots_ = torch.zeros([K, self.opt.z_dim], device=self.device)
-				z_slots_ = z_slots[0:3]
+				'''standard synthetic dataset removal'''
+				z_slots_ = torch.cat([z_slots[0:move_slot_idx+1], z_slots[move_slot_idx+2:]], dim=0)
+				'''for kitchen-hard'''
+				# z_slots_ = torch.zeros([K, self.opt.z_dim], device=self.device)
+				# z_slots_ = z_slots[0:3]
 				# z_slots_[1:2] = z_slots[2:3]
 				# z_slots_[2:3] = z_slots[4:5]
 				# z_slots_ = z_slots.clone()

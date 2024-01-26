@@ -7,7 +7,7 @@ import os
 from util.util import AverageMeter, set_seed, write_location
 
 import torch
-from util.util import get_spherical_cam2world, tensor2im, get_spiral_cam2world, parse_wanted_indice
+from util.util import get_spherical_cam2world, tensor2im, get_spiral_cam2world, parse_wanted_indice, get_predefined_cam2world, get_cam2world_from_path
 import torchvision
 import cv2
 from tqdm import tqdm
@@ -47,7 +47,7 @@ for idx, data in enumerate(dataset):
 		continue
 
 	web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
-							f'{opt.testset_name}/scene{idx}_{opt.video_mode}{suffix}')  # define the website directory
+							f'{opt.testset_name}_{opt.epoch}/scene{idx}_{opt.video_mode}{suffix}')  # define the website directory
 	print('creating web directory', web_dir)
 	webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
@@ -58,8 +58,10 @@ for idx, data in enumerate(dataset):
 	else:
 		visual_names = [f'slot{i}_view0_unmasked' for i in range(0, opt.num_slots)] + ['x_rec0']
 
+
 	with torch.no_grad():
 		model.forward()
+
 		model.compute_visuals()
 		visuals = model.get_current_visuals()
 		visualizer.display_current_results(visuals, epoch=None, save_result=False)
@@ -75,17 +77,23 @@ for idx, data in enumerate(dataset):
 			fg_slot_position[3] = torch.tensor([0, 0])
 			model.forward_position(fg_slot_nss_position=fg_slot_position)
 
+		# cam2world_input = torch.from_numpy(np.loadtxt('/svl/u/redfairy/datasets/real/kitchen-hard-new/4obj-cabinet-test/00008_sc0004_az00_RT.txt')).unsqueeze(0)
 		cam2world_input = model.cam2world[0:1].cpu()
 		radius = torch.sqrt(torch.sum(cam2world_input[:, :3, 3] ** 2, dim=1))
 		x, y = cam2world_input[:, 0, 3], cam2world_input[:, 1, 3]
 		radius_xy, angle_xy = torch.sqrt(x ** 2 + y ** 2).item(), torch.atan2(y, x).item()
-		theta = torch.acos((cam2world_input[:, 2, 3]) / radius)
+		theta = torch.asin((cam2world_input[:, 2, 3]) / radius)
 		radius, theta, z = radius.item(), theta.item(), cam2world_input[:, 2, 3].item()
 
 		if opt.video_mode == 'spherical':
 			cam2worlds = get_spherical_cam2world(radius, theta, 45)
+			# cam2worlds = get_spherical_cam2world(radius, theta, n_views=24, radians=False, camera_normalize=True, origin=(0, 0, 0), around_table=True)
+			# cam2worlds = get_spherical_cam2world(radius, 20, n_views=24, radians=False, camera_normalize=True)
 		elif opt.video_mode == 'spiral':
 			cam2worlds = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy + np.pi * 1 / 4), 60, height_range=(0.95, 1.15))
+		elif opt.video_mode == 'predefined':
+			cam2worlds = get_cam2world_from_path(data['paths'][0].replace('.png', '_RT.txt'), 60)
+			# cam2worlds = get_predefined_cam2world(model.opt.dataroot, idx, 60, model.opt.fixed_dist)
 		else:
 			assert False
 
@@ -99,19 +107,20 @@ for idx, data in enumerate(dataset):
 
 		for i in tqdm(range(cam2worlds.shape[0])):
 			cam2world = cam2worlds[i:i+1]
-			# print(cam2world)
+			print(cam2world)
 			model.visual_cam2world(cam2world)
 			model.compute_visuals(cam2world=cam2world)
 			visuals = model.get_current_visuals()
 			# print(len(visuals))
 			for j, visual_name in enumerate(visual_names):
-				# img = visuals[visual_name].detach().cpu()
-				img = tensor2im(visuals[visual_name])
-				# video_writers[j].append_data(img)
+				img = visuals[visual_name]
+				path = os.path.join(web_dir, 'images' ,'rendered_slot{}_{}.png'.format(j, i))
+				torchvision.utils.save_image(img.detach().cpu() / 2 + 0.5, path)
+
+				img = tensor2im(img)
 				img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 				video_writers[j].write(img)
-				# path = os.path.join(web_dir, 'images' ,'rendered_slot{}_{}.png'.format(j, i))
-				# torchvision.utils.save_image(img, path)
+
 
 		for video_writer in video_writers:
 			# video_writer.close()

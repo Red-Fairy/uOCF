@@ -79,7 +79,7 @@ class uorfEvalModel(BaseModel):
 		self.netSlotAttention = networks.init_net(
 			SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, 
 		 	iters=opt.attn_iter, learnable_init=opt.learnable_slot_init), gpu_ids=self.gpu_ids, init_type='normal')
-		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=True,
+		self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=False,
 													locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
 		self.L2_loss = torch.nn.MSELoss()
 		self.LPIPS_loss = lpips.LPIPS().to(self.device)
@@ -95,7 +95,7 @@ class uorfEvalModel(BaseModel):
 							['slot{}_view{}_unmasked'.format(k, i) for k in range(n_slot) for i in range(n)] + \
 							['slot{}_view{}'.format(k, i) for k in range(n_slot) for i in range(n)]
 							
-		if self.opt.vis_gt_mask or self.opt.vis_mask:
+		if self.opt.vis_mask:
 			self.visual_names += ['gt_mask{}'.format(i) for i in range(n)]
 		
 		if self.opt.vis_render_mask or self.opt.vis_mask:
@@ -137,7 +137,7 @@ class uorfEvalModel(BaseModel):
 			self.fg_idx = input['fg_idx']
 			self.obj_idxs = input['obj_idxs']  # NxKxHxW
 		if 'intrinsics' in input:
-			self.intrinsics = input['intrinsics'].to(self.device).squeeze(0) # overwrite the default intrinsics
+			self.intrinsics = input['intrinsics'][0].to(self.device).squeeze(0) # overwrite the default intrinsics
 
 	def forward(self, epoch=0):
 		"""Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""

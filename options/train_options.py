@@ -61,6 +61,7 @@ class TrainOptions(BaseOptions):
 		parser.add_argument('--pseudo_mask_mode', type=str, choices=['depth', 'density'], default='density', help='pseudo mask mode')
 		parser.add_argument('--pseudo_mask_in', type=int, default=20, help='pseudo mask in epoch')
 		parser.add_argument('--vis_mask', action='store_true', help='visualize the mask')
+		parser.add_argument('--train_dec_only_epoch', type=int, default=1e8, help='train decoder only epoch')
 
 		self.isTrain = True
 		return parser

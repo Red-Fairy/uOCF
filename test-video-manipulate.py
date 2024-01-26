@@ -42,11 +42,15 @@ if swap:
 	suffix += f'swap_{"_".join([str(idx[0])+str(idx[1]) for idx in obj_to_swap])}'
 
 translate1, translate2, translate3 = False, False, True
-trans3_stage = 2
+trans3_stage = 1
 r = 0.36
-bias = torch.tensor([-0.1, 0, 0]).to(model.device)
-# translate_dst = torch.tensor([[0, -r, 0], [0, r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias
-translate_dst = torch.tensor([[-r, 0, 0], [r, 0, 0], [0, -r, 0], [0, r, 0]]).to(model.device) + bias
+
+bias = torch.tensor([-0.15, -0.1, 0]).to(model.device)
+translate_dst = torch.tensor([[0, r, 0], [0, -r, 0], [r, 0, 0], [-r, 0, 0]]).to(model.device) + bias # kitchen-easy, scene 97
+
+# bias = torch.tensor([-0.1, 0, 0]).to(model.device)
+# translate_dst = torch.tensor([[0, r, 0], [r, 0, 0], [0, -r, 0], [-r, 0, 0]]).to(model.device) + bias # kitchen-hard, scene 6
+
 if translate1:
 	suffix += '_translate1'
 elif translate2:
@@ -64,7 +68,7 @@ for j, data in enumerate(dataset):
 	print('Visualizing scene No.: ', j)
 
 	web_dir = os.path.join(opt.results_dir, opt.name, opt.exp_id,
-							f'{opt.testset_name}/scene{j}_{opt.video_mode}{suffix}')  # define the website directory
+							f'{opt.testset_name}_{opt.epoch}/scene{j}_{opt.video_mode}{suffix}')  # define the website directory
 	print('creating web directory', web_dir)
 	webpage = HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
@@ -89,12 +93,13 @@ for j, data in enumerate(dataset):
 		radius, theta, z = radius.item(), theta.item(), cam2world_input[:, 2, 3].item()
 
 		# kiteasy
-		cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1, radius_range=(0.5, 0.7), origin=(0, -2))
+		cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1, radius_range=(0.5, 0.7), origin=(-1., -1.5, 0))
 
 		# kithard
-		# cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1, radius_range=(0.8, 1.0), origin=(-0.5, -1))
+		# cam2world = get_spiral_cam2world(radius_xy, z, (angle_xy, angle_xy), 1, radius_range=(0.8, 1.0), origin=(-1., -1, 0))
 
 		ori_pos = model.fg_slot_nss_position.clone()
+		# print(ori_pos)
 
 		for i in tqdm(range(n_frames+1)):
 			if translate1:
@@ -105,19 +110,26 @@ for j, data in enumerate(dataset):
 				# 				  			[r*np.sin(theta), r*np.cos(theta), 0],
 				# 							 [r*np.sin(theta+np.pi/2), r*np.cos(theta+np.pi/2), 0],
 				# 							 [r*np.sin(theta-np.pi/2), r*np.cos(theta-np.pi/2), 0]]).to(model.device) + bias
-				translate_dst = torch.tensor([[r*np.sin(theta-np.pi/2), r*np.cos(theta-np.pi/2), 0],
-											[r*np.sin(theta+np.pi/2), r*np.cos(theta+np.pi/2), 0],
-											[r*np.sin(theta+np.pi), r*np.cos(theta+np.pi), 0],
-								  			[r*np.sin(theta), r*np.cos(theta), 0]]).to(model.device) + bias
+				# translate_dst = torch.tensor([[r*np.sin(theta-np.pi/2), r*np.cos(theta-np.pi/2), 0],
+				# 							[r*np.sin(theta+np.pi/2), r*np.cos(theta+np.pi/2), 0],
+				# 							[r*np.sin(theta+np.pi), r*np.cos(theta+np.pi), 0],
+				# 				  			[r*np.sin(theta), r*np.cos(theta), 0]]).to(model.device) + bias
+				# translate_dst = torch.tensor([[r*np.cos(theta+np.pi/2), r*np.sin(theta+np.pi/2), 0],
+				# 							[r*np.cos(theta), r*np.sin(theta), 0],
+				# 							[r*np.cos(theta+np.pi*3/2), r*np.sin(theta+np.pi*3/2), 0],
+				# 				  			[r*np.cos(theta+np.pi), r*np.sin(theta+np.pi), 0]]).to(model.device) + bias # kithard
+				translate_dst = torch.tensor([[r*np.cos(theta+np.pi/2), r*np.sin(theta+np.pi/2), 0],
+											[r*np.cos(theta+np.pi*3/2), r*np.sin(theta+np.pi*3/2), 0],
+											[r*np.cos(theta), r*np.sin(theta), 0],
+								  			[r*np.cos(theta+np.pi), r*np.sin(theta+np.pi), 0]]).to(model.device) + bias # kiteasy
 				model.fg_slot_nss_position = translate_dst.float()
 			if translate3:
+				model.fg_slot_nss_position += torch.tensor([[100, 100, 0]]).to(model.device)
 				''' for kitchen-hard dataset scene 5'''
 				# if trans3_stage == 1: # move obj 1 to the scene center, remove other objects
 				# 	model.fg_slot_nss_position = ori_pos + (bias - ori_pos) * i / n_frames
-				# 	model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
 				# elif trans3_stage == 2: # obj 1 at the scene center, obj 2 land on the top of obj 1
 				# 	model.fg_slot_nss_position[0] = bias
-				# 	# obj1, from top ([-0.02, -0.02, 0.5]) to bottom ([-0.02, -0.02, 0.08])
 				# 	model.fg_slot_nss_position[3] = torch.tensor([-0.02, -0.02, 0.5]).to(model.device) - torch.tensor([-0.02, -0.02, 0.42]).to(model.device) * i / n_frames + bias
 				# 	# rest obj not shown
 				# 	model.fg_slot_nss_position[1:3] = torch.tensor([100, 100, 0]).to(model.device)
@@ -137,44 +149,39 @@ for j, data in enumerate(dataset):
 				''' for kitchen-easy dataset, scene 97'''
 				if trans3_stage == 1:
 					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0.8]).to(model.device) - torch.tensor([0, 0, 0.8]).to(model.device) * i / n_frames + bias
-					model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
 				elif trans3_stage == 2:
 					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0]).to(model.device) + bias
-					model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
-					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.15, 0.8]).to(model.device) - torch.tensor([0, 0, 0.75]).to(model.device) * i / n_frames + bias
+					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.11, 0.8]).to(model.device) - torch.tensor([0, 0, 0.68]).to(model.device) * i / n_frames + bias
 				elif trans3_stage == 3:
 					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0]).to(model.device) + bias
-					model.fg_slot_nss_position[1:] = torch.tensor([100, 100, 0]).to(model.device)
-					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.15, 0.05]).to(model.device) + bias
+					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.11, 0.12]).to(model.device) + bias
 					model.fg_slot_nss_position[1] = torch.tensor([0.15, -0.15, 0.8]).to(model.device) - torch.tensor([0, 0, 0.8]).to(model.device) * i / n_frames + bias
 				elif trans3_stage == 4:
 					model.fg_slot_nss_position[0] = torch.tensor([-0.15, 0.15, 0]).to(model.device) + bias
-					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.15, 0.05]).to(model.device) + bias
+					model.fg_slot_nss_position[2] = torch.tensor([-0.15, 0.11, 0.12]).to(model.device) + bias
 					model.fg_slot_nss_position[1] = torch.tensor([0.15, -0.15, 0]).to(model.device) + bias
-					model.fg_slot_nss_position[3] = torch.tensor([0.14, -0.16, 0.8]).to(model.device) - torch.tensor([0, 0, 0.75]).to(model.device) * i / n_frames + bias
+					model.fg_slot_nss_position[3] = torch.tensor([0.14, -0.20, 0.8]).to(model.device) - torch.tensor([0, 0, 0.72]).to(model.device) * i / n_frames + bias
+				''' for kitchen-hard dataset scene 6'''
+				# if trans3_stage == 1:
+				# 	model.fg_slot_nss_position[3] = torch.tensor([0, 0, 0.8]).to(model.device) - torch.tensor([0, 0, 0.8]).to(model.device) * i / n_frames + bias
+				# elif trans3_stage == 2:
+				# 	model.fg_slot_nss_position[3] = torch.tensor([0, 0, 0]).to(model.device) + bias
+				# 	model.fg_slot_nss_position[1] = torch.tensor([0, 0, 0.8]).to(model.device) - torch.tensor([0, 0, 0.75]).to(model.device) * i / n_frames + bias
+				# elif trans3_stage == 3:
+				# 	model.fg_slot_nss_position[3] = torch.tensor([0, 0., 0]).to(model.device) + bias
+				# 	model.fg_slot_nss_position[1] = torch.tensor([0, 0., 0.05]).to(model.device) + bias
+				# 	model.fg_slot_nss_position[0] = torch.tensor([-0.01, 0., 0.8]).to(model.device) - torch.tensor([0, 0, 0.63]).to(model.device) * i / n_frames + bias
+				# elif trans3_stage == 4:
+				# 	model.fg_slot_nss_position[3] = torch.tensor([0, 0., 0]).to(model.device) + bias
+				# 	model.fg_slot_nss_position[1] = torch.tensor([0, 0., 0.05]).to(model.device) + bias
+				# 	model.fg_slot_nss_position[0] = torch.tensor([-0.01, 0., 0.13]).to(model.device) + bias
+				# 	model.fg_slot_nss_position[2] = torch.tensor([0.033, 0.045, 0.8]).to(model.device) - torch.tensor([0, 0, 0.59]).to(model.device) * i / n_frames + bias
+
 
 			model.forward_position()
 			model.visual_cam2world(cam2world)
 			model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))
 			visuals = model.get_current_visuals()
 			save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
-
-		# if manipulation:
-		# 	for i in range(len(obj_to_swap)):
-		# 		obj1, obj2 = obj_to_swap[i]
-		# 		pos1, pos2 = model.fg_slot_nss_position[obj1].clone(), model.fg_slot_nss_position[obj2].clone()
-		# 		model.fg_slot_nss_position[obj1], model.fg_slot_nss_position[obj2] = pos2, pos1
-		# 	model.forward_position()
-
-		# ori_pos = model.fg_slot_nss_position[obj_to_move].clone()
-
-		# for i in range(n_frames+1):
-		# 	model.fg_slot_nss_position[obj_to_move] = ori_pos + (dst - ori_pos) * i / n_frames
-		# 	model.forward_position()
-		# 	model.visual_cam2world(cam2world)
-		# 	model.visual_names = list(filter(lambda x: 'rec' in x, model.visual_names))
-		# 	visuals = model.get_current_visuals()
-		# 	save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.load_size, suffix=f'_{i:03d}')
-
 
 

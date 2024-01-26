@@ -59,6 +59,15 @@ class BaseDataset(data.Dataset, ABC):
         """
         pass
 
+    @abstractmethod
+    def set_epoch(self, epoch):
+        """Set the epoch for this dataset
+
+        Parameters:
+            epoch - - the epoch number
+        """
+        pass
+
 
 def get_params(opt, size):
     w, h = size
