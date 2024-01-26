@@ -511,12 +511,13 @@ class uocfDualDINOTransModel(BaseModel):
 			if self.opt.vis_mask:
 				mask_slot_maps = torch.zeros(self.opt.num_slots, N, H, W).to(self.device)
 				for k in range(self.num_slots): # render mask for each slot
-					raws_slot = unmasked_raws[k].flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+					raws_slot = masked_raws[k].flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
 					rgb_map, _, _, mask_map = raw2outputs(raws_slot, z_vals, ray_dir, render_mask=True, mip=True) # (NxHxW)x3, (NxHxW), _, (NxHxW)
 					mask_slot_maps[k] = mask_map.view(N, H, W) # mask_map's entries are non-negative
 				mask_idx = mask_slot_maps.cpu().argmax(dim=0)  # NxHxW
-				color_palette = sns.color_palette('hls', self.num_slots-1)
-				colors = torch.cat([torch.tensor([0., 0., 0.]).view([1, 3]), torch.tensor(color_palette)], dim=0).to(self.device)  # Kx3
+				color_palette = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], 
+								 [1, 0, 1], [0, 1, 1], [0.5, 0.5, 0], [0, 0.5, 0.5]]
+				colors = torch.cat([torch.tensor([-1., -1., -1.]).view([1, 3]), torch.tensor(color_palette) * 2 - 1], dim=0).to(self.device)  # Kx3
 				mask_visuals = colors[mask_idx]  # NxHxWx3
 
 				for i in range(N):
