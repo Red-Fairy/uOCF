@@ -157,7 +157,7 @@
           models the extrinsics separately. Our approach significantly improves systematic generalization, thus enabling
           unsupervised learning of high-fidelity object-centric scene representations from sparse real-world images. To
           evaluate our approach, we collect three new datasets, including two real kitchen environments. Extensive
-          experiments show that \model enables unsupervised discovery of visually rich objects from a single real image,
+          experiments show that uOCF enables unsupervised discovery of visually rich objects from a single real image,
           allowing applications such as 3D object segmentation and scene manipulation. Notably, uOCF demonstrates
           zero-shot generalization to unseen objects from a single real image.
         </p>
@@ -169,8 +169,12 @@
 
 <section>
   <div class="container">
-    <h3><strong>Inferring object representations from single image</strong></h3>
+    <h3><strong>Inferring object representations from a single image</strong></h3>
     <hr style="margin-top:0px">
+    <p class="text-justify">
+      Given a real image (the first frame) with visually-rich objects, uOCF infers the factorized 3D object-centric scene
+      representations, enabling reconstruction and manipulation from arbitrary novel views.
+    </p>
     <div class="row">
       <!-- First Video -->
       <div class="col-md-6 text-center">
