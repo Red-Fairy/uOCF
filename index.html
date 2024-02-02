@@ -148,22 +148,18 @@
         <h3><strong>Abstract</strong></h3>
         <hr style="margin-top:0px">
         <p class="text-justify">
-          We study inferring 3D object-centric scene representations from a single image.
-          While recent methods have shown potential in unsupervised 3D object discovery from simple synthetic images,
-          they fail to generalize to real-world scenes with visually rich and diverse objects.
-          This limitation stems from their object representations, which entangle objects' intrinsic attributes
-          like shape and appearance with extrinsic, viewer-centric properties such as their 3D location.
-          To address this fundamental bottleneck, we propose Unsupervised discovery of Object-Centric neural Fields
-          (uOCF).
-          uOCF focuses on learning the intrinsics of objects and models the extrinsics separately.
-          Our approach significantly improves systematic generalization,
-          thus enabling unsupervised learning of high-fidelity object-centric scene representations from sparse
-          real-world images.
-          To evaluate our approach, we collect three new datasets including two real kitchen environments.
-          Extensive experiments show that uOCF enables unsupervised discovery of visually rich objects from a single
-          real image,
-          allowing applications such as 3D object segmentation and scene manipulation.
-          Impressively, uOCF even demonstrates zero-shot generalizability to unseen, more difficult objects.
+          We study inferring 3D object-centric scene representations from a single image. While recent methods have
+          shown potential in unsupervised 3D object discovery from simple synthetic images, they fail to generalize to
+          real-world scenes with visually rich and diverse objects. This limitation stems from their object
+          representations, which entangle objects' intrinsic attributes like shape and appearance with extrinsic,
+          viewer-centric properties such as their 3D location. To address this bottleneck, we propose Unsupervised
+          discovery of Object-Centric neural Fields (uOCF). uOCF focuses on learning the intrinsics of objects and
+          models the extrinsics separately. Our approach significantly improves systematic generalization, thus enabling
+          unsupervised learning of high-fidelity object-centric scene representations from sparse real-world images. To
+          evaluate our approach, we collect three new datasets, including two real kitchen environments. Extensive
+          experiments show that \model enables unsupervised discovery of visually rich objects from a single real image,
+          allowing applications such as 3D object segmentation and scene manipulation. Notably, uOCF demonstrates
+          zero-shot generalization to unseen objects from a single real image.
         </p>
       </div>
     </div>
@@ -202,7 +198,10 @@
     <hr style="margin-top:0px">
     <div class="row">
       <div class="col-12 text-center">
-        <iframe width="560" height="315" src="https://www.youtube.com/embed/_utnfczneRw?si=3zgjTwKgIYP_mNGe" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        <video width="100%" height="auto" controls>
+          <source src="assets/videos/ICML_video.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
       </div>
     </div>
   </div>
@@ -231,7 +230,7 @@
       <div class="col-12 text-center">
         <hr style="margin-top:0px">
         <div class="row justify-content-center" style="align-items:center; display:flex;">
-          <img src="assets/images/occlusion/test-gif.gif" alt="input" class="img-responsive graph" width="100%" />
+          <img src="assets/images/occlusion.gif" alt="input" class="img-responsive graph" width="100%" />
         </div>
       </div>
     </div>
@@ -263,27 +262,36 @@
     <div class="row">
       <div class="col-12">
         <hr style="margin-top:0px">
-        <div class="row justify-content-center" style="align-items:center; display:flex;">
-          <img src="assets/images/framework.png" alt="input" class="img-responsive graph" width="100%" />
-        </div>
         <p class="text-justify">
           Our model consists of an encoder, a latent inference module, and a decoder. The encoder extracts features
-          from
-          the input image. The latent inference module infers the objects' latent representations and positions
+          from the input image. The latent inference module infers the objects' latent representations and positions
           in the underlying 3D scene from the obtained feature map. Finally, the object NeRF decoder decodes the
           latent representations and positions into the object-centric neural fields and composes them to reconstruct
           the scene.
         </p>
         <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/framework.png" alt="input" class="img-responsive graph" width="100%" />
+        </div>
+        <!-- <div class="row justify-content-center" style="align-items:center; display:flex;">
           <img src="assets/images/object-centric.png" alt="input" class="img-responsive graph" width="100%" />
         </div>
         <p class="text-justify">
           To fully exploit the object-centricity, we propose two training strategies, namely <strong>object-centric
-            prior learning</strong> and <strong>object-centric sampling</strong>. For object-centric prior learning, we first train
-            the model on single-object synthetic scenes to learn <strong>category-agnostic</strong> object priors. Then, we
-            adapt the model to complex real scenes. For object-centric sampling, we drop the samples distant from
-            the predicted object positions to improve reconstruction quality.
+            prior learning</strong> and <strong>object-centric sampling</strong>. For object-centric prior learning, we
+          first train the model on single-object synthetic scenes to learn <strong>category-agnostic</strong> object
+          priors. Then, we adapt the model to complex real scenes. For object-centric sampling, we drop the samples
+          distant from the predicted object positions to improve reconstruction quality.
+        </p> -->
+        <p class="text-justify">
+          We introduce object-centric prior learning to address the inherent difficulty caused by the ambiguities in complex compositional scenes. 
+          The main idea is to learn general object priors (<i>i.e.</i>, physical
+          coherence) from simple scenes (<i>i.e.</i>, scenes with a single synthetic object), then leverage the obtained priors
+          to learn from more complex scenes that could potentially have very different scene geometry and spatial
+          layout. An illustration is shown below.
         </p>
+        <div class="row justify-content-center" style="align-items:center; display:flex;">
+          <img src="assets/images/object-prior-learning.png" alt="input" class="img-responsive graph" width="100%" />
+        </div>
       </div>
     </div>
   </div>
