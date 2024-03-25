@@ -30,11 +30,11 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --checkpoints_dir 'checkpoints' --name 'ICML' \
     --display_port $PORT --display_ncols 4 --print_freq 50 \
     --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
-    --coarse_epoch 50 --niter 80 --percept_in 50 --no_locality_epoch 50 --z_dim 96 --num_slots 5 \
+    --coarse_epoch 50 --niter 80 --percept_in 50 --no_locality_epoch 50 --z_dim 64 --num_slots 5 \
     --learnable_slot_init \
     --fixed_locality \
     --model 'uorf_nogan' --bottom \
-    --exp_id 'room-multiple/QBO-loaduORF' \
+    --exp_id 'room-multiple/QBO-loaduORF-2' \
     --continue_train --epoch 50 --epoch_count 51 \
 # done
 echo "Done"

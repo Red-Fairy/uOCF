@@ -494,6 +494,89 @@ def debug(coordinates, fg_position=None, cam2world=None, save_name='debug'):
             ax.scatter(fg_position[i, 0], fg_position[i, 1], fg_position[i, 2], c='r', marker='o', s=100)
     fig.savefig(f'{save_name}.png')
 
+def fibonacci_sphere(samples=1000):
+    # points = torch.zeros((samples, 3))
+    points_theta_phi = torch.zeros((samples, 2))
+
+    phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
+
+    for i in range(samples):
+        y = 1 - (i / float(samples - 1)) * 2
+        # radius = math.sqrt(1 - y * y)
+        theta = phi * i
+        # x = math.cos(theta) * radius
+        # z = math.sin(theta) * radius
+        # points[i] = torch.tensor([x, y, z])
+        points_theta_phi[i] = torch.tensor([theta, math.asin(y)])
+
+    return points_theta_phi
+
+def quaternion_raw_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    From Pytorch3d
+    Multiply two quaternions.
+    Usual torch rules for broadcasting apply.
+
+    Args:
+        a: Quaternions as tensor of shape (..., 4), real part first.
+        b: Quaternions as tensor of shape (..., 4), real part first.
+
+    Returns:
+        The product of a and b, a tensor of quaternions shape (..., 4).
+    """
+    aw, ax, ay, az = torch.unbind(a, -1)
+    bw, bx, by, bz = torch.unbind(b, -1)
+    ow = aw * bw - ax * bx - ay * by - az * bz
+    ox = aw * bx + ax * bw + ay * bz - az * by
+    oy = aw * by - ax * bz + ay * bw + az * bx
+    oz = aw * bz + ax * by - ay * bx + az * bw
+    return torch.stack((ow, ox, oy, oz), -1)
+
+# Matrix to quaternion does not come under NVIDIA Copyright
+# Written by Stan Szymanowicz 2023
+def matrix_to_quaternion(M: torch.Tensor) -> torch.Tensor:
+    """
+    Matrix-to-quaternion conversion method. Equation taken from 
+    https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/index.htm
+    Args:
+        M: rotation matrices, (3 x 3)
+    Returns:
+        q: quaternion of shape (4)
+    """
+    tr = 1 + M[ 0, 0] + M[ 1, 1] + M[ 2, 2]
+
+    if tr > 0:
+        r = torch.sqrt(tr) / 2.0
+        x = ( M[ 2, 1] - M[ 1, 2] ) / ( 4 * r )
+        y = ( M[ 0, 2] - M[ 2, 0] ) / ( 4 * r )
+        z = ( M[ 1, 0] - M[ 0, 1] ) / ( 4 * r )
+    elif ( M[ 0, 0] > M[ 1, 1]) and (M[ 0, 0] > M[ 2, 2]):
+        S = torch.sqrt(1.0 + M[ 0, 0] - M[ 1, 1] - M[ 2, 2]) * 2 # S=4*qx 
+        r = (M[ 2, 1] - M[ 1, 2]) / S
+        x = 0.25 * S
+        y = (M[ 0, 1] + M[ 1, 0]) / S 
+        z = (M[ 0, 2] + M[ 2, 0]) / S 
+    elif M[ 1, 1] > M[ 2, 2]: 
+        S = torch.sqrt(1.0 + M[ 1, 1] - M[ 0, 0] - M[ 2, 2]) * 2 # S=4*qy
+        r = (M[ 0, 2] - M[ 2, 0]) / S
+        x = (M[ 0, 1] + M[ 1, 0]) / S
+        y = 0.25 * S
+        z = (M[ 1, 2] + M[ 2, 1]) / S
+    else:
+        S = torch.sqrt(1.0 + M[ 2, 2] - M[ 0, 0] -  M[ 1, 1]) * 2 # S=4*qz
+        r = (M[ 1, 0] - M[ 0, 1]) / S
+        x = (M[ 0, 2] + M[ 2, 0]) / S
+        y = (M[ 1, 2] + M[ 2, 1]) / S
+        z = 0.25 * S
+
+    return torch.stack([r, x, y, z], dim=-1)
+
+def fov2focal(fov, pixels):
+    return pixels / (2 * math.tan(fov / 2))
+
+def focal2fov(focal, pixels):
+    return 2*math.atan(pixels/(2*focal))
+
 
 
         

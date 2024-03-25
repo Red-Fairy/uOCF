@@ -9,8 +9,7 @@ import torch
 import glob
 import numpy as np
 import random
-import torchvision
-import pickle
+import math
 import cv2
 
 
@@ -23,12 +22,11 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
         parser.add_argument('--no_shuffle', action='store_true')
         parser.add_argument('--transparent', action='store_true')
-        parser.add_argument('--bg_color', type=float, default=-1, help='background color')
+        parser.add_argument('--bg_mask_color', type=float, default=-1, help='background color')
         parser.add_argument('--encoder_size', type=int, default=256, help='encoder size')
         parser.add_argument('--camera_normalize', action='store_true', help='normalize the camera pose to (0, dist, 0)')
         parser.add_argument('--fixed_dist', default=None, type=float, help='fixed distance when camera_normalize')
         parser.add_argument('--diff_intrinsic', action='store_true', help='different intrinsics for each view')
-        parser.add_argument('--no_mask', action='store_true', help='do not load the masks')
         return parser
 
     def __init__(self, opt):
@@ -40,31 +38,12 @@ class MultiscenesDataset(BaseDataset):
         BaseDataset.__init__(self, opt)
         self.n_scenes = opt.n_scenes
         self.n_img_each_scene = opt.n_img_each_scene
-        # image_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*.png')))  # root/00000_sc000_az00_el00.png
-        # mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask.png')))
-        # fg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_moving.png')))
-        # moved_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_moved.png')))
-        # bg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_bg.png')))
-        # bg_in_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_providing_bg.png')))
-        # changed_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_changed.png')))
-        # bg_in_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_providing_bg.png')))
-        # depth_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_depth.png')))
-        # changed_filenames_set, bg_in_filenames_set = set(changed_filenames), set(bg_in_filenames)
-        # bg_mask_filenames_set, bg_in_mask_filenames_set = set(bg_mask_filenames), set(bg_in_mask_filenames)
-        # image_filenames_set, mask_filenames_set = set(image_filenames), set(mask_filenames)
-        # fg_mask_filenames_set, moved_filenames_set = set(fg_mask_filenames), set(moved_filenames)
-        # filenames_set = image_filenames_set - mask_filenames_set - fg_mask_filenames_set - moved_filenames_set - changed_filenames_set - bg_in_filenames_set - bg_mask_filenames_set - bg_in_mask_filenames_set - set(depth_filenames)
-        # filenames = sorted(list(filenames_set))
-
-        # for i in range(opt.start_scene_idx, opt.start_scene_idx + self.n_scenes):
-        #     scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
-        #     self.scenes.append(scene_filenames)
 
         self.scenes = []
         for i in range(opt.start_scene_idx, opt.start_scene_idx + self.n_scenes):
             self.scenes.append([])
 
-        for filename in sorted(glob.glob(os.path.join(opt.dataroot, '*_sc????_az??.png'))) + sorted(glob.glob(os.path.join(opt.dataroot, '*_sc?????_az??.png'))) + sorted(glob.glob(os.path.join(opt.dataroot, '*_sc????_az??_dist?.png'))):
+        for filename in sorted(glob.glob(os.path.join(opt.dataroot, '*_sc????_az??.png'))) + sorted(glob.glob(os.path.join(opt.dataroot, '*_sc????_az??_dist?.png'))):
             scene_idx = int(filename.split('/')[-1].split('_')[1][2:])
             if scene_idx >= opt.start_scene_idx and scene_idx < opt.start_scene_idx + self.n_scenes:
                 self.scenes[scene_idx-opt.start_scene_idx].append(filename)
@@ -72,7 +51,9 @@ class MultiscenesDataset(BaseDataset):
         for i in range(len(self.scenes)):
             self.scenes[i] = sorted(self.scenes[i])
 
-        self.bg_color = opt.bg_color
+        self.bg_mask_color = opt.bg_mask_color
+
+        self.projection_matrix = getProjectionMatrix(opt.near_plane, opt.far_plane, 2*math.atan(1/2/opt.focal_ratioX), 2*math.atan(1/2/opt.focal_ratioY)) # (4, 4)
 
     def _transform(self, img, size=None):
         size = self.opt.load_size if size is None else size
@@ -105,8 +86,6 @@ class MultiscenesDataset(BaseDataset):
         """
         scene_idx = index
         scene_filenames = self.scenes[scene_idx]
-
-        # print(scene_idx, scene_filenames)
 
         if self.opt.isTrain:
             if self.opt.no_shuffle:
@@ -155,37 +134,12 @@ class MultiscenesDataset(BaseDataset):
                         pose = copy.deepcopy(cam2world)
                     else:
                         pose = torch.matmul(input_rot, pose)
-
-            if self.opt.fixed_locality:
-                azi_rot = np.eye(3)  # not used; placeholder
-            else:
-                azi_path = pose_path.replace('_RT.txt', '_azi_rot.txt')
-                azi_rot = np.loadtxt(azi_path)
-            azi_rot = torch.tensor(azi_rot, dtype=torch.float32)
+                w2c = torch.inverse(pose)
+                full_proj = torch.matmul(self.projection_matrix, w2c)
             
-            # support two types of depth maps
-            if (self.opt.isTrain and self.opt.depth_supervision) \
-                        or (not self.opt.isTrain and self.opt.vis_disparity):
-                depth_path_pfm = path.replace('.png', '_depth.pfm')
-                depth_path_png = path.replace('.png', '_depth.png')
-                if os.path.isfile(depth_path_pfm):
-                    depth = cv2.imread(depth_path_pfm, -1)
-                    depth = cv2.resize(depth, (self.opt.load_size, self.opt.load_size), interpolation=Image.BILINEAR).astype(np.float32)
-                    depth = torch.from_numpy(depth).unsqueeze(0)  # 1xHxW
-                elif os.path.isfile(depth_path_png):
-                    depth = Image.open(depth_path_png)
-                    depth.resize((self.opt.load_size, self.opt.load_size), Image.BILINEAR)
-                    depth = np.array(depth).astype(np.float32)
-                    depth = torch.from_numpy(depth).unsqueeze(0)  # 1xHxW
-                else:
-                    assert False
-                ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot, 'depth': depth}
-            else:
-                ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'azi_rot': azi_rot}
+            ret = {'img_data': img_data, 'path': path, 'cam2world': pose, 'full_proj': full_proj}
 
-            if (rd == 0 or (self.opt.isTrain and self.opt.position_loss)) and self.opt.encoder_type != 'CNN':
-                normalize = False if self.opt.encoder_type == 'SD' else True
-                ret['img_data_large'] = self._transform_encoder(img, normalize=normalize)
+            ret['img_data_large'] = self._transform_encoder(img, normalize=True)
                 
             if os.path.isfile(path.replace('.png', '_intrinsics.txt')):
                 intrinsics_path = path.replace('.png', '_intrinsics.txt')
@@ -193,7 +147,7 @@ class MultiscenesDataset(BaseDataset):
                 intrinsics = torch.tensor(intrinsics, dtype=torch.float32)
                 ret['intrinsics'] = intrinsics
             mask_path = path.replace('.png', '_mask.png')
-            if os.path.isfile(mask_path) and not self.opt.no_mask:
+            if os.path.isfile(mask_path):
                 mask = Image.open(mask_path).convert('RGB')
                 mask_l = mask.convert('L')
                 mask = self._transform_mask(mask)
@@ -204,34 +158,27 @@ class MultiscenesDataset(BaseDataset):
                 onehot_labels = mask_flat[:, None] == greyscale_dict  # HWx8, one-hot
                 onehot_labels = onehot_labels.type(torch.uint8)
                 mask_idx = onehot_labels.argmax(dim=1)  # HW
-                bg_color_idx = torch.argmin(torch.abs(greyscale_dict - self.bg_color))
-                bg_color = greyscale_dict[bg_color_idx]
-                fg_idx = mask_flat != bg_color  # HW
+                bg_mask_color_idx = torch.argmin(torch.abs(greyscale_dict - self.bg_mask_color))
+                bg_mask_color = greyscale_dict[bg_mask_color_idx]
+                fg_idx = mask_flat != bg_mask_color  # HW
                 ret['mask_idx'] = mask_idx
                 ret['fg_idx'] = fg_idx
                 obj_idxs = []
                 obj_idxs_test = []
                 for i in range(len(greyscale_dict)):
-                    if i == bg_color_idx and self.opt.isTrain:
+                    if i == bg_mask_color_idx and self.opt.isTrain:
                         bg_mask = mask_l == greyscale_dict[i]  # 1xHxW
                         ret['bg_mask'] = bg_mask
                         continue
                     obj_idx = mask_l == greyscale_dict[i]  # 1xHxW
                     obj_idxs.append(obj_idx)
-                    if (not self.opt.isTrain) and i != bg_color_idx:
+                    if (not self.opt.isTrain) and i != bg_mask_color_idx:
                         obj_idxs_test.append(obj_idx)
                 obj_idxs = torch.stack(obj_idxs)  # Kx1xHxW
                 ret['obj_idxs'] = obj_idxs  # Kx1xHxW
                 if not self.opt.isTrain:
                     obj_idxs_test = torch.stack(obj_idxs_test)  # Kx1xHxW
                     ret['obj_idxs_fg'] = obj_idxs_test  # Kx1xHxW
-            
-            # pseudo mask from SAM
-            pseudo_mask_path = path.replace('.png', '_mask.png').replace('img', 'mask')
-            if os.path.isfile(pseudo_mask_path) and self.opt.isTrain and (self.opt.pseudo_mask_loss or self.opt.vis_mask):
-                mask = Image.open(pseudo_mask_path).convert('L')
-                mask = self._transform_mask(mask, normalize=False)
-                ret['pseudo_mask'] = mask
 
             rets.append(ret)
         return rets
@@ -250,7 +197,6 @@ def collate_fn(batch):
     img_data = torch.stack([x['img_data'] for x in flat_batch])
     paths = [x['path'] for x in flat_batch]
     cam2world = torch.stack([x['cam2world'] for x in flat_batch])
-    azi_rot = torch.stack([x['azi_rot'] for x in flat_batch])
     if 'depth' in flat_batch[0]:
         depths = torch.stack([x['depth'] for x in flat_batch])  # Bx1xHxW
     else:
@@ -259,7 +205,6 @@ def collate_fn(batch):
         'img_data': img_data,
         'paths': paths,
         'cam2world': cam2world,
-        'azi_rot': azi_rot,
         'depth': depths,
     }
     if 'img_data_large' in flat_batch[0]:
@@ -282,9 +227,27 @@ def collate_fn(batch):
             ret['bg_mask'] = bg_mask # Bx1xHxW
         if 'obj_idxs_fg' in flat_batch[0]:
             ret['obj_idxs_fg'] = flat_batch[0]['obj_idxs_fg']
-    
-    if 'pseudo_mask' in flat_batch[0]:
-        pseudo_masks = torch.stack([x['pseudo_mask'] for x in flat_batch])
-        ret['pseudo_mask'] = pseudo_masks # Nx1xHxW
 
     return ret
+
+def getProjectionMatrix(znear, zfar, fovX, fovY):
+    tanHalfFovY = math.tan((fovY / 2))
+    tanHalfFovX = math.tan((fovX / 2))
+
+    top = tanHalfFovY * znear
+    bottom = -top
+    right = tanHalfFovX * znear
+    left = -right
+
+    P = torch.zeros(4, 4)
+
+    z_sign = 1.0
+
+    P[0, 0] = 2.0 * znear / (right - left)
+    P[1, 1] = 2.0 * znear / (top - bottom)
+    P[0, 2] = (right + left) / (right - left)
+    P[1, 2] = (top + bottom) / (top - bottom)
+    P[3, 2] = z_sign
+    P[2, 2] = z_sign * zfar / (zfar - znear)
+    P[2, 3] = -(zfar * znear) / (zfar - znear)
+    return P

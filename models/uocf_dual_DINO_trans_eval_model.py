@@ -470,14 +470,14 @@ class uocfDualDINOTransEvalModel(BaseModel):
 					setattr(self, 'slot{}_view{}'.format(k, i), torch.zeros_like(x_recon[i]))
 
 			if self.opt.vis_render_mask and self.opt.recon_only:
-				mask_maps_fg = torch.stack(mask_maps[1:])
-				mask_sum_fg = torch.sum(mask_maps_fg, dim=0, keepdim=True)
-				mask_maps_fgbg = torch.cat([torch.Tensor(mask_maps[0]).unsqueeze(0), mask_sum_fg], dim=0)
-				mask_idx_coarse = mask_maps_fgbg.cpu().argmax(dim=0)  # NxHxW
-				mask_idx_fine = mask_maps_fg.cpu().argmax(dim=0)  # NxHxW
-				mask_idx = mask_idx_coarse * (mask_idx_fine + 1)
-				# mask_maps = torch.stack(mask_maps)  # KxNxHxW
-				# mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
+				# mask_maps_fg = torch.stack(mask_maps[1:])
+				# mask_sum_fg = torch.sum(mask_maps_fg, dim=0, keepdim=True)
+				# mask_maps_fgbg = torch.cat([torch.Tensor(mask_maps[0]).unsqueeze(0), mask_sum_fg], dim=0)
+				# mask_idx_coarse = mask_maps_fgbg.cpu().argmax(dim=0)  # NxHxW
+				# mask_idx_fine = mask_maps_fg.cpu().argmax(dim=0)  # NxHxW
+				# mask_idx = mask_idx_coarse * (mask_idx_fine + 1)
+				mask_maps = torch.stack(mask_maps)  # KxNxHxW
+				mask_idx = mask_maps.cpu().argmax(dim=0)  # NxHxW
 				# define 8 colors from color palette
 				color_palette = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], 
 								 [1, 0, 1], [0, 1, 1], [0.5, 0.5, 0], [0, 0.5, 0.5]]

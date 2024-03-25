@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:titanrtx:1
+#SBATCH --gres=gpu:3090:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,21 +22,25 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/svl/u/redfairy/datasets/room_diverse/test-2-4obj'}
+DATAROOT=${1:-'/svl/u/redfairy/datasets/room-real/chairs/train-1obj'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 100 --n_img_each_scene 4  \
-    --checkpoints_dir 'checkpoints' --name '' \
-    --display_port $PORT --display_ncols 4 \
-    --load_size 128 --n_samp 256 --input_size 128 --render_size 32 --frustum_size 128 \
-    --model 'uocf_dual_DINO_trans_eval' --bottom \
+CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1296 --n_img_each_scene 2 \
+    --checkpoints_dir 'checkpoints' --name 'ICML' \
+    --display_port $PORT --display_ncols 4 --print_freq 50 --display_freq 50 --save_epoch_freq 5 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 128 --frustum_size 128 \
+    --model 'uocf_dual_DINO_trans' \
+    --attn_decay_steps 100000 \
+    --bottom \
     --encoder_size 896 --encoder_type 'DINO' \
-    --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
-    --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
-    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-diverse/uOCF-load-2-4obj' \
+    --num_slots 2 --attn_iter 6 --shape_dim 48 --color_dim 48 \
+    --coarse_epoch 200 --niter 200 --percept_in 20 --no_locality_epoch 30 --seed 2024 \
+    --stratified --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --vis_attn --vis_mask --remove_duplicate \
-    --dummy_info '' --testset_name 'test4obj_load128' \
+    --exp_id 'room-texture/uOCF-1obj-noplane' \
+    --scaled_depth --depth_scale_pred --depth_scale_param 2 \
+    --continue_train --epoch 75 --epoch_count 76 \
+    --dummy_info '' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

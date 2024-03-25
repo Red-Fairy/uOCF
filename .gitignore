@@ -8,3 +8,4 @@ results/*
 debug/*
 extract_feats/*
 vis*.png
+uOCF-release/*

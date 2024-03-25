@@ -291,7 +291,11 @@ class BaseModel(ABC):
                         del state_dict._metadata
 
                     if self.opt.isTrain:
-                        result = net.load_state_dict(state_dict, strict=False)
+                        try:
+                            result = net.load_state_dict(state_dict, strict=False)
+                        except:
+                            del state_dict['slots_init_fg']
+                            result = net.load_state_dict(state_dict, strict=False)
                         print(result)
                     else:
                         net.load_state_dict(state_dict, strict=False)
