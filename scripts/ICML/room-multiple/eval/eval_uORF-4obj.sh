@@ -30,7 +30,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 100 --n_im
     --n_samp 256 --z_dim 64 --num_slots 5 \
     --model 'uorf_eval' \
     --vis_mask --vis_attn --fixed_locality \
-    --pos_emb --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-multiple/uORF-4obj-r2' \
-    --attn_iter 3 --testset_name 'regular_test' --epoch latest \
+    --pos_emb --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-multiple/uOCF-scratch-2-4obj' \
+    --attn_iter 3 --testset_name 'regular_test' --epoch 160 \
 # done
 echo "Done"

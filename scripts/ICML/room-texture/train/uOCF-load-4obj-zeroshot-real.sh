@@ -5,7 +5,7 @@
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a40:1
+#SBATCH --gres=gpu:a5000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -22,7 +22,7 @@ echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
 # sample process (list hostnames of the nodes you've requested)
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/ICML-rebuttal/hm3d-view1'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/uorf_real_dataset'}
 PORT=${2:-12783}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 1 --no_shuffle \
@@ -38,10 +38,9 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-texture/uOCF-load-2-4obj' \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
     --bg_density_loss --depth_supervision \
-    --near 1.97 --far 6.56 --nss_scale 2.30 \
     --remove_duplicate \
     --vis_mask \
-    --exp_id 'room-texture/4obj-hm3d-rebuttal' 
+    --exp_id 'room-texture/4obj-zeroshot-real' \
 
 # can try the following to list out which GPU you have access to
 #srun /usr/local/cuda/samples/1_Utilities/deviceQuery/deviceQuery

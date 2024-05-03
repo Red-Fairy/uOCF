@@ -33,9 +33,9 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 100 --n_im
     --encoder_size 896 --encoder_type 'DINO' \
     --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
     --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
-    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-multiple/uOCF-load-2-4obj-r2' \
+    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-multiple/uOCF-load-2-4obj-rebuttal-40ep' \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --vis_attn --vis_mask --remove_duplicate \
+    --vis_attn --vis_mask --remove_duplicate --epoch 'latest' \
     --dummy_info '' --testset_name 'test4obj_load128' \
 
 # can try the following to list out which GPU you have access to

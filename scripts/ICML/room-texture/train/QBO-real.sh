@@ -7,7 +7,7 @@
 #SBATCH --mem=20G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:a6000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -26,14 +26,14 @@ echo "working directory = "$SLURM_SUBMIT_DIR
 DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/ICML-rebuttal/hm3d-view1'}
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
-CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 2 \
+CUDA_VISIBLE_DEVICES=0 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 1 --no_shuffle  \
     --checkpoints_dir 'checkpoints' --name 'ICML' \
-    --display_port $PORT --display_ncols 4  \
-    --input_size 128 --load_size 128 --n_samp 256 --render_size 32 --frustum_size 128 \
-    --model 'uorf_eval' --bottom \
-    --z_dim 96 --num_slots 5 \
-    --near 1.97 --far 6.56 --nss_scale 2.30 \
-    --vis_attn --recon_only --fixed_locality --learnable_slot_init \
-    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-texture/QBO-hm3d-rebuttal' \
+    --display_port $PORT --display_ncols 4 --print_freq 50 \
+    --load_size 128 --n_samp 64 --input_size 128 --supervision_size 64 \
+    --coarse_epoch 5000 --niter 5000 --no_locality_epoch 0 --z_dim 96 --num_slots 5 \
+    --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/room_real_chairs/ablation/uORF-4obj-GAN-QBO-inPaperResults' \
+    --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' \
+    --model 'uorf_nogan' --bottom --learnable_slot_init --fixed_locality \
+    --exp_id 'room-texture/QBO-hm3d-rebuttal' \
 # done
 echo "Done"

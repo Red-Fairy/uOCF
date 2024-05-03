@@ -9,3 +9,5 @@ debug/*
 extract_feats/*
 vis*.png
 uOCF-release/*
+uOCF-website/*
+gaussian-splatting/*

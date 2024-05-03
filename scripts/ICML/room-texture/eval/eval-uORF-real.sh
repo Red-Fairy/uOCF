@@ -23,7 +23,7 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURMTMPDIR="$SLURMTMPDIR
 echo "working directory = "$SLURM_SUBMIT_DIR
 
-DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/ICML-rebuttal/hm3d-view1'}
+DATAROOT=${1:-'/viscam/projects/uorf-extension/datasets/uorf_real_dataset'}
 PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
 CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_each_scene 2 \
@@ -32,8 +32,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 1 --n_img_
     --input_size 128 --load_size 128 --n_samp 256 --render_size 32 --frustum_size 128 \
     --model 'uorf_eval' --bottom \
     --z_dim 96 --num_slots 5 \
-    --near 1.97 --far 6.56 --nss_scale 2.30 \
     --vis_attn --recon_only --fixed_locality --learnable_slot_init \
-    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-texture/QBO-hm3d-rebuttal' \
+    --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-texture/QBO-real-rebuttal' \
 # done
 echo "Done"

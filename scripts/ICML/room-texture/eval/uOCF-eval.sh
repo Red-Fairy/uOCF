@@ -34,7 +34,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataroot $DATAROOT --n_scenes 100 --n_im
     --num_slots 5 --attn_iter 6 --shape_dim 48 --color_dim 48 \
     --fixed_locality --fg_object_size 3 --n_feat_layers 1 \
     --exp_id '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-texture/uOCF-load-2-4obj' \
-    --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' --epoch 60 \
+    --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' --epoch 30 \
     --vis_attn --vis_mask --remove_duplicate \
     --dummy_info '' --testset_name 'test4obj_load128' \
 

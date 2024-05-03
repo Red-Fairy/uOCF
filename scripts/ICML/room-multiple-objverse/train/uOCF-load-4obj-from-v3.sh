@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --account=viscam --partition=viscam,viscam-interactive,svl,svl-interactive --qos=normal
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 
 # only use the following on partition with GPUs
-#SBATCH --gres=gpu:a40:1
+#SBATCH --gres=gpu:a5000:1
 
 #SBATCH --job-name="T_uORF"
 #SBATCH --output=logs/%j.out
@@ -36,12 +36,12 @@ python train_without_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_sc
     --coarse_epoch 40 --niter 80 --percept_in 5 --no_locality_epoch 20 --seed 2027 \
     --stratified --fixed_locality --fg_object_size 3 --dense_sample_epoch 20 --n_feat_layers 1 \
     --load_pretrain --load_pretrain_path '/viscam/projects/uorf-extension/uOCF/checkpoints/ICML/room-multiple/uOCF-1obj' \
-    --load_epoch 15 \
     --load_encoder 'load_train' --load_slotattention 'load_train' --load_decoder 'load_train' --one2four \
     --bg_density_loss \
     --remove_duplicate --remove_duplicate_in 10 \
     --attn_dropout 0 --attn_momentum 0.5 --pos_init 'zero' \
-    --exp_id 'room-multiple-objverse/uOCF-4obj-v3' \
+    --exp_id 'room-multiple-objverse/uOCF-4obj-v3-r3' \
+    --continue_train --epoch_count 11 \
     --dummy_info '' \
 
 # can try the following to list out which GPU you have access to
